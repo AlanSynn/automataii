@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING, Protocol
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QPointF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QBrush, QColor, QFont, QHideEvent, QMouseEvent, QPen, QShowEvent
 from PyQt6.QtWidgets import (
     QFrame,
@@ -12,6 +13,14 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
     QVBoxLayout,
     QWidget,
+)
+
+from automataii.presentation.qt.gear_rendering import (
+    annulus_path,
+    gear_attachment_hole_centers,
+    gear_hole_radius,
+    gear_outline_polygon,
+    radial_tick_lines,
 )
 
 if TYPE_CHECKING:
@@ -191,6 +200,10 @@ class GalleryThumbnail(QFrame):
             self.mechanism = None
             self.renderer = None
             self.params = {}
+        elif self.mechanism_type in {"gear_linkage", "planetary_gear"}:
+            self.mechanism = None
+            self.renderer = None
+            self.params = {}
         else:
             self.mechanism = None
             self.renderer = None
@@ -202,6 +215,13 @@ class GalleryThumbnail(QFrame):
 
     def _render_preview(self) -> None:
         self.scene.clear()
+
+        if self.mechanism_type in {"gear_train", "gear_linkage"}:
+            self._draw_gear_preview(with_linkage=self.mechanism_type == "gear_linkage")
+            return
+        if self.mechanism_type == "planetary_gear":
+            self._draw_planetary_preview()
+            return
 
         if not self.mechanism:
             self._draw_placeholder()
@@ -269,6 +289,106 @@ class GalleryThumbnail(QFrame):
             QPen(QColor(50, 50, 50), 2),
             QBrush(QColor(120, 120, 120)),
         )
+
+    def _draw_gear_shape(
+        self,
+        center: QPointF,
+        radius: float,
+        teeth: int,
+        angle: float,
+        stroke: QColor,
+        fill: QColor,
+    ) -> None:
+        gear = self.scene.addPolygon(
+            gear_outline_polygon(center, radius, teeth, angle),
+            QPen(stroke, 2),
+            QBrush(fill),
+        )
+        assert gear is not None
+        gear.setZValue(5)
+        hole_r = gear_hole_radius(radius)
+        for hole_center in gear_attachment_hole_centers(center, radius, angle, count=4):
+            self.scene.addEllipse(
+                hole_center.x() - hole_r,
+                hole_center.y() - hole_r,
+                hole_r * 2,
+                hole_r * 2,
+                QPen(QColor("#5c4033"), 1),
+                QBrush(QColor(255, 255, 255, 225)),
+            )
+        self.scene.addEllipse(
+            center.x() - 5,
+            center.y() - 5,
+            10,
+            10,
+            QPen(QColor("#5c4033"), 1.5),
+            QBrush(QColor("#8c6d1f")),
+        )
+
+    def _draw_gear_preview(self, *, with_linkage: bool) -> None:
+        angle = self.current_angle * 0.03
+        c1 = QPointF(-48, 0)
+        c2 = QPointF(25, 0)
+        r1 = 28.0
+        r2 = 34.0
+        self._draw_gear_shape(c1, r1, 12, angle, QColor("#9a6a00"), QColor("#d8b45d"))
+        self._draw_gear_shape(c2, r2, 16, -angle * (r1 / r2), QColor("#8a3f2d"), QColor("#c47b5c"))
+        self.scene.addLine(
+            c1.x(),
+            c1.y(),
+            c2.x(),
+            c2.y(),
+            QPen(QColor(120, 120, 120), 1, Qt.PenStyle.DashLine),
+        )
+        if not with_linkage:
+            return
+        pin_angle = -angle * (r1 / r2)
+        pin_radius = r2 * 0.55
+        pin = QPointF(
+            c2.x() + pin_radius * math.cos(pin_angle), c2.y() + pin_radius * math.sin(pin_angle)
+        )
+        end = QPointF(pin.x() + 64.0 * math.cos(pin_angle), pin.y() + 64.0 * math.sin(pin_angle))
+        arm_pen = QPen(QColor("#c9ad10"), 7)
+        arm_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        self.scene.addLine(pin.x(), pin.y(), end.x(), end.y(), arm_pen)
+        for point in (pin, end):
+            self.scene.addEllipse(
+                point.x() - 5,
+                point.y() - 5,
+                10,
+                10,
+                QPen(QColor("#5c4033"), 1.5),
+                QBrush(QColor("#d6b64c")),
+            )
+
+    def _draw_planetary_preview(self) -> None:
+        angle = self.current_angle * 0.025
+        center = QPointF(0, 0)
+        ring_inner = 66.0
+        ring_outer = 78.0
+        self.scene.addPath(
+            annulus_path(center, ring_outer, ring_inner),
+            QPen(QColor("#5d6d7e"), 2),
+            QBrush(QColor(180, 185, 190, 90)),
+        )
+        for start, end in radial_tick_lines(center, ring_inner - 2, ring_inner + 4, 36):
+            self.scene.addLine(start.x(), start.y(), end.x(), end.y(), QPen(QColor("#5d6d7e"), 1))
+        self._draw_gear_shape(center, 24.0, 12, angle, QColor("#936b1f"), QColor("#d7b65d"))
+        orbit = 42.0
+        for idx in range(3):
+            planet_angle = angle + idx * (2.0 * math.pi / 3.0)
+            planet = QPointF(orbit * math.cos(planet_angle), orbit * math.sin(planet_angle))
+            carrier_pen = QPen(QColor("#7f8c8d"), 2.5)
+            carrier_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            self.scene.addLine(center.x(), center.y(), planet.x(), planet.y(), carrier_pen)
+            self._draw_gear_shape(
+                planet,
+                18.0,
+                12,
+                -angle * 1.7,
+                QColor("#9c4f22"),
+                QColor("#d38a4b"),
+            )
 
     def _draw_placeholder(self) -> None:
         text = self.scene.addText("Preview Coming Soon")

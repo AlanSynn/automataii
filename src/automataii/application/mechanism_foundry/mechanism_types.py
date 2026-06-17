@@ -14,14 +14,16 @@ MECHANISM_TYPE_ALIASES: dict[str, str] = {
     "gear_linkage": "gear_linkage",
     "gear+linkage": "gear_linkage",
     "gear_linkage_train": "gear_linkage",
-    "planetary_gear": "gear_train",
+    "planetary": "planetary_gear",
+    "planetary gear": "planetary_gear",
+    "planetary_gear": "planetary_gear",
     "slider_crank": "slider_crank",
     "slider-crank": "slider_crank",
     "slidercrank": "slider_crank",
 }
 
 VISIBLE_FOUNDRY_MECHANISM_TYPES: frozenset[str] = frozenset(
-    {"four_bar", "cam_follower", "gear_train", "gear_linkage"}
+    {"four_bar", "cam_follower", "gear_train", "gear_linkage", "planetary_gear"}
 )
 
 

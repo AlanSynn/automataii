@@ -5,13 +5,18 @@ Mechanism Foundry View - Clean UI for interactive mechanism visualization
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING, SupportsFloat, SupportsIndex, cast
+from typing import TYPE_CHECKING, SupportsFloat, SupportsIndex, TypeVar, cast
 
 from PyQt6.QtCore import QEvent, QObject, QPoint, QPointF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QBrush, QColor, QMouseEvent, QPen, QPolygonF
 from PyQt6.QtWidgets import (
     QComboBox,
+    QGraphicsEllipseItem,
     QGraphicsItem,
+    QGraphicsLineItem,
+    QGraphicsPathItem,
+    QGraphicsPolygonItem,
+    QGraphicsRectItem,
     QGraphicsScene,
     QGraphicsView,
     QGroupBox,
@@ -42,6 +47,13 @@ from automataii.application.mechanism_foundry.mechanism_types import (
     normalize_mechanism_type_key,
 )
 from automataii.presentation.qt.animation import ViewportConfig, ViewportController
+from automataii.presentation.qt.gear_rendering import (
+    annulus_path,
+    gear_attachment_hole_centers,
+    gear_hole_radius,
+    gear_outline_polygon,
+    radial_tick_lines,
+)
 from automataii.presentation.qt.shared import blocked_signals, clear_layout
 from automataii.presentation.qt.tabs.mechanism_foundry.gallery_view import GalleryView
 from automataii.presentation.qt.tabs.mechanism_foundry.sensemaking_panel import (
@@ -56,6 +68,7 @@ from automataii.shared.physical_kit import (
     freeform_gear_teeth_for_radius,
     gear_center_distance,
     gear_pair_from_params,
+    gear_radius_for_teeth,
     gear_teeth_for_radius,
     gear_teeth_from_params,
     grid_enabled_from_params,
@@ -99,6 +112,13 @@ else:
     from automataii.presentation.qt.tabs.mechanism_foundry.path_preview import PathPreviewOverlay
 
 _FloatPayload = str | bytes | bytearray | SupportsFloat | SupportsIndex
+_GraphicsItemT = TypeVar("_GraphicsItemT", bound=QGraphicsItem)
+
+
+def _require_graphics_item(item: _GraphicsItemT | None) -> _GraphicsItemT:
+    """Narrow PyQt scene factory return types; Qt returns an item at runtime."""
+    assert item is not None
+    return item
 
 
 def _finite_float(value: object, default: float) -> float:
@@ -232,6 +252,116 @@ class _GearTrainPreviewMechanism:
         return MechanismState(
             positions=positions,
             safety_status=SafetyStatus(SafetyLevel.SAFE, "Gear mesh nominal"),
+            metadata=metadata,
+        )
+
+
+class _PlanetaryGearPreviewMechanism:
+    """Lightweight Foundry-only mechanism for planetary gear previews/export."""
+
+    mechanism_type = "planetary_gear"
+
+    def compute_state(self, parameters: dict[str, float], input_angle: float) -> MechanismState:
+        if not isinstance(parameters, dict):
+            parameters = {}
+        profile = physical_profile_from_params(parameters)
+        grid_enabled = grid_enabled_from_params(parameters)
+
+        default_sun = profile.gear_presets[0].teeth if profile.gear_presets else 12
+        default_planet = (
+            profile.gear_presets[1].teeth if len(profile.gear_presets) > 1 else default_sun
+        )
+        if grid_enabled:
+            sun_teeth = gear_teeth_from_params(
+                parameters,
+                ("sun_teeth",),
+                ("r_sun", "sun_radius"),
+                default_sun,
+                enabled=True,
+                profile=profile,
+            )
+            planet_teeth = gear_teeth_from_params(
+                parameters,
+                ("planet_teeth",),
+                ("r_planet", "planet_radius"),
+                default_planet,
+                enabled=True,
+                profile=profile,
+            )
+        else:
+            sun_teeth = gear_teeth_from_params(
+                parameters,
+                ("sun_teeth",),
+                ("r_sun", "sun_radius"),
+                default_sun,
+                enabled=False,
+                profile=profile,
+            )
+            planet_teeth = gear_teeth_from_params(
+                parameters,
+                ("planet_teeth",),
+                ("r_planet", "planet_radius"),
+                default_planet,
+                enabled=False,
+                profile=profile,
+            )
+
+        r_sun = gear_radius_for_teeth(sun_teeth, profile=profile)
+        r_planet = gear_radius_for_teeth(planet_teeth, profile=profile)
+        planet_count = int(
+            min(max(round(_finite_float(parameters.get("planet_count"), 1.0)), 1), 4)
+        )
+        clearance = _finite_float(
+            parameters.get("gear_clearance", parameters.get("mesh_clearance")),
+            profile.default_gear_clearance_mm,
+        )
+        orbit_radius = max(1.0, r_sun + r_planet + clearance * 0.5)
+        ring_pitch_radius = orbit_radius + r_planet + clearance * 0.5
+        ring_teeth = max(sun_teeth + planet_teeth * 2, int(round(ring_pitch_radius / 1.5)))
+
+        theta = math.radians(_finite_float(input_angle, 0.0))
+        carrier_angle = theta
+        planet_spin = -theta * (r_sun / max(r_planet, 1e-6))
+        arm_length = _positive_finite_float(
+            parameters.get("carrier_arm_length", parameters.get("arm_length")),
+            grid_step_mm(parameters.get("grid_cell_cm", DEFAULT_GRID_CELL_CM)),
+        )
+
+        positions: dict[str, tuple[float, float]] = {
+            "sun_center": (0.0, 0.0),
+            "carrier_center": (0.0, 0.0),
+        }
+        for idx in range(planet_count):
+            angle = carrier_angle + (2.0 * math.pi * idx / planet_count)
+            planet_center = (orbit_radius * math.cos(angle), orbit_radius * math.sin(angle))
+            positions[f"planet_{idx + 1}_center"] = planet_center
+            if idx == 0:
+                tracking_point = (
+                    planet_center[0] + arm_length * math.cos(angle + planet_spin),
+                    planet_center[1] + arm_length * math.sin(angle + planet_spin),
+                )
+                positions["planet_center"] = planet_center
+                positions["tracking_point"] = tracking_point
+
+        metadata: dict[str, object] = {
+            "sun_teeth": sun_teeth,
+            "planet_teeth": planet_teeth,
+            "ring_teeth": ring_teeth,
+            "planet_count": planet_count,
+            "r_sun": r_sun,
+            "r_planet": r_planet,
+            "orbit_radius": orbit_radius,
+            "ring_pitch_radius": ring_pitch_radius,
+            "ring_inner_radius": max(1.0, ring_pitch_radius - r_planet * 0.35),
+            "ring_outer_radius": ring_pitch_radius + r_planet * 0.25,
+            "theta_sun": theta,
+            "theta_planet": planet_spin,
+            "theta_carrier": carrier_angle,
+            "carrier_arm_length": arm_length,
+        }
+        return MechanismState(
+            positions=positions,
+            safety_status=SafetyStatus(SafetyLevel.SAFE, "Planetary gear mesh nominal"),
             metadata=metadata,
         )
 
@@ -930,6 +1060,8 @@ class MechanismFoundryView(QWidget):
             self.current_mechanism = CamFollowerMechanism()
         elif canonical_type in {"gear_train", "gear_linkage"}:
             self.current_mechanism = _GearTrainPreviewMechanism()
+        elif canonical_type == "planetary_gear":
+            self.current_mechanism = _PlanetaryGearPreviewMechanism()
         elif canonical_type == "slider_crank":
             self.current_mechanism = _SliderCrankPreviewMechanism()
         else:
@@ -1505,6 +1637,8 @@ class MechanismFoundryView(QWidget):
             self._draw_cam_mechanism_optimized(state)
         elif mechanism_type in {"gear_train", "gear_linkage"}:
             self._draw_gear_mechanism_optimized(state)
+        elif mechanism_type == "planetary_gear":
+            self._draw_planetary_gear_mechanism_optimized(state)
         elif mechanism_type == "slider_crank":
             self._draw_slider_crank_mechanism_optimized(state)
 
@@ -1588,34 +1722,38 @@ class MechanismFoundryView(QWidget):
         if area > 1e-3:
             triangle = QPolygonF([p3, p4, p_c])
             if triangle_key not in cache:
-                item = self.scene.addPolygon(
-                    triangle,
-                    QPen(QColor("#5dade2"), 2),
-                    QBrush(QColor(124, 252, 176, 150)),
+                item = _require_graphics_item(
+                    self.scene.addPolygon(
+                        triangle,
+                        QPen(QColor("#5dade2"), 2),
+                        QBrush(QColor(124, 252, 176, 150)),
+                    )
                 )
                 item.setZValue(8.0)
                 item.setData(0, "mechanism_item")
                 cache[triangle_key] = item
             else:
-                cache[triangle_key].setPolygon(triangle)
+                cast(QGraphicsPolygonItem, cache[triangle_key]).setPolygon(triangle)
                 cache[triangle_key].setVisible(True)
         elif triangle_key in cache:
             cache[triangle_key].setVisible(False)
 
         if marker_key not in cache:
-            marker = self.scene.addEllipse(
-                p_c.x() - 5.0,
-                p_c.y() - 5.0,
-                10.0,
-                10.0,
-                QPen(QColor("#1e8449"), 2),
-                QBrush(QColor("#27ae60")),
+            marker = _require_graphics_item(
+                self.scene.addEllipse(
+                    p_c.x() - 5.0,
+                    p_c.y() - 5.0,
+                    10.0,
+                    10.0,
+                    QPen(QColor("#1e8449"), 2),
+                    QBrush(QColor("#27ae60")),
+                )
             )
             marker.setZValue(11.0)
             marker.setData(0, "mechanism_item")
             cache[marker_key] = marker
         else:
-            marker = cache[marker_key]
+            marker = cast(QGraphicsEllipseItem, cache[marker_key])
             marker.setRect(p_c.x() - 5.0, p_c.y() - 5.0, 10.0, 10.0)
             marker.setVisible(True)
 
@@ -1643,38 +1781,60 @@ class MechanismFoundryView(QWidget):
             if poly_points:
                 polygon = QPolygonF(poly_points)
                 if "cam_poly" not in cache:
-                    item = self.scene.addPolygon(
-                        polygon, cam_pen, QBrush(QColor(70, 130, 180, 100))
+                    cam_poly_item = _require_graphics_item(
+                        self.scene.addPolygon(
+                            polygon, cam_pen, QBrush(QColor(70, 130, 180, 100))
+                        )
                     )
-                    item.setData(0, "mechanism_item")
-                    cache["cam_poly"] = item
+                    cam_poly_item.setData(0, "mechanism_item")
+                    cache["cam_poly"] = cam_poly_item
                 else:
-                    cache["cam_poly"].setPolygon(polygon)
+                    cast(QGraphicsPolygonItem, cache["cam_poly"]).setPolygon(polygon)
 
         # 2. Cam Center
         if "cam_center" not in cache:
-            item = self.scene.addEllipse(
-                0, 0, 16, 16, QPen(QColor(255, 0, 0), 2), QBrush(QColor(255, 100, 100))
+            cam_center_item = _require_graphics_item(
+                self.scene.addEllipse(
+                    0,
+                    0,
+                    16,
+                    16,
+                    QPen(QColor(255, 0, 0), 2),
+                    QBrush(QColor(255, 100, 100)),
+                )
             )
-            item.setData(0, "mechanism_item")
-            cache["cam_center"] = item
-        cache["cam_center"].setRect(cam_center[0] - 8, cam_center[1] - 8, 16, 16)
+            cam_center_item.setData(0, "mechanism_item")
+            cache["cam_center"] = cam_center_item
+        cast(QGraphicsEllipseItem, cache["cam_center"]).setRect(
+            cam_center[0] - 8, cam_center[1] - 8, 16, 16
+        )
 
         # 3. Contact Point
         if "contact_pt" not in cache:
-            item = self.scene.addEllipse(
-                0, 0, 10, 10, QPen(QColor(220, 20, 60), 3), QBrush(QColor(220, 20, 60))
+            contact_item = _require_graphics_item(
+                self.scene.addEllipse(
+                    0,
+                    0,
+                    10,
+                    10,
+                    QPen(QColor(220, 20, 60), 3),
+                    QBrush(QColor(220, 20, 60)),
+                )
             )
-            item.setData(0, "mechanism_item")
-            cache["contact_pt"] = item
-        cache["contact_pt"].setRect(contact_point[0] - 5, contact_point[1] - 5, 10, 10)
+            contact_item.setData(0, "mechanism_item")
+            cache["contact_pt"] = contact_item
+        cast(QGraphicsEllipseItem, cache["contact_pt"]).setRect(
+            contact_point[0] - 5, contact_point[1] - 5, 10, 10
+        )
 
         # 4. Follower Line (Rod)
         if "follower_rod" not in cache:
-            item = self.scene.addLine(0, 0, 0, 0, QPen(QColor(80, 80, 80), 6))
-            item.setData(0, "mechanism_item")
-            cache["follower_rod"] = item
-        cache["follower_rod"].setLine(
+            follower_rod_item = _require_graphics_item(
+                self.scene.addLine(0, 0, 0, 0, QPen(QColor(80, 80, 80), 6))
+            )
+            follower_rod_item.setData(0, "mechanism_item")
+            cache["follower_rod"] = follower_rod_item
+        cast(QGraphicsLineItem, cache["follower_rod"]).setLine(
             float(follower_base[0]),
             float(follower_base[1]),
             float(follower_end[0]),
@@ -1684,17 +1844,19 @@ class MechanismFoundryView(QWidget):
         # 5. Follower Head
         follower_width, follower_height = 30, 15
         if "follower_head" not in cache:
-            item = self.scene.addRect(
-                0,
-                0,
-                follower_width,
-                follower_height,
-                QPen(QColor(50, 50, 50), 2),
-                QBrush(QColor(120, 120, 120)),
+            follower_head_item = _require_graphics_item(
+                self.scene.addRect(
+                    0,
+                    0,
+                    follower_width,
+                    follower_height,
+                    QPen(QColor(50, 50, 50), 2),
+                    QBrush(QColor(120, 120, 120)),
+                )
             )
-            item.setData(0, "mechanism_item")
-            cache["follower_head"] = item
-        cache["follower_head"].setRect(
+            follower_head_item.setData(0, "mechanism_item")
+            cache["follower_head"] = follower_head_item
+        cast(QGraphicsRectItem, cache["follower_head"]).setRect(
             follower_end[0] - follower_width / 2,
             follower_end[1] - follower_height / 2,
             follower_width,
@@ -1704,10 +1866,10 @@ class MechanismFoundryView(QWidget):
         # 6. Guide Line
         if "guide_line" not in cache:
             guide_pen = QPen(QColor(150, 150, 150), 2, Qt.PenStyle.DashLine)
-            item = self.scene.addLine(0, 0, 0, 0, guide_pen)
-            item.setData(0, "mechanism_item")
-            cache["guide_line"] = item
-        cache["guide_line"].setLine(
+            guide_item = _require_graphics_item(self.scene.addLine(0, 0, 0, 0, guide_pen))
+            guide_item.setData(0, "mechanism_item")
+            cache["guide_line"] = guide_item
+        cast(QGraphicsLineItem, cache["guide_line"]).setLine(
             float(follower_base[0]),
             float(follower_base[1] - 50),
             float(follower_base[0]),
@@ -1717,17 +1879,19 @@ class MechanismFoundryView(QWidget):
         # 7. Base Rect
         base_width, base_height = 60, 30
         if "base_rect" not in cache:
-            item = self.scene.addRect(
-                0,
-                0,
-                base_width,
-                base_height,
-                QPen(QColor(80, 80, 80), 3),
-                QBrush(QColor(100, 100, 100)),
+            base_item = _require_graphics_item(
+                self.scene.addRect(
+                    0,
+                    0,
+                    base_width,
+                    base_height,
+                    QPen(QColor(80, 80, 80), 3),
+                    QBrush(QColor(100, 100, 100)),
+                )
             )
-            item.setData(0, "mechanism_item")
-            cache["base_rect"] = item
-        cache["base_rect"].setRect(
+            base_item.setData(0, "mechanism_item")
+            cache["base_rect"] = base_item
+        cast(QGraphicsRectItem, cache["base_rect"]).setRect(
             follower_base[0] - base_width / 2,
             follower_base[1] - base_height / 2,
             base_width,
@@ -1747,54 +1911,122 @@ class MechanismFoundryView(QWidget):
 
         r1 = float(metadata.get("r1", 30.0))
         r2 = float(metadata.get("r2", 45.0))
+        teeth1 = int(_finite_float(metadata.get("gear1_teeth"), 16.0))
+        teeth2 = int(_finite_float(metadata.get("gear2_teeth"), 18.0))
+        theta1 = _finite_float(metadata.get("theta1"), 0.0)
+        theta2 = _finite_float(metadata.get("theta2"), 0.0)
 
-        if "gear1_body" not in cache:
-            item = self.scene.addEllipse(
-                0, 0, 1, 1, QPen(QColor("#1f77b4"), 3), QBrush(QColor("#9ecae1"))
-            )
-            item.setData(0, "mechanism_item")
-            cache["gear1_body"] = item
-        cache["gear1_body"].setRect(g1[0] - r1, g1[1] - r1, r1 * 2.0, r1 * 2.0)
+        def set_gear_body(
+            key: str,
+            center: tuple[float, float],
+            radius: float,
+            teeth: int,
+            angle: float,
+            stroke: QColor,
+            fill: QColor,
+        ) -> None:
+            polygon = gear_outline_polygon(QPointF(center[0], center[1]), radius, teeth, angle)
+            cached = cache.get(key)
+            if not isinstance(cached, QGraphicsPolygonItem):
+                if cached is not None and cached.scene() == self.scene:
+                    self.scene.removeItem(cached)
+                cached = cast(
+                    QGraphicsPolygonItem,
+                    self.scene.addPolygon(polygon, QPen(stroke, 2.5), QBrush(fill)),
+                )
+                cached.setData(0, "mechanism_item")
+                cached.setZValue(12)
+                cache[key] = cached
+            else:
+                cached.setPolygon(polygon)
+                cached.setPen(QPen(stroke, 2.5))
+                cached.setBrush(QBrush(fill))
+            cached.setVisible(True)
 
-        if "gear2_body" not in cache:
-            item = self.scene.addEllipse(
-                0, 0, 1, 1, QPen(QColor("#2ca02c"), 3), QBrush(QColor("#b5e7a0"))
-            )
-            item.setData(0, "mechanism_item")
-            cache["gear2_body"] = item
-        cache["gear2_body"].setRect(g2[0] - r2, g2[1] - r2, r2 * 2.0, r2 * 2.0)
+        def set_holes(
+            prefix: str, center: tuple[float, float], radius: float, angle: float
+        ) -> None:
+            hole_r = gear_hole_radius(radius)
+            hole_pen = QPen(QColor("#5c4033"), 1.4)
+            hole_brush = QBrush(QColor(255, 255, 255, 225))
+            for index, hole_center in enumerate(
+                gear_attachment_hole_centers(QPointF(center[0], center[1]), radius, angle, count=4)
+            ):
+                key = f"{prefix}_attachment_hole_{index}"
+                item = cache.get(key)
+                if not isinstance(item, QGraphicsEllipseItem):
+                    if item is not None and item.scene() == self.scene:
+                        self.scene.removeItem(item)
+                    item = cast(
+                        QGraphicsEllipseItem,
+                        self.scene.addEllipse(0, 0, 1, 1, hole_pen, hole_brush),
+                    )
+                    item.setData(0, "mechanism_item")
+                    item.setZValue(16)
+                    cache[key] = item
+                item.setRect(
+                    hole_center.x() - hole_r, hole_center.y() - hole_r, hole_r * 2, hole_r * 2
+                )
+                item.setVisible(True)
+
+        set_gear_body(
+            "gear1_body",
+            (float(g1[0]), float(g1[1])),
+            r1,
+            teeth1,
+            theta1,
+            QColor("#9a6a00"),
+            QColor("#d8b45d"),
+        )
+        set_gear_body(
+            "gear2_body",
+            (float(g2[0]), float(g2[1])),
+            r2,
+            teeth2,
+            theta2,
+            QColor("#8a3f2d"),
+            QColor("#c47b5c"),
+        )
+        set_holes("gear1", (float(g1[0]), float(g1[1])), r1, theta1)
+        set_holes("gear2", (float(g2[0]), float(g2[1])), r2, theta2)
 
         if "gear1_indicator" not in cache:
-            item = self.scene.addLine(0, 0, 0, 0, QPen(QColor("#ffffff"), 2))
+            item = cast(
+                QGraphicsLineItem,
+                self.scene.addLine(0, 0, 0, 0, QPen(QColor("#ffffff"), 2)),
+            )
             item.setData(0, "mechanism_item")
             cache["gear1_indicator"] = item
-        cache["gear1_indicator"].setLine(g1[0], g1[1], p1[0], p1[1])
+        cast(QGraphicsLineItem, cache["gear1_indicator"]).setLine(g1[0], g1[1], p1[0], p1[1])
 
         if "gear2_indicator" not in cache:
-            item = self.scene.addLine(0, 0, 0, 0, QPen(QColor("#ffffff"), 2))
+            item = cast(
+                QGraphicsLineItem,
+                self.scene.addLine(0, 0, 0, 0, QPen(QColor("#ffffff"), 2)),
+            )
             item.setData(0, "mechanism_item")
             cache["gear2_indicator"] = item
-        cache["gear2_indicator"].setLine(g2[0], g2[1], p2[0], p2[1])
+        cast(QGraphicsLineItem, cache["gear2_indicator"]).setLine(g2[0], g2[1], p2[0], p2[1])
 
         if "gear_mesh_line" not in cache:
             mesh_pen = QPen(QColor(120, 120, 120), 1, Qt.PenStyle.DashLine)
-            item = self.scene.addLine(0, 0, 0, 0, mesh_pen)
+            item = cast(QGraphicsLineItem, self.scene.addLine(0, 0, 0, 0, mesh_pen))
             item.setData(0, "mechanism_item")
             cache["gear_mesh_line"] = item
-        cache["gear_mesh_line"].setLine(g1[0], g1[1], g2[0], g2[1])
+        cast(QGraphicsLineItem, cache["gear_mesh_line"]).setLine(g1[0], g1[1], g2[0], g2[1])
 
         has_linkage = bool(metadata.get("has_linkage"))
         linkage_pin = positions.get("linkage_pin")
         linkage_end = positions.get("linkage_end")
         if has_linkage and linkage_pin and linkage_end:
             if "gear_linkage_arm" not in cache:
-                arm_pen = QPen(QColor("#d62728"), 5, Qt.PenStyle.SolidLine)
+                arm_pen = QPen(QColor("#c9ad10"), 7, Qt.PenStyle.SolidLine)
                 arm_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-                item = self.scene.addLine(0, 0, 0, 0, arm_pen)
+                item = cast(QGraphicsLineItem, self.scene.addLine(0, 0, 0, 0, arm_pen))
                 item.setData(0, "mechanism_item")
                 item.setZValue(20)
                 cache["gear_linkage_arm"] = item
-            cache["gear_linkage_arm"].setLine(
+            cast(QGraphicsLineItem, cache["gear_linkage_arm"]).setLine(
                 linkage_pin[0],
                 linkage_pin[1],
                 linkage_end[0],
@@ -1802,21 +2034,275 @@ class MechanismFoundryView(QWidget):
             )
 
             for key, point, color in (
-                ("gear_linkage_pin", linkage_pin, QColor("#ff9896")),
-                ("gear_linkage_end", linkage_end, QColor("#d62728")),
+                ("gear_linkage_pin", linkage_pin, QColor("#9b7a17")),
+                ("gear_linkage_end", linkage_end, QColor("#d6b64c")),
             ):
-                if key not in cache:
-                    item = self.scene.addEllipse(
-                        0, 0, 1, 1, QPen(QColor("#7f1d1d"), 2), QBrush(color)
+                marker = cache.get(key)
+                if not isinstance(marker, QGraphicsEllipseItem):
+                    if marker is not None and marker.scene() == self.scene:
+                        self.scene.removeItem(marker)
+                    marker = cast(
+                        QGraphicsEllipseItem,
+                        self.scene.addEllipse(
+                            0, 0, 1, 1, QPen(QColor("#5c4033"), 2), QBrush(color)
+                        ),
                     )
-                    item.setData(0, "mechanism_item")
-                    item.setZValue(21)
-                    cache[key] = item
-                cache[key].setRect(point[0] - 5.0, point[1] - 5.0, 10.0, 10.0)
+                    marker.setData(0, "mechanism_item")
+                    marker.setZValue(21)
+                    cache[key] = marker
+                marker.setRect(point[0] - 5.0, point[1] - 5.0, 10.0, 10.0)
         else:
             for key in ("gear_linkage_arm", "gear_linkage_pin", "gear_linkage_end"):
+                old_item = cache.pop(key, None)
+                if old_item is not None and old_item.scene() == self.scene:
+                    self.scene.removeItem(old_item)
+
+    def _draw_planetary_gear_mechanism_optimized(self, state: MechanismState) -> None:
+        """Draw a realistic planetary gear preview with sun, planets, ring, and carrier."""
+        positions = state.positions
+        metadata = state.metadata or {}
+        cache = self.visual_items_cache
+
+        sun_center = positions.get("sun_center", (0.0, 0.0))
+        r_sun = _finite_float(metadata.get("r_sun"), 24.0)
+        r_planet = _finite_float(metadata.get("r_planet"), 18.0)
+        sun_teeth = int(_finite_float(metadata.get("sun_teeth"), 14.0))
+        planet_teeth = int(_finite_float(metadata.get("planet_teeth"), 12.0))
+        ring_teeth = int(_finite_float(metadata.get("ring_teeth"), 40.0))
+        planet_count = int(min(max(_finite_float(metadata.get("planet_count"), 1.0), 1.0), 4.0))
+        theta_sun = _finite_float(metadata.get("theta_sun"), 0.0)
+        theta_planet = _finite_float(metadata.get("theta_planet"), 0.0)
+        ring_inner = _finite_float(metadata.get("ring_inner_radius"), r_sun + r_planet * 1.6)
+        ring_outer = _finite_float(metadata.get("ring_outer_radius"), ring_inner + r_planet * 0.35)
+        center_point = QPointF(float(sun_center[0]), float(sun_center[1]))
+        active_dynamic_keys: set[str] = set()
+
+        ring_key = "planetary_ring"
+        ring_path = annulus_path(center_point, ring_outer, ring_inner)
+        ring_item = cache.get(ring_key)
+        if not isinstance(ring_item, QGraphicsPathItem):
+            if ring_item is not None and ring_item.scene() == self.scene:
+                self.scene.removeItem(ring_item)
+            ring_item = cast(
+                QGraphicsPathItem,
+                self.scene.addPath(
+                    ring_path,
+                    QPen(QColor("#5d6d7e"), 3),
+                    QBrush(QColor(180, 185, 190, 110)),
+                ),
+            )
+            ring_item.setData(0, "mechanism_item")
+            ring_item.setZValue(5)
+            cache[ring_key] = ring_item
+        else:
+            ring_item.setPath(ring_path)
+        ring_item.setVisible(True)
+
+        for idx, (start, end) in enumerate(
+            radial_tick_lines(
+                center_point, ring_inner - 2.0, ring_inner + 4.0, ring_teeth, -theta_sun
+            )
+        ):
+            key = f"planetary_ring_tooth_{idx}"
+            active_dynamic_keys.add(key)
+            item = cache.get(key)
+            if not isinstance(item, QGraphicsLineItem):
+                if item is not None and item.scene() == self.scene:
+                    self.scene.removeItem(item)
+                item = cast(
+                    QGraphicsLineItem,
+                    self.scene.addLine(0, 0, 0, 0, QPen(QColor("#5d6d7e"), 1)),
+                )
+                item.setData(0, "mechanism_item")
+                item.setZValue(6)
+                cache[key] = item
+            item.setLine(start.x(), start.y(), end.x(), end.y())
+            item.setVisible(idx < min(ring_teeth, 64))
+
+        sun_polygon = gear_outline_polygon(center_point, r_sun, sun_teeth, theta_sun)
+        sun_key = "planetary_sun_body"
+        sun_item = cache.get(sun_key)
+        if not isinstance(sun_item, QGraphicsPolygonItem):
+            if sun_item is not None and sun_item.scene() == self.scene:
+                self.scene.removeItem(sun_item)
+            sun_item = cast(
+                QGraphicsPolygonItem,
+                self.scene.addPolygon(
+                    sun_polygon,
+                    QPen(QColor("#936b1f"), 2.5),
+                    QBrush(QColor("#d7b65d")),
+                ),
+            )
+            sun_item.setData(0, "mechanism_item")
+            sun_item.setZValue(10)
+            cache[sun_key] = sun_item
+        else:
+            sun_item.setPolygon(sun_polygon)
+        sun_item.setVisible(True)
+
+        carrier_pen = QPen(QColor("#7f8c8d"), 3, Qt.PenStyle.SolidLine)
+        carrier_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        for idx in range(planet_count):
+            planet_center = positions.get(f"planet_{idx + 1}_center")
+            if planet_center is None:
+                continue
+            planet_point = QPointF(float(planet_center[0]), float(planet_center[1]))
+            carrier_key = f"planetary_carrier_{idx + 1}"
+            active_dynamic_keys.add(carrier_key)
+            carrier = cache.get(carrier_key)
+            if not isinstance(carrier, QGraphicsLineItem):
+                if carrier is not None and carrier.scene() == self.scene:
+                    self.scene.removeItem(carrier)
+                carrier = cast(QGraphicsLineItem, self.scene.addLine(0, 0, 0, 0, carrier_pen))
+                carrier.setData(0, "mechanism_item")
+                carrier.setZValue(8)
+                cache[carrier_key] = carrier
+            carrier.setLine(center_point.x(), center_point.y(), planet_point.x(), planet_point.y())
+            carrier.setVisible(True)
+
+            planet_key = f"planetary_planet_{idx + 1}_body"
+            active_dynamic_keys.add(planet_key)
+            polygon = gear_outline_polygon(
+                planet_point,
+                r_planet,
+                planet_teeth,
+                theta_planet + (idx * 0.33),
+            )
+            planet_item = cache.get(planet_key)
+            if not isinstance(planet_item, QGraphicsPolygonItem):
+                if planet_item is not None and planet_item.scene() == self.scene:
+                    self.scene.removeItem(planet_item)
+                planet_item = cast(
+                    QGraphicsPolygonItem,
+                    self.scene.addPolygon(
+                        polygon,
+                        QPen(QColor("#9c4f22"), 2.2),
+                        QBrush(QColor("#d38a4b")),
+                    ),
+                )
+                planet_item.setData(0, "mechanism_item")
+                planet_item.setZValue(12)
+                cache[planet_key] = planet_item
+            else:
+                planet_item.setPolygon(polygon)
+            planet_item.setVisible(True)
+
+            hole_radius = gear_hole_radius(r_planet)
+            for hole_idx, hole_center in enumerate(
+                gear_attachment_hole_centers(planet_point, r_planet, theta_planet, count=4)
+            ):
+                hole_key = f"planetary_planet_{idx + 1}_hole_{hole_idx}"
+                active_dynamic_keys.add(hole_key)
+                hole = cache.get(hole_key)
+                if not isinstance(hole, QGraphicsEllipseItem):
+                    if hole is not None and hole.scene() == self.scene:
+                        self.scene.removeItem(hole)
+                    hole = cast(
+                        QGraphicsEllipseItem,
+                        self.scene.addEllipse(
+                            0,
+                            0,
+                            1,
+                            1,
+                            QPen(QColor("#5c4033"), 1.2),
+                            QBrush(QColor(255, 255, 255, 225)),
+                        ),
+                    )
+                    hole.setData(0, "mechanism_item")
+                    hole.setZValue(14)
+                    cache[hole_key] = hole
+                hole.setRect(
+                    hole_center.x() - hole_radius,
+                    hole_center.y() - hole_radius,
+                    hole_radius * 2,
+                    hole_radius * 2,
+                )
+                hole.setVisible(True)
+
+        for key, radius, brush_color in (
+            ("planetary_sun_axle", 5.5, QColor("#34495e")),
+            ("planetary_carrier_hub", 9.0, QColor(255, 255, 255, 210)),
+        ):
+            active_dynamic_keys.add(key)
+            item = cache.get(key)
+            if not isinstance(item, QGraphicsEllipseItem):
+                if item is not None and item.scene() == self.scene:
+                    self.scene.removeItem(item)
+                item = cast(
+                    QGraphicsEllipseItem,
+                    self.scene.addEllipse(
+                        0,
+                        0,
+                        1,
+                        1,
+                        QPen(QColor("#2c3e50"), 2),
+                        QBrush(brush_color),
+                    ),
+                )
+                item.setData(0, "mechanism_item")
+                item.setZValue(18)
+                cache[key] = item
+            item.setRect(
+                center_point.x() - radius,
+                center_point.y() - radius,
+                radius * 2,
+                radius * 2,
+            )
+            item.setVisible(True)
+
+        tracking_point = positions.get("tracking_point")
+        planet_center = positions.get("planet_center")
+        if tracking_point and planet_center:
+            arm_key = "planetary_output_arm"
+            arm = cache.get(arm_key)
+            if not isinstance(arm, QGraphicsLineItem):
+                if arm is not None and arm.scene() == self.scene:
+                    self.scene.removeItem(arm)
+                arm_pen = QPen(QColor("#c9ad10"), 6)
+                arm_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+                arm = cast(QGraphicsLineItem, self.scene.addLine(0, 0, 0, 0, arm_pen))
+                arm.setData(0, "mechanism_item")
+                arm.setZValue(20)
+                cache[arm_key] = arm
+            arm.setLine(planet_center[0], planet_center[1], tracking_point[0], tracking_point[1])
+            arm.setVisible(True)
+
+            end_key = "planetary_output_pin"
+            end = cache.get(end_key)
+            if not isinstance(end, QGraphicsEllipseItem):
+                if end is not None and end.scene() == self.scene:
+                    self.scene.removeItem(end)
+                end = cast(
+                    QGraphicsEllipseItem,
+                    self.scene.addEllipse(
+                        0,
+                        0,
+                        1,
+                        1,
+                        QPen(QColor("#5c4033"), 2),
+                        QBrush(QColor("#d6b64c")),
+                    ),
+                )
+                end.setData(0, "mechanism_item")
+                end.setZValue(21)
+                cache[end_key] = end
+            end.setRect(tracking_point[0] - 5.0, tracking_point[1] - 5.0, 10.0, 10.0)
+            end.setVisible(True)
+        else:
+            for key in ("planetary_output_arm", "planetary_output_pin"):
                 item = cache.pop(key, None)
                 if item is not None and item.scene() == self.scene:
+                    self.scene.removeItem(item)
+
+        stale_prefixes = (
+            "planetary_ring_tooth_",
+            "planetary_carrier_",
+            "planetary_planet_",
+        )
+        for key in list(cache):
+            if key.startswith(stale_prefixes) and key not in active_dynamic_keys:
+                item = cache.pop(key)
+                if item.scene() == self.scene:
                     self.scene.removeItem(item)
 
     def _draw_slider_crank_mechanism_optimized(self, state: MechanismState) -> None:
@@ -1831,45 +2317,67 @@ class MechanismFoundryView(QWidget):
 
         if "slider_guide" not in cache:
             guide_pen = QPen(QColor(130, 130, 130), 2, Qt.PenStyle.DashLine)
-            item = self.scene.addLine(-260, 0, 260, 0, guide_pen)
-            item.setData(0, "mechanism_item")
-            cache["slider_guide"] = item
+            slider_guide = _require_graphics_item(
+                self.scene.addLine(-260, 0, 260, 0, guide_pen)
+            )
+            slider_guide.setData(0, "mechanism_item")
+            cache["slider_guide"] = slider_guide
 
         if "crank_link" not in cache:
-            item = self.scene.addLine(0, 0, 0, 0, QPen(QColor("#1f77b4"), 4))
-            item.setData(0, "mechanism_item")
-            cache["crank_link"] = item
-        cache["crank_link"].setLine(ground[0], ground[1], crank_end[0], crank_end[1])
+            crank_link = _require_graphics_item(
+                self.scene.addLine(0, 0, 0, 0, QPen(QColor("#1f77b4"), 4))
+            )
+            crank_link.setData(0, "mechanism_item")
+            cache["crank_link"] = crank_link
+        cast(QGraphicsLineItem, cache["crank_link"]).setLine(
+            ground[0], ground[1], crank_end[0], crank_end[1]
+        )
 
         if "rod_link" not in cache:
-            item = self.scene.addLine(0, 0, 0, 0, QPen(QColor("#ff7f0e"), 4))
-            item.setData(0, "mechanism_item")
-            cache["rod_link"] = item
-        cache["rod_link"].setLine(crank_end[0], crank_end[1], slider_pin[0], slider_pin[1])
+            rod_link = _require_graphics_item(
+                self.scene.addLine(0, 0, 0, 0, QPen(QColor("#ff7f0e"), 4))
+            )
+            rod_link.setData(0, "mechanism_item")
+            cache["rod_link"] = rod_link
+        cast(QGraphicsLineItem, cache["rod_link"]).setLine(
+            crank_end[0], crank_end[1], slider_pin[0], slider_pin[1]
+        )
 
         if "ground_pivot" not in cache:
-            item = self.scene.addEllipse(
-                0, 0, 1, 1, QPen(QColor(40, 40, 40), 2), QBrush(QColor(110, 110, 110))
+            ground_pivot = _require_graphics_item(
+                self.scene.addEllipse(
+                    0, 0, 1, 1, QPen(QColor(40, 40, 40), 2), QBrush(QColor(110, 110, 110))
+                )
             )
-            item.setData(0, "mechanism_item")
-            cache["ground_pivot"] = item
-        cache["ground_pivot"].setRect(ground[0] - 7, ground[1] - 7, 14, 14)
+            ground_pivot.setData(0, "mechanism_item")
+            cache["ground_pivot"] = ground_pivot
+        cast(QGraphicsEllipseItem, cache["ground_pivot"]).setRect(
+            ground[0] - 7, ground[1] - 7, 14, 14
+        )
 
         if "crank_pin" not in cache:
-            item = self.scene.addEllipse(
-                0, 0, 1, 1, QPen(QColor(40, 40, 40), 2), QBrush(QColor(220, 120, 80))
+            crank_pin = _require_graphics_item(
+                self.scene.addEllipse(
+                    0, 0, 1, 1, QPen(QColor(40, 40, 40), 2), QBrush(QColor(220, 120, 80))
+                )
             )
-            item.setData(0, "mechanism_item")
-            cache["crank_pin"] = item
-        cache["crank_pin"].setRect(crank_end[0] - 6, crank_end[1] - 6, 12, 12)
+            crank_pin.setData(0, "mechanism_item")
+            cache["crank_pin"] = crank_pin
+        cast(QGraphicsEllipseItem, cache["crank_pin"]).setRect(
+            crank_end[0] - 6, crank_end[1] - 6, 12, 12
+        )
 
         if "slider_block" not in cache:
-            item = self.scene.addRect(
-                0, 0, 1, 1, QPen(QColor(40, 40, 40), 2), QBrush(QColor(180, 180, 180))
+            slider_block = _require_graphics_item(
+                self.scene.addRect(
+                    0, 0, 1, 1, QPen(QColor(40, 40, 40), 2), QBrush(QColor(180, 180, 180))
+                )
             )
-            item.setData(0, "mechanism_item")
-            cache["slider_block"] = item
-        cache["slider_block"].setRect(slider_center[0] - 18, slider_center[1] - 12, 36, 24)
+            slider_block.setData(0, "mechanism_item")
+            cache["slider_block"] = slider_block
+        cast(QGraphicsRectItem, cache["slider_block"]).setRect(
+            slider_center[0] - 18, slider_center[1] - 12, 36, 24
+        )
 
     def _draw_mechanism_state_legacy(self, state: MechanismState) -> None:
         positions = state.positions
@@ -1885,67 +2393,83 @@ class MechanismFoundryView(QWidget):
             for i, (x, y) in enumerate(cam_profile):
                 next_idx = (i + 1) % len(cam_profile)
                 nx, ny = cam_profile[next_idx]
-                line = self.scene.addLine(x, y, nx, ny, cam_pen)
+                line = _require_graphics_item(self.scene.addLine(x, y, nx, ny, cam_pen))
                 line.setData(0, "mechanism_item")
 
-        cam_center_item = self.scene.addEllipse(
-            cam_center[0] - 8,
-            cam_center[1] - 8,
-            16,
-            16,
-            QPen(QColor(255, 0, 0), 2),
-            QBrush(QColor(255, 100, 100)),
+        cam_center_item = _require_graphics_item(
+            self.scene.addEllipse(
+                cam_center[0] - 8,
+                cam_center[1] - 8,
+                16,
+                16,
+                QPen(QColor(255, 0, 0), 2),
+                QBrush(QColor(255, 100, 100)),
+            )
         )
         cam_center_item.setData(0, "mechanism_item")
 
         contact_pen = QPen(QColor(220, 20, 60), 3)
-        contact_item = self.scene.addEllipse(
-            contact_point[0] - 5,
-            contact_point[1] - 5,
-            10,
-            10,
-            contact_pen,
-            QBrush(QColor(220, 20, 60)),
+        contact_item = _require_graphics_item(
+            self.scene.addEllipse(
+                contact_point[0] - 5,
+                contact_point[1] - 5,
+                10,
+                10,
+                contact_pen,
+                QBrush(QColor(220, 20, 60)),
+            )
         )
         contact_item.setData(0, "mechanism_item")
 
         follower_pen = QPen(QColor(80, 80, 80), 6)
-        follower_line = self.scene.addLine(
-            follower_base[0], follower_base[1], follower_end[0], follower_end[1], follower_pen
+        follower_line = _require_graphics_item(
+            self.scene.addLine(
+                follower_base[0],
+                follower_base[1],
+                follower_end[0],
+                follower_end[1],
+                follower_pen,
+            )
         )
         follower_line.setData(0, "mechanism_item")
 
         follower_width = 30
         follower_height = 15
-        follower_rect = self.scene.addRect(
-            follower_end[0] - follower_width / 2,
-            follower_end[1] - follower_height / 2,
-            follower_width,
-            follower_height,
-            QPen(QColor(50, 50, 50), 2),
-            QBrush(QColor(120, 120, 120)),
+        follower_rect = _require_graphics_item(
+            self.scene.addRect(
+                follower_end[0] - follower_width / 2,
+                follower_end[1] - follower_height / 2,
+                follower_width,
+                follower_height,
+                QPen(QColor(50, 50, 50), 2),
+                QBrush(QColor(120, 120, 120)),
+            )
         )
         follower_rect.setData(0, "mechanism_item")
 
         guide_pen = QPen(QColor(150, 150, 150), 2, Qt.PenStyle.DashLine)
-        guide_line = self.scene.addLine(
-            follower_base[0],
-            follower_base[1] - 50,
-            follower_base[0],
-            cam_center[1] + 150,
-            guide_pen,
+        guide_line = _require_graphics_item(
+            self.scene.addLine(
+                follower_base[0],
+                follower_base[1] - 50,
+                follower_base[0],
+                cam_center[1] + 150,
+                guide_pen,
+            )
         )
         guide_line.setData(0, "mechanism_item")
 
         base_width = 60
         base_height = 30
-        base_rect = self.scene.addRect(
-            follower_base[0] - base_width / 2,
-            follower_base[1] - base_height / 2,
-            base_width,
-            base_height,
-            QPen(QColor(80, 80, 80), 3),
-            QBrush(QColor(100, 100, 100)),
+        base_rect = _require_graphics_item(
+            self.scene.addRect(
+                follower_base[0] - base_width / 2,
+                follower_base[1] - base_height / 2,
+                base_width,
+                base_height,
+                QPen(QColor(80, 80, 80), 3),
+                QBrush(QColor(100, 100, 100)),
+            )
         )
         base_rect.setData(0, "mechanism_item")
 
@@ -1995,7 +2519,7 @@ class MechanismFoundryView(QWidget):
         index_x = 0
         for x in range(start_x, end_x, cell_grid):
             pen = major_pen if index_x % major_interval == 0 else minor_pen
-            line = self.scene.addLine(x, rect.top(), x, rect.bottom(), pen)
+            line = _require_graphics_item(self.scene.addLine(x, rect.top(), x, rect.bottom(), pen))
             line.setZValue(-99)
             self._grid_items.append(line)
             index_x += 1
@@ -2005,19 +2529,21 @@ class MechanismFoundryView(QWidget):
         index_y = 0
         for y in range(start_y, end_y, cell_grid):
             pen = major_pen if index_y % major_interval == 0 else minor_pen
-            line = self.scene.addLine(rect.left(), y, rect.right(), y, pen)
+            line = _require_graphics_item(self.scene.addLine(rect.left(), y, rect.right(), y, pen))
             line.setZValue(-99)
             self._grid_items.append(line)
             index_y += 1
 
         axis_pen = QPen(axis_color, 2, Qt.PenStyle.SolidLine)
-        x_axis = self.scene.addLine(rect.left(), 0, rect.right(), 0, axis_pen)
-        y_axis = self.scene.addLine(0, rect.top(), 0, rect.bottom(), axis_pen)
+        x_axis = _require_graphics_item(self.scene.addLine(rect.left(), 0, rect.right(), 0, axis_pen))
+        y_axis = _require_graphics_item(self.scene.addLine(0, rect.top(), 0, rect.bottom(), axis_pen))
         x_axis.setZValue(-98)
         y_axis.setZValue(-98)
         self._grid_items.extend([x_axis, y_axis])
 
-        origin = self.scene.addEllipse(-3, -3, 6, 6, axis_pen, QBrush(axis_color))
+        origin = _require_graphics_item(
+            self.scene.addEllipse(-3, -3, 6, 6, axis_pen, QBrush(axis_color))
+        )
         origin.setZValue(-97)
         self._grid_items.append(origin)
 
@@ -2248,6 +2774,46 @@ class MechanismFoundryView(QWidget):
                 linkage_arm_length = _pick_float("linkage_arm_length")
                 if linkage_arm_length is not None:
                     mapped["linkage_arm_length"] = linkage_arm_length
+
+        elif mechanism_type == "planetary_gear":
+            grid_enabled = grid_enabled_from_params(parameters, self._grid_system_enabled)
+            source_profile = physical_profile_from_params(
+                self._effective_physical_parameters(parameters)
+            )
+            for foundry_key, radius_keys, default_teeth in (
+                ("sun_teeth", ("r_sun", "sun_radius"), 12),
+                ("planet_teeth", ("r_planet", "planet_radius"), 14),
+            ):
+                radius = _pick_float(*radius_keys)
+                if grid_enabled and radius is not None and radius > 0.0:
+                    mapped[foundry_key] = float(
+                        gear_teeth_for_radius(radius, profile=source_profile)
+                    )
+                    continue
+                teeth = _pick_float(foundry_key)
+                if teeth is not None:
+                    mapped[foundry_key] = (
+                        float(nearest_gear_teeth(teeth, profile=source_profile))
+                        if grid_enabled
+                        else float(max(1, int(round(teeth))))
+                    )
+                elif radius is not None and radius > 0.0:
+                    mapped[foundry_key] = float(
+                        freeform_gear_teeth_for_radius(
+                            radius,
+                            default_teeth,
+                            profile=source_profile,
+                        )
+                    )
+            planet_count = _pick_float("planet_count", "num_planets")
+            if planet_count is not None:
+                mapped["planet_count"] = float(min(max(round(planet_count), 1), 4))
+            arm_length = _pick_float("carrier_arm_length", "arm_length")
+            if arm_length is not None:
+                mapped["carrier_arm_length"] = arm_length
+            input_angle = _pick_float("input_angle")
+            if input_angle is not None:
+                mapped["input_angle"] = input_angle
 
         elif mechanism_type == "slider_crank":
             crank_length = _pick_float("crank_length", "l2")

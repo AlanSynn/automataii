@@ -168,7 +168,7 @@ class BlueprintExportManager(QObject):
             fmt = str(output_format).strip().lower()
             if fmt not in {"pdf", "svg"}:
                 fmt = "pdf"
-            default_name = "blueprint.pdf" if fmt == "pdf" else "blueprint.svg"
+            default_name = "cut-sheets.pdf" if fmt == "pdf" else "cut-sheets.svg"
             filters = (
                 "PDF Files (*.pdf);;SVG Files (*.svg);;All Files (*)"
                 if fmt == "pdf"
@@ -176,7 +176,7 @@ class BlueprintExportManager(QObject):
             )
             file_path, _ = QFileDialog.getSaveFileName(
                 parent_widget,
-                "Export Blueprint",
+                "Export Make Parts / Cut Sheets",
                 default_name,
                 filters,
             )

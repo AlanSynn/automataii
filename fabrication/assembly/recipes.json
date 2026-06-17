@@ -61,9 +61,11 @@
           "compatible": true,
           "error_mm": 0.721,
           "first_coord": "H6",
+          "first_coord_role": "board_axle",
           "first_part": "gears:g12",
           "required_center_distance_mm": 44.0,
           "second_coord": "I8",
+          "second_coord_role": "board_axle",
           "second_part": "gears:g16",
           "tolerance_mm": 3.6
         }
@@ -103,6 +105,9 @@
             "mechanism_type": "gear_train"
           },
           "check": "The fastener turns freely.",
+          "coord_roles": [
+            "board"
+          ],
           "coords": [
             "H6"
           ],
@@ -146,6 +151,9 @@
             "mechanism_type": "gear_train"
           },
           "check": "G12 spins without rubbing.",
+          "coord_roles": [
+            "board"
+          ],
           "coords": [
             "H6"
           ],
@@ -227,6 +235,9 @@
             "mechanism_type": "gear_train"
           },
           "check": "Both gears turn when G12 turns.",
+          "coord_roles": [
+            "board"
+          ],
           "coords": [
             "I8"
           ],
@@ -308,6 +319,10 @@
             "mechanism_type": "gear_train"
           },
           "check": "If the mesh binds, loosen both fasteners.",
+          "coord_roles": [
+            "board",
+            "board"
+          ],
           "coords": [
             "H6",
             "I8"
@@ -443,6 +458,9 @@
             "mechanism_type": "cam_follower"
           },
           "check": "The axle is loose enough to rotate.",
+          "coord_roles": [
+            "board"
+          ],
           "coords": [
             "J7"
           ],
@@ -486,6 +504,9 @@
             "mechanism_type": "cam_follower"
           },
           "check": "The cam turns cleanly.",
+          "coord_roles": [
+            "board"
+          ],
           "coords": [
             "J7"
           ],
@@ -567,6 +588,9 @@
             "mechanism_type": "cam_follower"
           },
           "check": "The follower can slide up and down.",
+          "coord_roles": [
+            "board"
+          ],
           "coords": [
             "G7"
           ],
@@ -648,6 +672,10 @@
             "mechanism_type": "cam_follower"
           },
           "check": "Loosen the guide if it sticks.",
+          "coord_roles": [
+            "board",
+            "board"
+          ],
           "coords": [
             "J7",
             "G7"
@@ -740,7 +768,7 @@
       "parts": [
         {
           "category": "linkages",
-          "count": 1,
+          "count": 2,
           "key": "linkage-2-cell",
           "label": "L2 linkage",
           "part": "linkages:linkage-2-cell"
@@ -751,13 +779,6 @@
           "key": "linkage-4-cell",
           "label": "L4 linkage",
           "part": "linkages:linkage-4-cell"
-        },
-        {
-          "category": "brackets",
-          "count": 1,
-          "key": "l-3-hole",
-          "label": "L bracket",
-          "part": "brackets:l-3-hole"
         },
         {
           "category": "spacers",
@@ -772,27 +793,21 @@
           "action": "place-ground",
           "app_mapping": {
             "component_role": "ground",
-            "highlight_ids": [
-              "brackets:l-3-hole"
-            ],
+            "highlight_ids": [],
             "mechanism_type": "four_bar"
           },
           "check": "Both ground pivots are fixed.",
+          "coord_roles": [
+            "board",
+            "board"
+          ],
           "coords": [
             "I5",
             "I9"
           ],
           "instruction": "Pin ground pivots at I5 and I9.",
           "n": 1,
-          "parts": [
-            {
-              "category": "brackets",
-              "count": 1,
-              "key": "l-3-hole",
-              "label": "L bracket",
-              "part": "brackets:l-3-hole"
-            }
-          ],
+          "parts": [],
           "stack": [
             {
               "label": "Board hole I5",
@@ -812,9 +827,7 @@
           ],
           "title": "Set ground pivots",
           "visual_state": {
-            "active_parts": [
-              "brackets:l-3-hole"
-            ],
+            "active_parts": [],
             "ghost_parts": [],
             "highlight_coords": [
               "I5",
@@ -833,6 +846,10 @@
             "mechanism_type": "four_bar"
           },
           "check": "The input link swings freely.",
+          "coord_roles": [
+            "board",
+            "link_end_reference"
+          ],
           "coords": [
             "I5",
             "G6"
@@ -896,9 +913,7 @@
               "spacers:s8",
               "linkages:linkage-2-cell"
             ],
-            "ghost_parts": [
-              "brackets:l-3-hole"
-            ],
+            "ghost_parts": [],
             "highlight_coords": [
               "I5",
               "G6"
@@ -916,11 +931,15 @@
             "mechanism_type": "four_bar"
           },
           "check": "The coupler moves without scraping.",
+          "coord_roles": [
+            "link_joint_reference",
+            "link_end_reference"
+          ],
           "coords": [
             "G6",
             "G10"
           ],
-          "instruction": "Join L4 between G6 and G10.",
+          "instruction": "Join L4 to the free input-link hole near G6, then point the other end toward G10.",
           "n": 3,
           "parts": [
             {
@@ -940,9 +959,9 @@
           ],
           "stack": [
             {
-              "label": "Board hole G6",
+              "label": "Moving joint near G6",
               "order": 1,
-              "role": "board"
+              "role": "link-joint-hole"
             },
             {
               "label": "Paper fastener",
@@ -980,7 +999,6 @@
               "linkages:linkage-4-cell"
             ],
             "ghost_parts": [
-              "brackets:l-3-hole",
               "linkages:linkage-2-cell"
             ],
             "highlight_coords": [
@@ -1000,6 +1018,10 @@
             "mechanism_type": "four_bar"
           },
           "check": "All pivots move when the input link turns.",
+          "coord_roles": [
+            "link_joint_reference",
+            "board"
+          ],
           "coords": [
             "G10",
             "I9"
@@ -1064,13 +1086,97 @@
               "linkages:linkage-2-cell"
             ],
             "ghost_parts": [
-              "brackets:l-3-hole",
               "linkages:linkage-2-cell",
               "linkages:linkage-4-cell"
             ],
             "highlight_coords": [
               "G10",
               "I9"
+            ]
+          }
+        },
+        {
+          "action": "add-linkage",
+          "app_mapping": {
+            "component_role": "coupler-output-joint",
+            "highlight_ids": [
+              "spacers:s8",
+              "linkages:linkage-4-cell"
+            ],
+            "mechanism_type": "four_bar"
+          },
+          "check": "The G10 joint floats with the links and is not pinned to the board.",
+          "coord_roles": [
+            "link_joint_reference"
+          ],
+          "coords": [
+            "G10"
+          ],
+          "instruction": "Fasten the L4 coupler to the free output-link hole near G10 only (not the board).",
+          "n": 5,
+          "parts": [
+            {
+              "category": "spacers",
+              "count": 8,
+              "key": "s8",
+              "label": "S8 spacer",
+              "part": "spacers:s8"
+            },
+            {
+              "category": "linkages",
+              "count": 1,
+              "key": "linkage-4-cell",
+              "label": "L4 linkage",
+              "part": "linkages:linkage-4-cell"
+            }
+          ],
+          "stack": [
+            {
+              "label": "Moving joint near G10",
+              "order": 1,
+              "role": "link-joint-hole"
+            },
+            {
+              "label": "Paper fastener",
+              "order": 2,
+              "role": "paper-fastener"
+            },
+            {
+              "label": "S8 spacer",
+              "order": 3,
+              "part": "spacers:s8",
+              "role": "spacer"
+            },
+            {
+              "label": "L4 linkage",
+              "order": 4,
+              "part": "linkages:linkage-4-cell",
+              "role": "moving-part"
+            },
+            {
+              "label": "S8 spacer",
+              "order": 5,
+              "part": "spacers:s8",
+              "role": "top-spacer"
+            },
+            {
+              "label": "Open tabs loosely",
+              "order": 6,
+              "role": "fastener-tabs"
+            }
+          ],
+          "title": "Join output to coupler",
+          "visual_state": {
+            "active_parts": [
+              "spacers:s8",
+              "linkages:linkage-4-cell"
+            ],
+            "ghost_parts": [
+              "linkages:linkage-2-cell",
+              "linkages:linkage-4-cell"
+            ],
+            "highlight_coords": [
+              "G10"
             ]
           }
         }
@@ -1094,9 +1200,11 @@
           "compatible": true,
           "error_mm": 0.721,
           "first_coord": "I6",
+          "first_coord_role": "board_axle",
           "first_part": "gears:g12",
           "required_center_distance_mm": 44.0,
           "second_coord": "J8",
+          "second_coord_role": "board_axle",
           "second_part": "gears:g16",
           "tolerance_mm": 3.6
         }
@@ -1150,6 +1258,9 @@
             "mechanism_type": "gear_linkage"
           },
           "check": "The axle is straight.",
+          "coord_roles": [
+            "board"
+          ],
           "coords": [
             "I6"
           ],
@@ -1193,6 +1304,9 @@
             "mechanism_type": "gear_linkage"
           },
           "check": "G12 rotates freely.",
+          "coord_roles": [
+            "board"
+          ],
           "coords": [
             "I6"
           ],
@@ -1274,6 +1388,9 @@
             "mechanism_type": "gear_linkage"
           },
           "check": "The gears move together.",
+          "coord_roles": [
+            "board"
+          ],
           "coords": [
             "J8"
           ],
@@ -1354,12 +1471,16 @@
             ],
             "mechanism_type": "gear_linkage"
           },
-          "check": "The linkage pushes and pulls as G16 turns.",
+          "check": "The linkage rides around the gear center instead of locking to the board.",
+          "coord_roles": [
+            "gear_handle_reference",
+            "link_end_reference"
+          ],
           "coords": [
             "J8",
             "I12"
           ],
-          "instruction": "Attach L4 from a G16 handle hole toward I12.",
+          "instruction": "Fasten L4 through an off-center G16 handle hole only (not the board), then point the free end toward I12.",
           "n": 4,
           "parts": [
             {
@@ -1379,9 +1500,9 @@
           ],
           "stack": [
             {
-              "label": "Board hole J8",
+              "label": "G16 handle hole near J8",
               "order": 1,
-              "role": "board"
+              "role": "gear-handle-hole"
             },
             {
               "label": "Paper fastener",
@@ -1427,9 +1548,1192 @@
               "I12"
             ]
           }
+        },
+        {
+          "action": "add-bracket",
+          "app_mapping": {
+            "component_role": "output-connector",
+            "highlight_ids": [
+              "spacers:s8",
+              "brackets:2-hole-straight"
+            ],
+            "mechanism_type": "gear_linkage"
+          },
+          "check": "The bracket follows the linkage end and is not pinned to the board.",
+          "coord_roles": [
+            "link_end_reference"
+          ],
+          "coords": [
+            "I12"
+          ],
+          "instruction": "Fasten the 2-hole bracket to the free L4 end near I12 as a moving handle.",
+          "n": 5,
+          "parts": [
+            {
+              "category": "spacers",
+              "count": 8,
+              "key": "s8",
+              "label": "S8 spacer",
+              "part": "spacers:s8"
+            },
+            {
+              "category": "brackets",
+              "count": 1,
+              "key": "2-hole-straight",
+              "label": "2-hole bracket",
+              "part": "brackets:2-hole-straight"
+            }
+          ],
+          "stack": [
+            {
+              "label": "Link output hole near I12",
+              "order": 1,
+              "role": "link-end-hole"
+            },
+            {
+              "label": "Paper fastener",
+              "order": 2,
+              "role": "paper-fastener"
+            },
+            {
+              "label": "S8 spacer",
+              "order": 3,
+              "part": "spacers:s8",
+              "role": "spacer"
+            },
+            {
+              "label": "2-hole bracket",
+              "order": 4,
+              "part": "brackets:2-hole-straight",
+              "role": "moving-part"
+            },
+            {
+              "label": "S8 spacer",
+              "order": 5,
+              "part": "spacers:s8",
+              "role": "top-spacer"
+            },
+            {
+              "label": "Open tabs loosely",
+              "order": 6,
+              "role": "fastener-tabs"
+            }
+          ],
+          "title": "Add output connector",
+          "visual_state": {
+            "active_parts": [
+              "spacers:s8",
+              "brackets:2-hole-straight"
+            ],
+            "ghost_parts": [
+              "gears:g12",
+              "gears:g16",
+              "linkages:linkage-4-cell"
+            ],
+            "highlight_coords": [
+              "I12"
+            ]
+          }
         }
       ],
       "title": "Gear crank linkage"
+    },
+    {
+      "app_mapping": {
+        "component_role": "recipe",
+        "highlight_ids": [
+          "ring_gears:ring-g12-g14",
+          "gears:g12",
+          "gears:g14",
+          "linkages:linkage-2-cell"
+        ],
+        "mechanism_type": "planetary_gear"
+      },
+      "compatibility": [
+        {
+          "board_distance_cells": 2.0,
+          "board_distance_mm": 40.0,
+          "compatible": true,
+          "error_mm": -1.0,
+          "first_coord": "H8",
+          "first_coord_role": "board_axle",
+          "first_part": "gears:g12",
+          "required_center_distance_mm": 41.0,
+          "second_coord": "H10",
+          "second_coord_role": "carrier_reference",
+          "second_part": "gears:g14",
+          "tolerance_mm": 3.6
+        }
+      ],
+      "guide_svg": "assembly/05-planetary-gear-basic.svg",
+      "key": "planetary-gear-basic",
+      "mechanism_type": "planetary_gear",
+      "parts": [
+        {
+          "category": "ring_gears",
+          "count": 1,
+          "key": "ring-g12-g14",
+          "label": "R40 internal ring gear",
+          "part": "ring_gears:ring-g12-g14"
+        },
+        {
+          "category": "gears",
+          "count": 1,
+          "key": "g12",
+          "label": "G12 gear",
+          "part": "gears:g12"
+        },
+        {
+          "category": "gears",
+          "count": 1,
+          "key": "g14",
+          "label": "G14 gear",
+          "part": "gears:g14"
+        },
+        {
+          "category": "linkages",
+          "count": 1,
+          "key": "linkage-2-cell",
+          "label": "L2 linkage",
+          "part": "linkages:linkage-2-cell"
+        },
+        {
+          "category": "spacers",
+          "count": 8,
+          "key": "s8",
+          "label": "S8 spacer",
+          "part": "spacers:s8"
+        }
+      ],
+      "steps": [
+        {
+          "action": "place-fastener",
+          "app_mapping": {
+            "component_role": "sun-axle",
+            "highlight_ids": [],
+            "mechanism_type": "planetary_gear"
+          },
+          "check": "The center axle is straight and fixed.",
+          "coord_roles": [
+            "board"
+          ],
+          "coords": [
+            "H8"
+          ],
+          "instruction": "Place the sun gear fastener at H8.",
+          "n": 1,
+          "parts": [],
+          "stack": [
+            {
+              "label": "Board hole H8",
+              "order": 1,
+              "role": "board"
+            },
+            {
+              "label": "Paper fastener",
+              "order": 2,
+              "role": "paper-fastener"
+            },
+            {
+              "label": "Open tabs behind board",
+              "order": 3,
+              "role": "fastener-tabs"
+            }
+          ],
+          "title": "Pin the sun axle",
+          "visual_state": {
+            "active_parts": [],
+            "ghost_parts": [],
+            "highlight_coords": [
+              "H8"
+            ]
+          }
+        },
+        {
+          "action": "add-ring",
+          "app_mapping": {
+            "component_role": "ring-gear",
+            "highlight_ids": [
+              "spacers:s8",
+              "ring_gears:ring-g12-g14"
+            ],
+            "mechanism_type": "planetary_gear"
+          },
+          "check": "The ring gear is fixed to the board and does not rotate.",
+          "coord_roles": [
+            "board",
+            "board",
+            "board",
+            "board"
+          ],
+          "coords": [
+            "D8",
+            "H4",
+            "H12",
+            "L8"
+          ],
+          "instruction": "Center R40 internal ring gear around H8 and fasten its outer mount holes at D8, H4, H12, and L8.",
+          "n": 2,
+          "parts": [
+            {
+              "category": "spacers",
+              "count": 8,
+              "key": "s8",
+              "label": "S8 spacer",
+              "part": "spacers:s8"
+            },
+            {
+              "category": "ring_gears",
+              "count": 1,
+              "key": "ring-g12-g14",
+              "label": "R40 internal ring gear",
+              "part": "ring_gears:ring-g12-g14"
+            }
+          ],
+          "stack": [
+            {
+              "label": "Board hole D8",
+              "order": 1,
+              "role": "board"
+            },
+            {
+              "label": "Paper fastener",
+              "order": 2,
+              "role": "paper-fastener"
+            },
+            {
+              "label": "S8 spacer",
+              "order": 3,
+              "part": "spacers:s8",
+              "role": "spacer"
+            },
+            {
+              "label": "R40 internal ring gear",
+              "order": 4,
+              "part": "ring_gears:ring-g12-g14",
+              "role": "fixed-part"
+            },
+            {
+              "label": "Open tabs behind board",
+              "order": 5,
+              "role": "fastener-tabs"
+            }
+          ],
+          "title": "Mount R40 internal ring gear",
+          "visual_state": {
+            "active_parts": [
+              "spacers:s8",
+              "ring_gears:ring-g12-g14"
+            ],
+            "ghost_parts": [],
+            "highlight_coords": [
+              "D8",
+              "H4",
+              "H12",
+              "L8"
+            ]
+          }
+        },
+        {
+          "action": "add-part",
+          "app_mapping": {
+            "component_role": "sun-gear",
+            "highlight_ids": [
+              "spacers:s8",
+              "gears:g12"
+            ],
+            "mechanism_type": "planetary_gear"
+          },
+          "check": "G12 spins cleanly before the carrier is added.",
+          "coord_roles": [
+            "board"
+          ],
+          "coords": [
+            "H8"
+          ],
+          "instruction": "Add S8 spacer, then place G12 on H8.",
+          "n": 3,
+          "parts": [
+            {
+              "category": "spacers",
+              "count": 8,
+              "key": "s8",
+              "label": "S8 spacer",
+              "part": "spacers:s8"
+            },
+            {
+              "category": "gears",
+              "count": 1,
+              "key": "g12",
+              "label": "G12 gear",
+              "part": "gears:g12"
+            }
+          ],
+          "stack": [
+            {
+              "label": "Board hole H8",
+              "order": 1,
+              "role": "board"
+            },
+            {
+              "label": "Paper fastener",
+              "order": 2,
+              "role": "paper-fastener"
+            },
+            {
+              "label": "S8 spacer",
+              "order": 3,
+              "part": "spacers:s8",
+              "role": "spacer"
+            },
+            {
+              "label": "G12 gear",
+              "order": 4,
+              "part": "gears:g12",
+              "role": "moving-part"
+            },
+            {
+              "label": "S8 spacer",
+              "order": 5,
+              "part": "spacers:s8",
+              "role": "top-spacer"
+            },
+            {
+              "label": "Open tabs loosely",
+              "order": 6,
+              "role": "fastener-tabs"
+            }
+          ],
+          "title": "Add G12 sun gear",
+          "visual_state": {
+            "active_parts": [
+              "spacers:s8",
+              "gears:g12"
+            ],
+            "ghost_parts": [
+              "ring_gears:ring-g12-g14"
+            ],
+            "highlight_coords": [
+              "H8"
+            ]
+          }
+        },
+        {
+          "action": "add-linkage",
+          "app_mapping": {
+            "component_role": "carrier",
+            "highlight_ids": [
+              "spacers:s8",
+              "linkages:linkage-2-cell"
+            ],
+            "mechanism_type": "planetary_gear"
+          },
+          "check": "The carrier swings loosely around the sun axle.",
+          "coord_roles": [
+            "board",
+            "carrier_reference"
+          ],
+          "coords": [
+            "H8",
+            "H10"
+          ],
+          "instruction": "Place L2 from H8 toward H10 as the carrier.",
+          "n": 4,
+          "parts": [
+            {
+              "category": "spacers",
+              "count": 8,
+              "key": "s8",
+              "label": "S8 spacer",
+              "part": "spacers:s8"
+            },
+            {
+              "category": "linkages",
+              "count": 1,
+              "key": "linkage-2-cell",
+              "label": "L2 linkage",
+              "part": "linkages:linkage-2-cell"
+            }
+          ],
+          "stack": [
+            {
+              "label": "Board hole H8",
+              "order": 1,
+              "role": "board"
+            },
+            {
+              "label": "Paper fastener",
+              "order": 2,
+              "role": "paper-fastener"
+            },
+            {
+              "label": "S8 spacer",
+              "order": 3,
+              "part": "spacers:s8",
+              "role": "spacer"
+            },
+            {
+              "label": "L2 linkage",
+              "order": 4,
+              "part": "linkages:linkage-2-cell",
+              "role": "moving-part"
+            },
+            {
+              "label": "S8 spacer",
+              "order": 5,
+              "part": "spacers:s8",
+              "role": "top-spacer"
+            },
+            {
+              "label": "Open tabs loosely",
+              "order": 6,
+              "role": "fastener-tabs"
+            }
+          ],
+          "title": "Add carrier link",
+          "visual_state": {
+            "active_parts": [
+              "spacers:s8",
+              "linkages:linkage-2-cell"
+            ],
+            "ghost_parts": [
+              "ring_gears:ring-g12-g14",
+              "gears:g12"
+            ],
+            "highlight_coords": [
+              "H8",
+              "H10"
+            ]
+          }
+        },
+        {
+          "action": "add-part",
+          "app_mapping": {
+            "component_role": "planet-gear",
+            "highlight_ids": [
+              "spacers:s8",
+              "gears:g14"
+            ],
+            "mechanism_type": "planetary_gear"
+          },
+          "check": "The planet axle travels with the carrier and rolls between sun and ring.",
+          "coord_roles": [
+            "carrier_reference"
+          ],
+          "coords": [
+            "H10"
+          ],
+          "instruction": "Align the free carrier hole near H10, then fasten G14 through the carrier hole only (not the board) so it meshes with both G12 and R40 internal ring gear.",
+          "n": 5,
+          "parts": [
+            {
+              "category": "spacers",
+              "count": 8,
+              "key": "s8",
+              "label": "S8 spacer",
+              "part": "spacers:s8"
+            },
+            {
+              "category": "gears",
+              "count": 1,
+              "key": "g14",
+              "label": "G14 gear",
+              "part": "gears:g14"
+            }
+          ],
+          "stack": [
+            {
+              "label": "Carrier hole near H10",
+              "order": 1,
+              "role": "carrier-hole"
+            },
+            {
+              "label": "Paper fastener",
+              "order": 2,
+              "role": "paper-fastener"
+            },
+            {
+              "label": "S8 spacer",
+              "order": 3,
+              "part": "spacers:s8",
+              "role": "spacer"
+            },
+            {
+              "label": "G14 gear",
+              "order": 4,
+              "part": "gears:g14",
+              "role": "moving-part"
+            },
+            {
+              "label": "S8 spacer",
+              "order": 5,
+              "part": "spacers:s8",
+              "role": "top-spacer"
+            },
+            {
+              "label": "Open tabs loosely",
+              "order": 6,
+              "role": "fastener-tabs"
+            }
+          ],
+          "title": "Add G14 moving planet gear",
+          "visual_state": {
+            "active_parts": [
+              "spacers:s8",
+              "gears:g14"
+            ],
+            "ghost_parts": [
+              "ring_gears:ring-g12-g14",
+              "gears:g12",
+              "linkages:linkage-2-cell"
+            ],
+            "highlight_coords": [
+              "H10"
+            ]
+          }
+        },
+        {
+          "action": "test-motion",
+          "app_mapping": {
+            "component_role": "carrier-check",
+            "highlight_ids": [
+              "gears:g12",
+              "gears:g14",
+              "linkages:linkage-2-cell"
+            ],
+            "mechanism_type": "planetary_gear"
+          },
+          "check": "If the orbit binds, loosen the planet fastener and spacer stack.",
+          "coord_roles": [
+            "board",
+            "carrier_reference"
+          ],
+          "coords": [
+            "H8",
+            "H10"
+          ],
+          "instruction": "Hold the ring fixed and use the carrier end/handle hole to orbit the planet around H8.",
+          "n": 6,
+          "parts": [
+            {
+              "category": "gears",
+              "count": 1,
+              "key": "g12",
+              "label": "G12 gear",
+              "part": "gears:g12"
+            },
+            {
+              "category": "gears",
+              "count": 1,
+              "key": "g14",
+              "label": "G14 gear",
+              "part": "gears:g14"
+            },
+            {
+              "category": "linkages",
+              "count": 1,
+              "key": "linkage-2-cell",
+              "label": "L2 linkage",
+              "part": "linkages:linkage-2-cell"
+            }
+          ],
+          "stack": [
+            {
+              "label": "Carrier hole near H10",
+              "order": 1,
+              "role": "carrier-hole"
+            },
+            {
+              "label": "Paper fastener",
+              "order": 2,
+              "role": "paper-fastener"
+            },
+            {
+              "label": "S8 spacer",
+              "order": 3,
+              "part": "spacers:s8",
+              "role": "spacer"
+            },
+            {
+              "label": "G14 gear",
+              "order": 4,
+              "part": "gears:g14",
+              "role": "moving-part"
+            },
+            {
+              "label": "S8 spacer",
+              "order": 5,
+              "part": "spacers:s8",
+              "role": "top-spacer"
+            },
+            {
+              "label": "Open tabs loosely",
+              "order": 6,
+              "role": "fastener-tabs"
+            }
+          ],
+          "title": "Rotate the carrier",
+          "visual_state": {
+            "active_parts": [
+              "gears:g12",
+              "gears:g14",
+              "linkages:linkage-2-cell"
+            ],
+            "ghost_parts": [
+              "ring_gears:ring-g12-g14",
+              "gears:g12",
+              "gears:g14",
+              "linkages:linkage-2-cell"
+            ],
+            "highlight_coords": [
+              "H8",
+              "H10"
+            ]
+          }
+        }
+      ],
+      "title": "Planetary ring gear"
+    },
+    {
+      "app_mapping": {
+        "component_role": "recipe",
+        "highlight_ids": [
+          "linkages:linkage-2-cell",
+          "linkages:linkage-6-cell",
+          "brackets:2-hole-straight",
+          "brackets:3-hole-straight"
+        ],
+        "mechanism_type": "slider_crank"
+      },
+      "compatibility": [],
+      "guide_svg": "assembly/06-slider-crank-basic.svg",
+      "key": "slider-crank-basic",
+      "mechanism_type": "slider_crank",
+      "parts": [
+        {
+          "category": "linkages",
+          "count": 1,
+          "key": "linkage-2-cell",
+          "label": "L2 linkage",
+          "part": "linkages:linkage-2-cell"
+        },
+        {
+          "category": "linkages",
+          "count": 1,
+          "key": "linkage-6-cell",
+          "label": "L6 linkage",
+          "part": "linkages:linkage-6-cell"
+        },
+        {
+          "category": "brackets",
+          "count": 1,
+          "key": "2-hole-straight",
+          "label": "2-hole bracket",
+          "part": "brackets:2-hole-straight"
+        },
+        {
+          "category": "brackets",
+          "count": 1,
+          "key": "3-hole-straight",
+          "label": "3-hole bracket",
+          "part": "brackets:3-hole-straight"
+        },
+        {
+          "category": "spacers",
+          "count": 8,
+          "key": "s8",
+          "label": "S8 spacer",
+          "part": "spacers:s8"
+        }
+      ],
+      "steps": [
+        {
+          "action": "place-fastener",
+          "app_mapping": {
+            "component_role": "crank-axle",
+            "highlight_ids": [],
+            "mechanism_type": "slider_crank"
+          },
+          "check": "The crank axle is fixed to the board.",
+          "coord_roles": [
+            "board"
+          ],
+          "coords": [
+            "I5"
+          ],
+          "instruction": "Place the crank axle fastener at I5.",
+          "n": 1,
+          "parts": [],
+          "stack": [
+            {
+              "label": "Board hole I5",
+              "order": 1,
+              "role": "board"
+            },
+            {
+              "label": "Paper fastener",
+              "order": 2,
+              "role": "paper-fastener"
+            },
+            {
+              "label": "Open tabs behind board",
+              "order": 3,
+              "role": "fastener-tabs"
+            }
+          ],
+          "title": "Pin crank axle",
+          "visual_state": {
+            "active_parts": [],
+            "ghost_parts": [],
+            "highlight_coords": [
+              "I5"
+            ]
+          }
+        },
+        {
+          "action": "add-linkage",
+          "app_mapping": {
+            "component_role": "crank-link",
+            "highlight_ids": [
+              "spacers:s8",
+              "linkages:linkage-2-cell"
+            ],
+            "mechanism_type": "slider_crank"
+          },
+          "check": "The crank rotates without scraping.",
+          "coord_roles": [
+            "board",
+            "link_end_reference"
+          ],
+          "coords": [
+            "I5",
+            "G6"
+          ],
+          "instruction": "Place L2 on I5 with its free hole near G6.",
+          "n": 2,
+          "parts": [
+            {
+              "category": "spacers",
+              "count": 8,
+              "key": "s8",
+              "label": "S8 spacer",
+              "part": "spacers:s8"
+            },
+            {
+              "category": "linkages",
+              "count": 1,
+              "key": "linkage-2-cell",
+              "label": "L2 linkage",
+              "part": "linkages:linkage-2-cell"
+            }
+          ],
+          "stack": [
+            {
+              "label": "Board hole I5",
+              "order": 1,
+              "role": "board"
+            },
+            {
+              "label": "Paper fastener",
+              "order": 2,
+              "role": "paper-fastener"
+            },
+            {
+              "label": "S8 spacer",
+              "order": 3,
+              "part": "spacers:s8",
+              "role": "spacer"
+            },
+            {
+              "label": "L2 linkage",
+              "order": 4,
+              "part": "linkages:linkage-2-cell",
+              "role": "moving-part"
+            },
+            {
+              "label": "S8 spacer",
+              "order": 5,
+              "part": "spacers:s8",
+              "role": "top-spacer"
+            },
+            {
+              "label": "Open tabs loosely",
+              "order": 6,
+              "role": "fastener-tabs"
+            }
+          ],
+          "title": "Add crank link",
+          "visual_state": {
+            "active_parts": [
+              "spacers:s8",
+              "linkages:linkage-2-cell"
+            ],
+            "ghost_parts": [],
+            "highlight_coords": [
+              "I5",
+              "G6"
+            ]
+          }
+        },
+        {
+          "action": "add-linkage",
+          "app_mapping": {
+            "component_role": "connecting-rod",
+            "highlight_ids": [
+              "spacers:s8",
+              "linkages:linkage-6-cell"
+            ],
+            "mechanism_type": "slider_crank"
+          },
+          "check": "The rod joint is moving and is not pinned to the board.",
+          "coord_roles": [
+            "link_joint_reference",
+            "slider_reference"
+          ],
+          "coords": [
+            "G6",
+            "G12"
+          ],
+          "instruction": "Fasten L6 to the crank free hole near G6, then point it toward G12.",
+          "n": 3,
+          "parts": [
+            {
+              "category": "spacers",
+              "count": 8,
+              "key": "s8",
+              "label": "S8 spacer",
+              "part": "spacers:s8"
+            },
+            {
+              "category": "linkages",
+              "count": 1,
+              "key": "linkage-6-cell",
+              "label": "L6 linkage",
+              "part": "linkages:linkage-6-cell"
+            }
+          ],
+          "stack": [
+            {
+              "label": "Moving joint near G6",
+              "order": 1,
+              "role": "link-joint-hole"
+            },
+            {
+              "label": "Paper fastener",
+              "order": 2,
+              "role": "paper-fastener"
+            },
+            {
+              "label": "S8 spacer",
+              "order": 3,
+              "part": "spacers:s8",
+              "role": "spacer"
+            },
+            {
+              "label": "L6 linkage",
+              "order": 4,
+              "part": "linkages:linkage-6-cell",
+              "role": "moving-part"
+            },
+            {
+              "label": "S8 spacer",
+              "order": 5,
+              "part": "spacers:s8",
+              "role": "top-spacer"
+            },
+            {
+              "label": "Open tabs loosely",
+              "order": 6,
+              "role": "fastener-tabs"
+            }
+          ],
+          "title": "Add connecting rod",
+          "visual_state": {
+            "active_parts": [
+              "spacers:s8",
+              "linkages:linkage-6-cell"
+            ],
+            "ghost_parts": [
+              "linkages:linkage-2-cell"
+            ],
+            "highlight_coords": [
+              "G6",
+              "G12"
+            ]
+          }
+        },
+        {
+          "action": "add-guide",
+          "app_mapping": {
+            "component_role": "slider-guide",
+            "highlight_ids": [
+              "spacers:s8",
+              "brackets:3-hole-straight"
+            ],
+            "mechanism_type": "slider_crank"
+          },
+          "check": "The guide is fixed; only the slider block should move.",
+          "coord_roles": [
+            "board",
+            "board",
+            "board"
+          ],
+          "coords": [
+            "G11",
+            "G12",
+            "G13"
+          ],
+          "instruction": "Fasten the 3-hole bracket along G11, G12, and G13 as the straight guide.",
+          "n": 4,
+          "parts": [
+            {
+              "category": "spacers",
+              "count": 8,
+              "key": "s8",
+              "label": "S8 spacer",
+              "part": "spacers:s8"
+            },
+            {
+              "category": "brackets",
+              "count": 1,
+              "key": "3-hole-straight",
+              "label": "3-hole bracket",
+              "part": "brackets:3-hole-straight"
+            }
+          ],
+          "stack": [
+            {
+              "label": "Board hole G11",
+              "order": 1,
+              "role": "board"
+            },
+            {
+              "label": "Paper fastener",
+              "order": 2,
+              "role": "paper-fastener"
+            },
+            {
+              "label": "S8 spacer",
+              "order": 3,
+              "part": "spacers:s8",
+              "role": "spacer"
+            },
+            {
+              "label": "3-hole bracket",
+              "order": 4,
+              "part": "brackets:3-hole-straight",
+              "role": "fixed-part"
+            },
+            {
+              "label": "Open tabs behind board",
+              "order": 5,
+              "role": "fastener-tabs"
+            }
+          ],
+          "title": "Fix slider guide",
+          "visual_state": {
+            "active_parts": [
+              "spacers:s8",
+              "brackets:3-hole-straight"
+            ],
+            "ghost_parts": [
+              "linkages:linkage-2-cell",
+              "linkages:linkage-6-cell"
+            ],
+            "highlight_coords": [
+              "G11",
+              "G12",
+              "G13"
+            ]
+          }
+        },
+        {
+          "action": "add-bracket",
+          "app_mapping": {
+            "component_role": "slider-block",
+            "highlight_ids": [
+              "spacers:s8",
+              "brackets:2-hole-straight"
+            ],
+            "mechanism_type": "slider_crank"
+          },
+          "check": "The block travels along the guide as the crank turns.",
+          "coord_roles": [
+            "slider_reference"
+          ],
+          "coords": [
+            "G12"
+          ],
+          "instruction": "Fasten the 2-hole bracket to the free L6 end near G12 only (not the board).",
+          "n": 5,
+          "parts": [
+            {
+              "category": "spacers",
+              "count": 8,
+              "key": "s8",
+              "label": "S8 spacer",
+              "part": "spacers:s8"
+            },
+            {
+              "category": "brackets",
+              "count": 1,
+              "key": "2-hole-straight",
+              "label": "2-hole bracket",
+              "part": "brackets:2-hole-straight"
+            }
+          ],
+          "stack": [
+            {
+              "label": "Link output hole near G12",
+              "order": 1,
+              "role": "link-end-hole"
+            },
+            {
+              "label": "Paper fastener",
+              "order": 2,
+              "role": "paper-fastener"
+            },
+            {
+              "label": "S8 spacer",
+              "order": 3,
+              "part": "spacers:s8",
+              "role": "spacer"
+            },
+            {
+              "label": "2-hole bracket",
+              "order": 4,
+              "part": "brackets:2-hole-straight",
+              "role": "moving-part"
+            },
+            {
+              "label": "S8 spacer",
+              "order": 5,
+              "part": "spacers:s8",
+              "role": "top-spacer"
+            },
+            {
+              "label": "Open tabs loosely",
+              "order": 6,
+              "role": "fastener-tabs"
+            }
+          ],
+          "title": "Add slider block",
+          "visual_state": {
+            "active_parts": [
+              "spacers:s8",
+              "brackets:2-hole-straight"
+            ],
+            "ghost_parts": [
+              "linkages:linkage-2-cell",
+              "linkages:linkage-6-cell",
+              "brackets:3-hole-straight"
+            ],
+            "highlight_coords": [
+              "G12"
+            ]
+          }
+        },
+        {
+          "action": "test-motion",
+          "app_mapping": {
+            "component_role": "motion-check",
+            "highlight_ids": [
+              "linkages:linkage-2-cell",
+              "linkages:linkage-6-cell",
+              "brackets:2-hole-straight"
+            ],
+            "mechanism_type": "slider_crank"
+          },
+          "check": "If it binds, loosen the G6 and G12 moving joints.",
+          "coord_roles": [
+            "board",
+            "slider_reference"
+          ],
+          "coords": [
+            "I5",
+            "G12"
+          ],
+          "instruction": "Rotate the L2 crank slowly; the slider block should move left-right along G11-G13.",
+          "n": 6,
+          "parts": [
+            {
+              "category": "linkages",
+              "count": 1,
+              "key": "linkage-2-cell",
+              "label": "L2 linkage",
+              "part": "linkages:linkage-2-cell"
+            },
+            {
+              "category": "linkages",
+              "count": 1,
+              "key": "linkage-6-cell",
+              "label": "L6 linkage",
+              "part": "linkages:linkage-6-cell"
+            },
+            {
+              "category": "brackets",
+              "count": 1,
+              "key": "2-hole-straight",
+              "label": "2-hole bracket",
+              "part": "brackets:2-hole-straight"
+            }
+          ],
+          "stack": [
+            {
+              "label": "Link output hole near G12",
+              "order": 1,
+              "role": "link-end-hole"
+            },
+            {
+              "label": "Paper fastener",
+              "order": 2,
+              "role": "paper-fastener"
+            },
+            {
+              "label": "S8 spacer",
+              "order": 3,
+              "part": "spacers:s8",
+              "role": "spacer"
+            },
+            {
+              "label": "2-hole bracket",
+              "order": 4,
+              "part": "brackets:2-hole-straight",
+              "role": "moving-part"
+            },
+            {
+              "label": "S8 spacer",
+              "order": 5,
+              "part": "spacers:s8",
+              "role": "top-spacer"
+            },
+            {
+              "label": "Open tabs loosely",
+              "order": 6,
+              "role": "fastener-tabs"
+            }
+          ],
+          "title": "Turn crank and check slide",
+          "visual_state": {
+            "active_parts": [
+              "linkages:linkage-2-cell",
+              "linkages:linkage-6-cell",
+              "brackets:2-hole-straight"
+            ],
+            "ghost_parts": [
+              "linkages:linkage-2-cell",
+              "linkages:linkage-6-cell",
+              "brackets:2-hole-straight",
+              "brackets:3-hole-straight"
+            ],
+            "highlight_coords": [
+              "I5",
+              "G12"
+            ]
+          }
+        }
+      ],
+      "title": "Slider-crank linkage"
     }
   ],
   "schema_version": "automataii.fabrication.assembly.v1"

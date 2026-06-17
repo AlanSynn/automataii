@@ -44,3 +44,22 @@ def test_compose_single_page_empty_layout():
     result = composer.compose_single_page([], {})
     assert result.item_count == 0
     assert "No items to export" in result.svg or "svg" in result.svg
+
+
+def test_compose_single_page_names_cut_sheet_handoff():
+    seen: dict[str, str] = {}
+
+    def capturing_generator(
+        layout_items, width, height, title, scale_info, snapshot_data_uri, unit_system
+    ):
+        seen["title"] = title
+        seen["scale_info"] = scale_info
+        return f"<svg width='{width}' height='{height}'>{len(layout_items)}</svg>"
+
+    composer = BlueprintComposer(optimizer=DummyOptimizer(), svg_generator=capturing_generator)
+
+    composer.compose_single_page([], {})
+
+    assert seen["title"] == "Make Parts / Cut Sheets (Metric)"
+    assert "Cut/drill only" in seen["scale_info"]
+    assert "Board Assembly Guide has 15x15 coordinates" in seen["scale_info"]

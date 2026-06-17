@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" version="1.1"
-     width="560mm" height="662mm"
-     viewBox="0 0 560 662"
+     width="560mm" height="797mm"
+     viewBox="0 0 560 797"
      data-profile-key="motionsmith-ms4n"
      data-grid-pitch-mm="20"
      data-hole-diameter-mm="4">
-  <title>Automataii assembly guide four-bar-basic</title>
-  <desc>Board-coordinate assembly guide for Four-bar linkage.</desc>
+  <title>Automataii assembly guide planetary-gear-basic</title>
+  <desc>Board-coordinate assembly guide for Planetary ring gear.</desc>
   <defs>
     <style>
       .cut { fill: none; stroke: #ed1c24; stroke-width: 0.25; stroke-miterlimit: 10; }
@@ -21,7 +21,7 @@
       .paper { fill: #ffffff; stroke: none; }
     </style>
   </defs>
-  <text x="10" y="12" class="label" text-anchor="start">Four-bar linkage</text>
+  <text x="10" y="12" class="label" text-anchor="start">Planetary ring gear</text>
   <text x="10" y="20" class="tiny" text-anchor="start">Follow one card at a time. Keep fasteners loose until motion is smooth.</text>
   <g id="layer-board-grid"></g>
   <g id="layer-previous-step-ghost"></g>
@@ -35,18 +35,18 @@
   <g id="layer-stack-diagram"></g>
   <rect x="8" y="28" width="544" height="116" class="score step-card"/>
   <text x="16" y="39" class="coord-label" text-anchor="start">1</text>
-  <text x="28" y="38.5" class="step-title" text-anchor="start">Set ground pivots</text>
-  <text x="28" y="45" class="small" text-anchor="start">Pin ground pivots at I5 and I9.</text>
+  <text x="28" y="38.5" class="step-title" text-anchor="start">Pin the sun axle</text>
+  <text x="28" y="45" class="small" text-anchor="start">Place the sun gear fastener at H8.</text>
   <rect x="16" y="50" width="112" height="86" class="layout-box" style="fill:none;stroke:none" data-layout-box="1,parts,16,50,112,86" data-step="1" data-zone="parts"/>
   <rect x="142" y="50" width="104" height="86" class="layout-box" style="fill:none;stroke:none" data-layout-box="1,board,142,50,104,86" data-step="1" data-zone="board"/>
   <rect x="262" y="50" width="92" height="86" class="layout-box" style="fill:none;stroke:none" data-layout-box="1,stack,262,50,92,86" data-step="1" data-zone="stack"/>
   <rect x="372" y="50" width="164" height="86" class="layout-box" style="fill:none;stroke:none" data-layout-box="1,check,372,50,164,86" data-step="1" data-zone="check"/>
-  <g id="layer-callouts-step-1" data-step="1" data-recipe-key="four-bar-basic">
+  <g id="layer-callouts-step-1" data-step="1" data-recipe-key="planetary-gear-basic">
   <text x="18" y="57" class="small" text-anchor="start">Parts to add now</text>
   <rect x="20" y="62" width="92" height="13" class="score part-card" style="fill:#f97316;fill-opacity:0.18;stroke:#f97316;stroke-width:0.6" data-step="1" data-part-key="paper-fastener" data-part-index="1"/>
   <text x="28" y="70.5" class="part-card-label" text-anchor="start">Paper Fastener</text>
   </g>
-  <g id="layer-board-grid-step-1" data-step="1" data-recipe-key="four-bar-basic">
+  <g id="layer-board-grid-step-1" data-step="1" data-recipe-key="planetary-gear-basic">
   <rect x="146" y="54" width="90" height="90" class="score board-outline"/>
   <text x="150" y="51" class="tiny" text-anchor="middle">1</text>
   <text x="155.857" y="51" class="tiny" text-anchor="middle">2</text>
@@ -190,7 +190,7 @@
   <circle cx="173.429" cy="99" r="0.72" class="drill board-hole" data-board-coord="H5" data-step="1"/>
   <circle cx="179.286" cy="99" r="0.72" class="drill board-hole" data-board-coord="H6" data-step="1"/>
   <circle cx="185.143" cy="99" r="0.72" class="drill board-hole" data-board-coord="H7" data-step="1"/>
-  <circle cx="191" cy="99" r="0.72" class="drill board-hole" data-board-coord="H8" data-step="1"/>
+  <circle cx="191" cy="99" r="0.72" class="drill board-hole active-board-hole" data-board-coord="H8" data-step="1"/>
   <circle cx="196.857" cy="99" r="0.72" class="drill board-hole" data-board-coord="H9" data-step="1"/>
   <circle cx="202.714" cy="99" r="0.72" class="drill board-hole" data-board-coord="H10" data-step="1"/>
   <circle cx="208.571" cy="99" r="0.72" class="drill board-hole" data-board-coord="H11" data-step="1"/>
@@ -202,11 +202,11 @@
   <circle cx="155.857" cy="104.857" r="0.72" class="drill board-hole" data-board-coord="I2" data-step="1"/>
   <circle cx="161.714" cy="104.857" r="0.72" class="drill board-hole" data-board-coord="I3" data-step="1"/>
   <circle cx="167.571" cy="104.857" r="0.72" class="drill board-hole" data-board-coord="I4" data-step="1"/>
-  <circle cx="173.429" cy="104.857" r="0.72" class="drill board-hole active-board-hole" data-board-coord="I5" data-step="1"/>
+  <circle cx="173.429" cy="104.857" r="0.72" class="drill board-hole" data-board-coord="I5" data-step="1"/>
   <circle cx="179.286" cy="104.857" r="0.72" class="drill board-hole" data-board-coord="I6" data-step="1"/>
   <circle cx="185.143" cy="104.857" r="0.72" class="drill board-hole" data-board-coord="I7" data-step="1"/>
   <circle cx="191" cy="104.857" r="0.72" class="drill board-hole" data-board-coord="I8" data-step="1"/>
-  <circle cx="196.857" cy="104.857" r="0.72" class="drill board-hole active-board-hole" data-board-coord="I9" data-step="1"/>
+  <circle cx="196.857" cy="104.857" r="0.72" class="drill board-hole" data-board-coord="I9" data-step="1"/>
   <circle cx="202.714" cy="104.857" r="0.72" class="drill board-hole" data-board-coord="I10" data-step="1"/>
   <circle cx="208.571" cy="104.857" r="0.72" class="drill board-hole" data-board-coord="I11" data-step="1"/>
   <circle cx="214.429" cy="104.857" r="0.72" class="drill board-hole" data-board-coord="I12" data-step="1"/>
@@ -306,25 +306,24 @@
   </g>
   <g id="layer-previous-step-ghost-step-1" data-step="1">
   </g>
-  <g id="layer-new-part-highlight-step-1" data-step="1" data-app-mechanism="four_bar">
-  <circle cx="173.429" cy="104.857" r="2.3" class="score new-part-highlight" data-step="1" data-recipe-key="four-bar-basic" data-board-coord="I5" data-app-mechanism="four_bar"/>
-  <circle cx="196.857" cy="104.857" r="2.3" class="score new-part-highlight" data-step="1" data-recipe-key="four-bar-basic" data-board-coord="I9" data-app-mechanism="four_bar"/>
+  <g id="layer-new-part-highlight-step-1" data-step="1" data-app-mechanism="planetary_gear">
+  <circle cx="191" cy="99" r="2.3" class="score new-part-highlight" data-step="1" data-recipe-key="planetary-gear-basic" data-board-coord="H8" data-app-mechanism="planetary_gear"/>
   </g>
-  <g id="layer-existing-parts-step-1" data-step="1" data-app-mechanism="four_bar">
+  <g id="layer-existing-parts-step-1" data-step="1" data-app-mechanism="planetary_gear">
   </g>
   <g id="layer-stack-diagram-step-1" data-step="1">
   <text x="266" y="57" class="small" text-anchor="start">Fastener stack</text>
   <rect x="268" y="60.5" width="34" height="5" class="score stack-layer" data-step="1" data-stack-layer="1" data-stack-role="board" data-part-key=""/>
-  <text x="308" y="66" class="tiny" text-anchor="start">Board hole I5</text>
+  <text x="308" y="66" class="tiny" text-anchor="start">Board hole H8</text>
   <rect x="268" y="70" width="34" height="5" class="score stack-layer" data-step="1" data-stack-layer="2" data-stack-role="paper-fastener" data-part-key=""/>
   <text x="308" y="75.5" class="tiny" text-anchor="start">Fastener</text>
   <rect x="268" y="79.5" width="34" height="5" class="score stack-layer" data-step="1" data-stack-layer="3" data-stack-role="fastener-tabs" data-part-key=""/>
   <text x="308" y="85" class="tiny" text-anchor="start">Loose tabs</text>
   </g>
-  <g id="layer-labels-step-1" data-step="1" data-board-coord="I5, I9" data-part-key="">
-  <text x="376" y="59" class="small" text-anchor="start">Board holes: I5, I9</text>
+  <g id="layer-labels-step-1" data-step="1" data-board-coord="H8" data-part-key="">
+  <text x="376" y="59" class="small" text-anchor="start">Board holes: H8</text>
   <text x="376" y="73" class="part-card-label" text-anchor="start">Check</text>
-  <text x="376" y="81" class="small" text-anchor="start">Both ground pivots are fixed.</text>
+  <text x="376" y="81" class="small" text-anchor="start">The center axle is straight and fixed.</text>
   <text x="376" y="100" class="tiny" text-anchor="start">Spacer rule: spacer below moving part.</text>
   <text x="376" y="108" class="tiny" text-anchor="start">Paper fastener tabs stay loose until tested.</text>
   </g>
@@ -335,24 +334,24 @@
   </g>
   <rect x="8" y="150" width="544" height="116" class="score step-card"/>
   <text x="16" y="161" class="coord-label" text-anchor="start">2</text>
-  <text x="28" y="160.5" class="step-title" text-anchor="start">Add input link</text>
-  <text x="28" y="167" class="small" text-anchor="start">Place L2 from I5 toward G6 with spacers.</text>
+  <text x="28" y="160.5" class="step-title" text-anchor="start">Mount R40 internal ring gear</text>
+  <text x="28" y="167" class="small" text-anchor="start">Center R40 internal ring gear around H8 and fasten its outer mount holes at D8, H4, H12, and L8.</text>
   <rect x="16" y="172" width="112" height="86" class="layout-box" style="fill:none;stroke:none" data-layout-box="2,parts,16,172,112,86" data-step="2" data-zone="parts"/>
   <rect x="142" y="172" width="104" height="86" class="layout-box" style="fill:none;stroke:none" data-layout-box="2,board,142,172,104,86" data-step="2" data-zone="board"/>
   <rect x="262" y="172" width="92" height="86" class="layout-box" style="fill:none;stroke:none" data-layout-box="2,stack,262,172,92,86" data-step="2" data-zone="stack"/>
   <rect x="372" y="172" width="164" height="86" class="layout-box" style="fill:none;stroke:none" data-layout-box="2,check,372,172,164,86" data-step="2" data-zone="check"/>
-  <g id="layer-callouts-step-2" data-step="2" data-recipe-key="four-bar-basic">
+  <g id="layer-callouts-step-2" data-step="2" data-recipe-key="planetary-gear-basic">
   <text x="18" y="179" class="small" text-anchor="start">Parts to add now</text>
   <rect x="20" y="184" width="92" height="13" class="score part-card" style="fill:#94a3b8;fill-opacity:0.22;stroke:#94a3b8;stroke-width:0.6" data-step="2" data-part-key="spacers:s8" data-part-index="1"/>
   <circle cx="28" cy="190.5" r="4.2" class="score part-token" data-step="2" data-part-key="spacers:s8" data-part-index="1"/>
   <text x="37" y="189.7" class="part-card-label" text-anchor="start">S8</text>
   <text x="37" y="194.4" class="tiny" text-anchor="start">Spacer</text>
-  <rect x="20" y="199" width="92" height="13" class="score part-card" style="fill:#60a5fa;fill-opacity:0.22;stroke:#60a5fa;stroke-width:0.6" data-step="2" data-part-key="linkages:linkage-2-cell" data-part-index="2"/>
-  <circle cx="28" cy="205.5" r="4.2" class="score part-token" data-step="2" data-part-key="linkages:linkage-2-cell" data-part-index="2"/>
-  <text x="37" y="204.7" class="part-card-label" text-anchor="start">L2</text>
-  <text x="37" y="209.4" class="tiny" text-anchor="start">Linkage</text>
+  <rect x="20" y="199" width="92" height="13" class="score part-card" style="fill:#f59e0b;fill-opacity:0.22;stroke:#f59e0b;stroke-width:0.6" data-step="2" data-part-key="ring_gears:ring-g12-g14" data-part-index="2"/>
+  <circle cx="28" cy="205.5" r="4.2" class="score part-token" data-step="2" data-part-key="ring_gears:ring-g12-g14" data-part-index="2"/>
+  <text x="37" y="204.7" class="part-card-label" text-anchor="start">G12/G14 Ring</text>
+  <text x="37" y="209.4" class="tiny" text-anchor="start">Ring_Gear</text>
   </g>
-  <g id="layer-board-grid-step-2" data-step="2" data-recipe-key="four-bar-basic">
+  <g id="layer-board-grid-step-2" data-step="2" data-recipe-key="planetary-gear-basic">
   <rect x="146" y="176" width="90" height="90" class="score board-outline"/>
   <text x="150" y="173" class="tiny" text-anchor="middle">1</text>
   <text x="155.857" y="173" class="tiny" text-anchor="middle">2</text>
@@ -436,7 +435,7 @@
   <circle cx="173.429" cy="197.571" r="0.72" class="drill board-hole" data-board-coord="D5" data-step="2"/>
   <circle cx="179.286" cy="197.571" r="0.72" class="drill board-hole" data-board-coord="D6" data-step="2"/>
   <circle cx="185.143" cy="197.571" r="0.72" class="drill board-hole" data-board-coord="D7" data-step="2"/>
-  <circle cx="191" cy="197.571" r="0.72" class="drill board-hole" data-board-coord="D8" data-step="2"/>
+  <circle cx="191" cy="197.571" r="0.72" class="drill board-hole active-board-hole" data-board-coord="D8" data-step="2"/>
   <circle cx="196.857" cy="197.571" r="0.72" class="drill board-hole" data-board-coord="D9" data-step="2"/>
   <circle cx="202.714" cy="197.571" r="0.72" class="drill board-hole" data-board-coord="D10" data-step="2"/>
   <circle cx="208.571" cy="197.571" r="0.72" class="drill board-hole" data-board-coord="D11" data-step="2"/>
@@ -492,7 +491,7 @@
   <circle cx="150" cy="221" r="0.72" class="drill board-hole" data-board-coord="H1" data-step="2"/>
   <circle cx="155.857" cy="221" r="0.72" class="drill board-hole" data-board-coord="H2" data-step="2"/>
   <circle cx="161.714" cy="221" r="0.72" class="drill board-hole" data-board-coord="H3" data-step="2"/>
-  <circle cx="167.571" cy="221" r="0.72" class="drill board-hole" data-board-coord="H4" data-step="2"/>
+  <circle cx="167.571" cy="221" r="0.72" class="drill board-hole active-board-hole" data-board-coord="H4" data-step="2"/>
   <circle cx="173.429" cy="221" r="0.72" class="drill board-hole" data-board-coord="H5" data-step="2"/>
   <circle cx="179.286" cy="221" r="0.72" class="drill board-hole" data-board-coord="H6" data-step="2"/>
   <circle cx="185.143" cy="221" r="0.72" class="drill board-hole" data-board-coord="H7" data-step="2"/>
@@ -500,7 +499,7 @@
   <circle cx="196.857" cy="221" r="0.72" class="drill board-hole" data-board-coord="H9" data-step="2"/>
   <circle cx="202.714" cy="221" r="0.72" class="drill board-hole" data-board-coord="H10" data-step="2"/>
   <circle cx="208.571" cy="221" r="0.72" class="drill board-hole" data-board-coord="H11" data-step="2"/>
-  <circle cx="214.429" cy="221" r="0.72" class="drill board-hole" data-board-coord="H12" data-step="2"/>
+  <circle cx="214.429" cy="221" r="0.72" class="drill board-hole active-board-hole" data-board-coord="H12" data-step="2"/>
   <circle cx="220.286" cy="221" r="0.72" class="drill board-hole" data-board-coord="H13" data-step="2"/>
   <circle cx="226.143" cy="221" r="0.72" class="drill board-hole" data-board-coord="H14" data-step="2"/>
   <circle cx="232" cy="221" r="0.72" class="drill board-hole" data-board-coord="H15" data-step="2"/>
@@ -508,7 +507,7 @@
   <circle cx="155.857" cy="226.857" r="0.72" class="drill board-hole" data-board-coord="I2" data-step="2"/>
   <circle cx="161.714" cy="226.857" r="0.72" class="drill board-hole" data-board-coord="I3" data-step="2"/>
   <circle cx="167.571" cy="226.857" r="0.72" class="drill board-hole" data-board-coord="I4" data-step="2"/>
-  <circle cx="173.429" cy="226.857" r="0.72" class="drill board-hole active-board-hole" data-board-coord="I5" data-step="2"/>
+  <circle cx="173.429" cy="226.857" r="0.72" class="drill board-hole" data-board-coord="I5" data-step="2"/>
   <circle cx="179.286" cy="226.857" r="0.72" class="drill board-hole" data-board-coord="I6" data-step="2"/>
   <circle cx="185.143" cy="226.857" r="0.72" class="drill board-hole" data-board-coord="I7" data-step="2"/>
   <circle cx="191" cy="226.857" r="0.72" class="drill board-hole" data-board-coord="I8" data-step="2"/>
@@ -556,7 +555,7 @@
   <circle cx="173.429" cy="244.429" r="0.72" class="drill board-hole" data-board-coord="L5" data-step="2"/>
   <circle cx="179.286" cy="244.429" r="0.72" class="drill board-hole" data-board-coord="L6" data-step="2"/>
   <circle cx="185.143" cy="244.429" r="0.72" class="drill board-hole" data-board-coord="L7" data-step="2"/>
-  <circle cx="191" cy="244.429" r="0.72" class="drill board-hole" data-board-coord="L8" data-step="2"/>
+  <circle cx="191" cy="244.429" r="0.72" class="drill board-hole active-board-hole" data-board-coord="L8" data-step="2"/>
   <circle cx="196.857" cy="244.429" r="0.72" class="drill board-hole" data-board-coord="L9" data-step="2"/>
   <circle cx="202.714" cy="244.429" r="0.72" class="drill board-hole" data-board-coord="L10" data-step="2"/>
   <circle cx="208.571" cy="244.429" r="0.72" class="drill board-hole" data-board-coord="L11" data-step="2"/>
@@ -609,40 +608,42 @@
   <circle cx="220.286" cy="262" r="0.72" class="drill board-hole" data-board-coord="O13" data-step="2"/>
   <circle cx="226.143" cy="262" r="0.72" class="drill board-hole" data-board-coord="O14" data-step="2"/>
   <circle cx="232" cy="262" r="0.72" class="drill board-hole" data-board-coord="O15" data-step="2"/>
-  <circle cx="179.286" cy="215.143" r="1.296" class="score reference-coordinate" data-reference-coord="G6" data-step="2"/>
   </g>
   <g id="layer-previous-step-ghost-step-2" data-step="2">
   </g>
-  <g id="layer-new-part-highlight-step-2" data-step="2" data-app-mechanism="four_bar">
-  <circle cx="173.429" cy="226.857" r="2.3" class="score new-part-highlight" data-step="2" data-recipe-key="four-bar-basic" data-board-coord="I5" data-app-mechanism="four_bar"/>
-  <circle cx="179.286" cy="215.143" r="2.1" class="score reference-marker" data-step="2" data-recipe-key="four-bar-basic" data-reference-coord="G6" data-app-mechanism="four_bar"/>
+  <g id="layer-new-part-highlight-step-2" data-step="2" data-app-mechanism="planetary_gear">
+  <circle cx="191" cy="197.571" r="2.3" class="score new-part-highlight" data-step="2" data-recipe-key="planetary-gear-basic" data-board-coord="D8" data-app-mechanism="planetary_gear"/>
+  <circle cx="167.571" cy="221" r="2.3" class="score new-part-highlight" data-step="2" data-recipe-key="planetary-gear-basic" data-board-coord="H4" data-app-mechanism="planetary_gear"/>
+  <circle cx="214.429" cy="221" r="2.3" class="score new-part-highlight" data-step="2" data-recipe-key="planetary-gear-basic" data-board-coord="H12" data-app-mechanism="planetary_gear"/>
+  <circle cx="191" cy="244.429" r="2.3" class="score new-part-highlight" data-step="2" data-recipe-key="planetary-gear-basic" data-board-coord="L8" data-app-mechanism="planetary_gear"/>
   </g>
-  <g id="layer-existing-parts-step-2" data-step="2" data-app-mechanism="four_bar">
-  <circle cx="173.429" cy="226.857" r="2.9" class="score board-part spacer-part" data-step="2" data-part-key="spacers:s8" data-part-index="1"/>
-  <circle cx="173.429" cy="226.857" r="1.1" class="drill board-part-hole" data-step="2" data-part-key="spacers:s8" data-part-index="1"/>
-  <path d="M 179.286 215.143 L 179.286 215.143" class="score board-part linkage-part" style="fill:none;stroke:#60a5fa;stroke-opacity:0.72;stroke-width:4.2;stroke-linecap:round" data-step="2" data-part-key="linkages:linkage-2-cell" data-part-index="2"/>
-  <circle cx="173.429" cy="226.857" r="1.1" class="drill board-part-hole linkage-hole" data-step="2" data-part-key="linkages:linkage-2-cell" data-part-index="2" data-hole-index="0"/>
-  <circle cx="179.286" cy="215.143" r="1.1" class="drill board-part-hole linkage-hole" data-step="2" data-part-key="linkages:linkage-2-cell" data-part-index="2" data-hole-index="1"/>
+  <g id="layer-existing-parts-step-2" data-step="2" data-app-mechanism="planetary_gear">
+  <circle cx="191" cy="197.571" r="2.9" class="score board-part spacer-part" data-step="2" data-part-key="spacers:s8" data-part-index="1"/>
+  <circle cx="191" cy="197.571" r="1.1" class="drill board-part-hole" data-step="2" data-part-key="spacers:s8" data-part-index="1"/>
+  <circle cx="191" cy="221" r="26.229" class="score board-part ring-gear-part" data-step="2" data-part-key="ring_gears:ring-g12-g14" data-part-index="2"/>
+  <circle cx="191" cy="221" r="15.931" class="score board-part ring-inner-reference" data-step="2" data-part-key="ring_gears:ring-g12-g14" data-part-index="2"/>
+  <circle cx="191" cy="197.571" r="1" class="drill board-part-hole ring-mount-hole" data-step="2" data-part-key="ring_gears:ring-g12-g14" data-part-index="2" data-hole-index="0"/>
+  <circle cx="167.571" cy="221" r="1" class="drill board-part-hole ring-mount-hole" data-step="2" data-part-key="ring_gears:ring-g12-g14" data-part-index="2" data-hole-index="1"/>
+  <circle cx="214.429" cy="221" r="1" class="drill board-part-hole ring-mount-hole" data-step="2" data-part-key="ring_gears:ring-g12-g14" data-part-index="2" data-hole-index="2"/>
+  <circle cx="191" cy="244.429" r="1" class="drill board-part-hole ring-mount-hole" data-step="2" data-part-key="ring_gears:ring-g12-g14" data-part-index="2" data-hole-index="3"/>
   </g>
   <g id="layer-stack-diagram-step-2" data-step="2">
   <text x="266" y="179" class="small" text-anchor="start">Fastener stack</text>
   <rect x="268" y="182.5" width="34" height="5" class="score stack-layer" data-step="2" data-stack-layer="1" data-stack-role="board" data-part-key=""/>
-  <text x="308" y="188" class="tiny" text-anchor="start">Board hole I5</text>
+  <text x="308" y="188" class="tiny" text-anchor="start">Board hole D8</text>
   <rect x="268" y="192" width="34" height="5" class="score stack-layer" data-step="2" data-stack-layer="2" data-stack-role="paper-fastener" data-part-key=""/>
   <text x="308" y="197.5" class="tiny" text-anchor="start">Fastener</text>
   <rect x="268" y="201.5" width="34" height="5" class="score stack-layer" data-step="2" data-stack-layer="3" data-stack-role="spacer" data-part-key="spacers:s8"/>
   <text x="308" y="207" class="tiny" text-anchor="start">S8</text>
-  <rect x="268" y="211" width="34" height="5" class="score stack-layer" data-step="2" data-stack-layer="4" data-stack-role="moving-part" data-part-key="linkages:linkage-2-cell"/>
-  <text x="308" y="216.5" class="tiny" text-anchor="start">L2</text>
-  <rect x="268" y="220.5" width="34" height="5" class="score stack-layer" data-step="2" data-stack-layer="5" data-stack-role="top-spacer" data-part-key="spacers:s8"/>
-  <text x="308" y="226" class="tiny" text-anchor="start">S8</text>
-  <rect x="268" y="230" width="34" height="5" class="score stack-layer" data-step="2" data-stack-layer="6" data-stack-role="fastener-tabs" data-part-key=""/>
-  <text x="308" y="235.5" class="tiny" text-anchor="start">Loose tabs</text>
+  <rect x="268" y="211" width="34" height="5" class="score stack-layer" data-step="2" data-stack-layer="4" data-stack-role="fixed-part" data-part-key="ring_gears:ring-g12-g14"/>
+  <text x="308" y="216.5" class="tiny" text-anchor="start">R40 internal ring gear</text>
+  <rect x="268" y="220.5" width="34" height="5" class="score stack-layer" data-step="2" data-stack-layer="5" data-stack-role="fastener-tabs" data-part-key=""/>
+  <text x="308" y="226" class="tiny" text-anchor="start">Loose tabs</text>
   </g>
-  <g id="layer-labels-step-2" data-step="2" data-board-coord="I5, G6" data-part-key="S8 L2">
-  <text x="376" y="181" class="small" text-anchor="start">Board/ref: I5, G6</text>
+  <g id="layer-labels-step-2" data-step="2" data-board-coord="D8, H4, H12, L8" data-part-key="S8 G12/G14 Ring">
+  <text x="376" y="181" class="small" text-anchor="start">Board holes: D8, H4, H12, L8</text>
   <text x="376" y="195" class="part-card-label" text-anchor="start">Check</text>
-  <text x="376" y="203" class="small" text-anchor="start">The input link swings freely.</text>
+  <text x="376" y="203" class="small" text-anchor="start">The ring gear is fixed to the board and does not rotate.</text>
   <text x="376" y="222" class="tiny" text-anchor="start">Spacer rule: spacer below moving part.</text>
   <text x="376" y="230" class="tiny" text-anchor="start">Paper fastener tabs stay loose until tested.</text>
   </g>
@@ -653,24 +654,24 @@
   </g>
   <rect x="8" y="272" width="544" height="116" class="score step-card"/>
   <text x="16" y="283" class="coord-label" text-anchor="start">3</text>
-  <text x="28" y="282.5" class="step-title" text-anchor="start">Add coupler</text>
-  <text x="28" y="289" class="small" text-anchor="start">Join L4 to the free input-link hole near G6, then point the other end toward G10.</text>
+  <text x="28" y="282.5" class="step-title" text-anchor="start">Add G12 sun gear</text>
+  <text x="28" y="289" class="small" text-anchor="start">Add S8 spacer, then place G12 on H8.</text>
   <rect x="16" y="294" width="112" height="86" class="layout-box" style="fill:none;stroke:none" data-layout-box="3,parts,16,294,112,86" data-step="3" data-zone="parts"/>
   <rect x="142" y="294" width="104" height="86" class="layout-box" style="fill:none;stroke:none" data-layout-box="3,board,142,294,104,86" data-step="3" data-zone="board"/>
   <rect x="262" y="294" width="92" height="86" class="layout-box" style="fill:none;stroke:none" data-layout-box="3,stack,262,294,92,86" data-step="3" data-zone="stack"/>
   <rect x="372" y="294" width="164" height="86" class="layout-box" style="fill:none;stroke:none" data-layout-box="3,check,372,294,164,86" data-step="3" data-zone="check"/>
-  <g id="layer-callouts-step-3" data-step="3" data-recipe-key="four-bar-basic">
+  <g id="layer-callouts-step-3" data-step="3" data-recipe-key="planetary-gear-basic">
   <text x="18" y="301" class="small" text-anchor="start">Parts to add now</text>
   <rect x="20" y="306" width="92" height="13" class="score part-card" style="fill:#94a3b8;fill-opacity:0.22;stroke:#94a3b8;stroke-width:0.6" data-step="3" data-part-key="spacers:s8" data-part-index="1"/>
   <circle cx="28" cy="312.5" r="4.2" class="score part-token" data-step="3" data-part-key="spacers:s8" data-part-index="1"/>
   <text x="37" y="311.7" class="part-card-label" text-anchor="start">S8</text>
   <text x="37" y="316.4" class="tiny" text-anchor="start">Spacer</text>
-  <rect x="20" y="321" width="92" height="13" class="score part-card" style="fill:#60a5fa;fill-opacity:0.22;stroke:#60a5fa;stroke-width:0.6" data-step="3" data-part-key="linkages:linkage-4-cell" data-part-index="2"/>
-  <circle cx="28" cy="327.5" r="4.2" class="score part-token" data-step="3" data-part-key="linkages:linkage-4-cell" data-part-index="2"/>
-  <text x="37" y="326.7" class="part-card-label" text-anchor="start">L4</text>
-  <text x="37" y="331.4" class="tiny" text-anchor="start">Linkage</text>
+  <rect x="20" y="321" width="92" height="13" class="score part-card" style="fill:#fbbf24;fill-opacity:0.22;stroke:#fbbf24;stroke-width:0.6" data-step="3" data-part-key="gears:g12" data-part-index="2"/>
+  <circle cx="28" cy="327.5" r="4.2" class="score part-token" data-step="3" data-part-key="gears:g12" data-part-index="2"/>
+  <text x="37" y="326.7" class="part-card-label" text-anchor="start">G12</text>
+  <text x="37" y="331.4" class="tiny" text-anchor="start">Gear</text>
   </g>
-  <g id="layer-board-grid-step-3" data-step="3" data-recipe-key="four-bar-basic">
+  <g id="layer-board-grid-step-3" data-step="3" data-recipe-key="planetary-gear-basic">
   <rect x="146" y="298" width="90" height="90" class="score board-outline"/>
   <text x="150" y="295" class="tiny" text-anchor="middle">1</text>
   <text x="155.857" y="295" class="tiny" text-anchor="middle">2</text>
@@ -814,7 +815,7 @@
   <circle cx="173.429" cy="343" r="0.72" class="drill board-hole" data-board-coord="H5" data-step="3"/>
   <circle cx="179.286" cy="343" r="0.72" class="drill board-hole" data-board-coord="H6" data-step="3"/>
   <circle cx="185.143" cy="343" r="0.72" class="drill board-hole" data-board-coord="H7" data-step="3"/>
-  <circle cx="191" cy="343" r="0.72" class="drill board-hole" data-board-coord="H8" data-step="3"/>
+  <circle cx="191" cy="343" r="0.72" class="drill board-hole active-board-hole" data-board-coord="H8" data-step="3"/>
   <circle cx="196.857" cy="343" r="0.72" class="drill board-hole" data-board-coord="H9" data-step="3"/>
   <circle cx="202.714" cy="343" r="0.72" class="drill board-hole" data-board-coord="H10" data-step="3"/>
   <circle cx="208.571" cy="343" r="0.72" class="drill board-hole" data-board-coord="H11" data-step="3"/>
@@ -927,42 +928,42 @@
   <circle cx="220.286" cy="384" r="0.72" class="drill board-hole" data-board-coord="O13" data-step="3"/>
   <circle cx="226.143" cy="384" r="0.72" class="drill board-hole" data-board-coord="O14" data-step="3"/>
   <circle cx="232" cy="384" r="0.72" class="drill board-hole" data-board-coord="O15" data-step="3"/>
-  <circle cx="179.286" cy="337.143" r="1.296" class="score reference-coordinate" data-reference-coord="G6" data-step="3"/>
-  <circle cx="202.714" cy="337.143" r="1.296" class="score reference-coordinate" data-reference-coord="G10" data-step="3"/>
   </g>
   <g id="layer-previous-step-ghost-step-3" data-step="3">
-  <text x="146" y="389" class="tiny" text-anchor="start">L2</text>
+  <text x="146" y="389" class="tiny" text-anchor="start">G12/G14 Ring</text>
   </g>
-  <g id="layer-new-part-highlight-step-3" data-step="3" data-app-mechanism="four_bar">
-  <circle cx="179.286" cy="337.143" r="2.1" class="score reference-marker" data-step="3" data-recipe-key="four-bar-basic" data-reference-coord="G6" data-app-mechanism="four_bar"/>
-  <circle cx="202.714" cy="337.143" r="2.1" class="score reference-marker" data-step="3" data-recipe-key="four-bar-basic" data-reference-coord="G10" data-app-mechanism="four_bar"/>
+  <g id="layer-new-part-highlight-step-3" data-step="3" data-app-mechanism="planetary_gear">
+  <circle cx="191" cy="343" r="2.3" class="score new-part-highlight" data-step="3" data-recipe-key="planetary-gear-basic" data-board-coord="H8" data-app-mechanism="planetary_gear"/>
   </g>
-  <g id="layer-existing-parts-step-3" data-step="3" data-app-mechanism="four_bar">
-  <circle cx="179.286" cy="337.143" r="2.9" class="score board-part spacer-part" data-step="3" data-part-key="spacers:s8" data-part-index="1"/>
-  <circle cx="179.286" cy="337.143" r="1.1" class="drill board-part-hole" data-step="3" data-part-key="spacers:s8" data-part-index="1"/>
-  <path d="M 202.714 337.143 L 202.714 337.143" class="score board-part linkage-part" style="fill:none;stroke:#60a5fa;stroke-opacity:0.72;stroke-width:4.2;stroke-linecap:round" data-step="3" data-part-key="linkages:linkage-4-cell" data-part-index="2"/>
-  <circle cx="179.286" cy="337.143" r="1.1" class="drill board-part-hole linkage-hole" data-step="3" data-part-key="linkages:linkage-4-cell" data-part-index="2" data-hole-index="0"/>
-  <circle cx="202.714" cy="337.143" r="1.1" class="drill board-part-hole linkage-hole" data-step="3" data-part-key="linkages:linkage-4-cell" data-part-index="2" data-hole-index="1"/>
+  <g id="layer-existing-parts-step-3" data-step="3" data-app-mechanism="planetary_gear">
+  <circle cx="191" cy="343" r="2.9" class="score board-part spacer-part" data-step="3" data-part-key="spacers:s8" data-part-index="1"/>
+  <circle cx="191" cy="343" r="1.1" class="drill board-part-hole" data-step="3" data-part-key="spacers:s8" data-part-index="1"/>
+  <path d="M 195.522 343.19 L 196.461 343.806 L 196.284 344.595 L 195.116 344.884 L 194.822 345.425 L 195.326 346.429 L 194.779 347.024 L 193.622 346.69 L 193.097 347.011 L 193.032 348.132 L 192.26 348.374 L 191.426 347.506 L 190.81 347.522 L 190.194 348.461 L 189.405 348.284 L 189.116 347.116 L 188.575 346.822 L 187.571 347.326 L 186.976 346.779 L 187.31 345.622 L 186.989 345.097 L 185.868 345.032 L 185.626 344.26 L 186.494 343.426 L 186.478 342.81 L 185.539 342.194 L 185.716 341.405 L 186.884 341.116 L 187.178 340.575 L 186.674 339.571 L 187.221 338.976 L 188.378 339.31 L 188.903 338.989 L 188.968 337.868 L 189.74 337.626 L 190.574 338.494 L 191.19 338.478 L 191.806 337.539 L 192.595 337.716 L 192.884 338.884 L 193.425 339.178 L 194.429 338.674 L 195.024 339.221 L 194.69 340.378 L 195.011 340.903 L 196.132 340.968 L 196.374 341.74 L 195.506 342.574 Z" class="score board-part gear-part" style="fill:#fbbf24;fill-opacity:0.48;stroke:#5c4033;stroke-width:0.55;stroke-linejoin:round" data-step="3" data-part-key="gears:g12" data-part-index="2"/>
+  <circle cx="191" cy="343" r="1.35" class="drill board-part-hole" data-step="3" data-part-key="gears:g12" data-part-index="2"/>
+  <circle cx="193.87" cy="343" r="0.9" class="drill board-part-hole gear-attachment-hole" data-step="3" data-part-key="gears:g12" data-part-index="2" data-hole-index="0"/>
+  <circle cx="191" cy="345.87" r="0.9" class="drill board-part-hole gear-attachment-hole" data-step="3" data-part-key="gears:g12" data-part-index="2" data-hole-index="1"/>
+  <circle cx="188.13" cy="343" r="0.9" class="drill board-part-hole gear-attachment-hole" data-step="3" data-part-key="gears:g12" data-part-index="2" data-hole-index="2"/>
+  <circle cx="191" cy="340.13" r="0.9" class="drill board-part-hole gear-attachment-hole" data-step="3" data-part-key="gears:g12" data-part-index="2" data-hole-index="3"/>
   </g>
   <g id="layer-stack-diagram-step-3" data-step="3">
   <text x="266" y="301" class="small" text-anchor="start">Fastener stack</text>
-  <rect x="268" y="304.5" width="34" height="5" class="score stack-layer" data-step="3" data-stack-layer="1" data-stack-role="link-joint-hole" data-part-key=""/>
-  <text x="308" y="310" class="tiny" text-anchor="start">Moving joint near G6</text>
+  <rect x="268" y="304.5" width="34" height="5" class="score stack-layer" data-step="3" data-stack-layer="1" data-stack-role="board" data-part-key=""/>
+  <text x="308" y="310" class="tiny" text-anchor="start">Board hole H8</text>
   <rect x="268" y="314" width="34" height="5" class="score stack-layer" data-step="3" data-stack-layer="2" data-stack-role="paper-fastener" data-part-key=""/>
   <text x="308" y="319.5" class="tiny" text-anchor="start">Fastener</text>
   <rect x="268" y="323.5" width="34" height="5" class="score stack-layer" data-step="3" data-stack-layer="3" data-stack-role="spacer" data-part-key="spacers:s8"/>
   <text x="308" y="329" class="tiny" text-anchor="start">S8</text>
-  <rect x="268" y="333" width="34" height="5" class="score stack-layer" data-step="3" data-stack-layer="4" data-stack-role="moving-part" data-part-key="linkages:linkage-4-cell"/>
-  <text x="308" y="338.5" class="tiny" text-anchor="start">L4</text>
+  <rect x="268" y="333" width="34" height="5" class="score stack-layer" data-step="3" data-stack-layer="4" data-stack-role="moving-part" data-part-key="gears:g12"/>
+  <text x="308" y="338.5" class="tiny" text-anchor="start">G12</text>
   <rect x="268" y="342.5" width="34" height="5" class="score stack-layer" data-step="3" data-stack-layer="5" data-stack-role="top-spacer" data-part-key="spacers:s8"/>
   <text x="308" y="348" class="tiny" text-anchor="start">S8</text>
   <rect x="268" y="352" width="34" height="5" class="score stack-layer" data-step="3" data-stack-layer="6" data-stack-role="fastener-tabs" data-part-key=""/>
   <text x="308" y="357.5" class="tiny" text-anchor="start">Loose tabs</text>
   </g>
-  <g id="layer-labels-step-3" data-step="3" data-board-coord="G6, G10" data-part-key="S8 L4">
-  <text x="376" y="303" class="small" text-anchor="start">Link-end ref: G6, G10</text>
+  <g id="layer-labels-step-3" data-step="3" data-board-coord="H8" data-part-key="S8 G12">
+  <text x="376" y="303" class="small" text-anchor="start">Board holes: H8</text>
   <text x="376" y="317" class="part-card-label" text-anchor="start">Check</text>
-  <text x="376" y="325" class="small" text-anchor="start">The coupler moves without scraping.</text>
+  <text x="376" y="325" class="small" text-anchor="start">G12 spins cleanly before the carrier is added.</text>
   <text x="376" y="344" class="tiny" text-anchor="start">Spacer rule: spacer below moving part.</text>
   <text x="376" y="352" class="tiny" text-anchor="start">Paper fastener tabs stay loose until tested.</text>
   </g>
@@ -973,13 +974,13 @@
   </g>
   <rect x="8" y="394" width="544" height="116" class="score step-card"/>
   <text x="16" y="405" class="coord-label" text-anchor="start">4</text>
-  <text x="28" y="404.5" class="step-title" text-anchor="start">Close output link</text>
-  <text x="28" y="411" class="small" text-anchor="start">Place L2 from G10 back to I9.</text>
+  <text x="28" y="404.5" class="step-title" text-anchor="start">Add carrier link</text>
+  <text x="28" y="411" class="small" text-anchor="start">Place L2 from H8 toward H10 as the carrier.</text>
   <rect x="16" y="416" width="112" height="86" class="layout-box" style="fill:none;stroke:none" data-layout-box="4,parts,16,416,112,86" data-step="4" data-zone="parts"/>
   <rect x="142" y="416" width="104" height="86" class="layout-box" style="fill:none;stroke:none" data-layout-box="4,board,142,416,104,86" data-step="4" data-zone="board"/>
   <rect x="262" y="416" width="92" height="86" class="layout-box" style="fill:none;stroke:none" data-layout-box="4,stack,262,416,92,86" data-step="4" data-zone="stack"/>
   <rect x="372" y="416" width="164" height="86" class="layout-box" style="fill:none;stroke:none" data-layout-box="4,check,372,416,164,86" data-step="4" data-zone="check"/>
-  <g id="layer-callouts-step-4" data-step="4" data-recipe-key="four-bar-basic">
+  <g id="layer-callouts-step-4" data-step="4" data-recipe-key="planetary-gear-basic">
   <text x="18" y="423" class="small" text-anchor="start">Parts to add now</text>
   <rect x="20" y="428" width="92" height="13" class="score part-card" style="fill:#94a3b8;fill-opacity:0.22;stroke:#94a3b8;stroke-width:0.6" data-step="4" data-part-key="spacers:s8" data-part-index="1"/>
   <circle cx="28" cy="434.5" r="4.2" class="score part-token" data-step="4" data-part-key="spacers:s8" data-part-index="1"/>
@@ -990,7 +991,7 @@
   <text x="37" y="448.7" class="part-card-label" text-anchor="start">L2</text>
   <text x="37" y="453.4" class="tiny" text-anchor="start">Linkage</text>
   </g>
-  <g id="layer-board-grid-step-4" data-step="4" data-recipe-key="four-bar-basic">
+  <g id="layer-board-grid-step-4" data-step="4" data-recipe-key="planetary-gear-basic">
   <rect x="146" y="420" width="90" height="90" class="score board-outline"/>
   <text x="150" y="417" class="tiny" text-anchor="middle">1</text>
   <text x="155.857" y="417" class="tiny" text-anchor="middle">2</text>
@@ -1134,7 +1135,7 @@
   <circle cx="173.429" cy="465" r="0.72" class="drill board-hole" data-board-coord="H5" data-step="4"/>
   <circle cx="179.286" cy="465" r="0.72" class="drill board-hole" data-board-coord="H6" data-step="4"/>
   <circle cx="185.143" cy="465" r="0.72" class="drill board-hole" data-board-coord="H7" data-step="4"/>
-  <circle cx="191" cy="465" r="0.72" class="drill board-hole" data-board-coord="H8" data-step="4"/>
+  <circle cx="191" cy="465" r="0.72" class="drill board-hole active-board-hole" data-board-coord="H8" data-step="4"/>
   <circle cx="196.857" cy="465" r="0.72" class="drill board-hole" data-board-coord="H9" data-step="4"/>
   <circle cx="202.714" cy="465" r="0.72" class="drill board-hole" data-board-coord="H10" data-step="4"/>
   <circle cx="208.571" cy="465" r="0.72" class="drill board-hole" data-board-coord="H11" data-step="4"/>
@@ -1150,7 +1151,7 @@
   <circle cx="179.286" cy="470.857" r="0.72" class="drill board-hole" data-board-coord="I6" data-step="4"/>
   <circle cx="185.143" cy="470.857" r="0.72" class="drill board-hole" data-board-coord="I7" data-step="4"/>
   <circle cx="191" cy="470.857" r="0.72" class="drill board-hole" data-board-coord="I8" data-step="4"/>
-  <circle cx="196.857" cy="470.857" r="0.72" class="drill board-hole active-board-hole" data-board-coord="I9" data-step="4"/>
+  <circle cx="196.857" cy="470.857" r="0.72" class="drill board-hole" data-board-coord="I9" data-step="4"/>
   <circle cx="202.714" cy="470.857" r="0.72" class="drill board-hole" data-board-coord="I10" data-step="4"/>
   <circle cx="208.571" cy="470.857" r="0.72" class="drill board-hole" data-board-coord="I11" data-step="4"/>
   <circle cx="214.429" cy="470.857" r="0.72" class="drill board-hole" data-board-coord="I12" data-step="4"/>
@@ -1247,27 +1248,27 @@
   <circle cx="220.286" cy="506" r="0.72" class="drill board-hole" data-board-coord="O13" data-step="4"/>
   <circle cx="226.143" cy="506" r="0.72" class="drill board-hole" data-board-coord="O14" data-step="4"/>
   <circle cx="232" cy="506" r="0.72" class="drill board-hole" data-board-coord="O15" data-step="4"/>
-  <circle cx="202.714" cy="459.143" r="1.296" class="score reference-coordinate" data-reference-coord="G10" data-step="4"/>
+  <circle cx="202.714" cy="465" r="1.296" class="score reference-coordinate" data-reference-coord="H10" data-step="4"/>
   </g>
   <g id="layer-previous-step-ghost-step-4" data-step="4">
-  <text x="146" y="511" class="tiny" text-anchor="start">L2</text>
-  <text x="146" y="516" class="tiny" text-anchor="start">L4</text>
+  <text x="146" y="511" class="tiny" text-anchor="start">G12/G14 Ring</text>
+  <text x="146" y="516" class="tiny" text-anchor="start">G12</text>
   </g>
-  <g id="layer-new-part-highlight-step-4" data-step="4" data-app-mechanism="four_bar">
-  <circle cx="196.857" cy="470.857" r="2.3" class="score new-part-highlight" data-step="4" data-recipe-key="four-bar-basic" data-board-coord="I9" data-app-mechanism="four_bar"/>
-  <circle cx="202.714" cy="459.143" r="2.1" class="score reference-marker" data-step="4" data-recipe-key="four-bar-basic" data-reference-coord="G10" data-app-mechanism="four_bar"/>
+  <g id="layer-new-part-highlight-step-4" data-step="4" data-app-mechanism="planetary_gear">
+  <circle cx="191" cy="465" r="2.3" class="score new-part-highlight" data-step="4" data-recipe-key="planetary-gear-basic" data-board-coord="H8" data-app-mechanism="planetary_gear"/>
+  <circle cx="202.714" cy="465" r="2.1" class="score reference-marker" data-step="4" data-recipe-key="planetary-gear-basic" data-reference-coord="H10" data-app-mechanism="planetary_gear"/>
   </g>
-  <g id="layer-existing-parts-step-4" data-step="4" data-app-mechanism="four_bar">
-  <circle cx="202.714" cy="459.143" r="2.9" class="score board-part spacer-part" data-step="4" data-part-key="spacers:s8" data-part-index="1"/>
-  <circle cx="202.714" cy="459.143" r="1.1" class="drill board-part-hole" data-step="4" data-part-key="spacers:s8" data-part-index="1"/>
-  <path d="M 196.857 470.857 L 196.857 470.857" class="score board-part linkage-part" style="fill:none;stroke:#60a5fa;stroke-opacity:0.72;stroke-width:4.2;stroke-linecap:round" data-step="4" data-part-key="linkages:linkage-2-cell" data-part-index="2"/>
-  <circle cx="202.714" cy="459.143" r="1.1" class="drill board-part-hole linkage-hole" data-step="4" data-part-key="linkages:linkage-2-cell" data-part-index="2" data-hole-index="0"/>
-  <circle cx="196.857" cy="470.857" r="1.1" class="drill board-part-hole linkage-hole" data-step="4" data-part-key="linkages:linkage-2-cell" data-part-index="2" data-hole-index="1"/>
+  <g id="layer-existing-parts-step-4" data-step="4" data-app-mechanism="planetary_gear">
+  <circle cx="191" cy="465" r="2.9" class="score board-part spacer-part" data-step="4" data-part-key="spacers:s8" data-part-index="1"/>
+  <circle cx="191" cy="465" r="1.1" class="drill board-part-hole" data-step="4" data-part-key="spacers:s8" data-part-index="1"/>
+  <path d="M 202.714 465 L 202.714 465" class="score board-part linkage-part" style="fill:none;stroke:#60a5fa;stroke-opacity:0.72;stroke-width:4.2;stroke-linecap:round" data-step="4" data-part-key="linkages:linkage-2-cell" data-part-index="2"/>
+  <circle cx="191" cy="465" r="1.1" class="drill board-part-hole linkage-hole" data-step="4" data-part-key="linkages:linkage-2-cell" data-part-index="2" data-hole-index="0"/>
+  <circle cx="202.714" cy="465" r="1.1" class="drill board-part-hole linkage-hole" data-step="4" data-part-key="linkages:linkage-2-cell" data-part-index="2" data-hole-index="1"/>
   </g>
   <g id="layer-stack-diagram-step-4" data-step="4">
   <text x="266" y="423" class="small" text-anchor="start">Fastener stack</text>
   <rect x="268" y="426.5" width="34" height="5" class="score stack-layer" data-step="4" data-stack-layer="1" data-stack-role="board" data-part-key=""/>
-  <text x="308" y="432" class="tiny" text-anchor="start">Board hole I9</text>
+  <text x="308" y="432" class="tiny" text-anchor="start">Board hole H8</text>
   <rect x="268" y="436" width="34" height="5" class="score stack-layer" data-step="4" data-stack-layer="2" data-stack-role="paper-fastener" data-part-key=""/>
   <text x="308" y="441.5" class="tiny" text-anchor="start">Fastener</text>
   <rect x="268" y="445.5" width="34" height="5" class="score stack-layer" data-step="4" data-stack-layer="3" data-stack-role="spacer" data-part-key="spacers:s8"/>
@@ -1279,10 +1280,10 @@
   <rect x="268" y="474" width="34" height="5" class="score stack-layer" data-step="4" data-stack-layer="6" data-stack-role="fastener-tabs" data-part-key=""/>
   <text x="308" y="479.5" class="tiny" text-anchor="start">Loose tabs</text>
   </g>
-  <g id="layer-labels-step-4" data-step="4" data-board-coord="G10, I9" data-part-key="S8 L2">
-  <text x="376" y="425" class="small" text-anchor="start">Board/ref: G10, I9</text>
+  <g id="layer-labels-step-4" data-step="4" data-board-coord="H8, H10" data-part-key="S8 L2">
+  <text x="376" y="425" class="small" text-anchor="start">Board/ref: H8, H10</text>
   <text x="376" y="439" class="part-card-label" text-anchor="start">Check</text>
-  <text x="376" y="447" class="small" text-anchor="start">All pivots move when the input link turns.</text>
+  <text x="376" y="447" class="small" text-anchor="start">The carrier swings loosely around the sun axle.</text>
   <text x="376" y="466" class="tiny" text-anchor="start">Spacer rule: spacer below moving part.</text>
   <text x="376" y="474" class="tiny" text-anchor="start">Paper fastener tabs stay loose until tested.</text>
   </g>
@@ -1293,24 +1294,24 @@
   </g>
   <rect x="8" y="516" width="544" height="116" class="score step-card"/>
   <text x="16" y="527" class="coord-label" text-anchor="start">5</text>
-  <text x="28" y="526.5" class="step-title" text-anchor="start">Join output to coupler</text>
-  <text x="28" y="533" class="small" text-anchor="start">Fasten the L4 coupler to the free output-link hole near G10 only (not the board).</text>
+  <text x="28" y="526.5" class="step-title" text-anchor="start">Add G14 moving planet gear</text>
+  <text x="28" y="533" class="small" text-anchor="start">Align the free carrier hole near H10, then fasten G14 through the carrier hole only (not the board) so it meshes with both G12 and R40 internal ring gear.</text>
   <rect x="16" y="538" width="112" height="86" class="layout-box" style="fill:none;stroke:none" data-layout-box="5,parts,16,538,112,86" data-step="5" data-zone="parts"/>
   <rect x="142" y="538" width="104" height="86" class="layout-box" style="fill:none;stroke:none" data-layout-box="5,board,142,538,104,86" data-step="5" data-zone="board"/>
   <rect x="262" y="538" width="92" height="86" class="layout-box" style="fill:none;stroke:none" data-layout-box="5,stack,262,538,92,86" data-step="5" data-zone="stack"/>
   <rect x="372" y="538" width="164" height="86" class="layout-box" style="fill:none;stroke:none" data-layout-box="5,check,372,538,164,86" data-step="5" data-zone="check"/>
-  <g id="layer-callouts-step-5" data-step="5" data-recipe-key="four-bar-basic">
+  <g id="layer-callouts-step-5" data-step="5" data-recipe-key="planetary-gear-basic">
   <text x="18" y="545" class="small" text-anchor="start">Parts to add now</text>
   <rect x="20" y="550" width="92" height="13" class="score part-card" style="fill:#94a3b8;fill-opacity:0.22;stroke:#94a3b8;stroke-width:0.6" data-step="5" data-part-key="spacers:s8" data-part-index="1"/>
   <circle cx="28" cy="556.5" r="4.2" class="score part-token" data-step="5" data-part-key="spacers:s8" data-part-index="1"/>
   <text x="37" y="555.7" class="part-card-label" text-anchor="start">S8</text>
   <text x="37" y="560.4" class="tiny" text-anchor="start">Spacer</text>
-  <rect x="20" y="565" width="92" height="13" class="score part-card" style="fill:#60a5fa;fill-opacity:0.22;stroke:#60a5fa;stroke-width:0.6" data-step="5" data-part-key="linkages:linkage-4-cell" data-part-index="2"/>
-  <circle cx="28" cy="571.5" r="4.2" class="score part-token" data-step="5" data-part-key="linkages:linkage-4-cell" data-part-index="2"/>
-  <text x="37" y="570.7" class="part-card-label" text-anchor="start">L4</text>
-  <text x="37" y="575.4" class="tiny" text-anchor="start">Linkage</text>
+  <rect x="20" y="565" width="92" height="13" class="score part-card" style="fill:#fbbf24;fill-opacity:0.22;stroke:#fbbf24;stroke-width:0.6" data-step="5" data-part-key="gears:g14" data-part-index="2"/>
+  <circle cx="28" cy="571.5" r="4.2" class="score part-token" data-step="5" data-part-key="gears:g14" data-part-index="2"/>
+  <text x="37" y="570.7" class="part-card-label" text-anchor="start">G14</text>
+  <text x="37" y="575.4" class="tiny" text-anchor="start">Gear</text>
   </g>
-  <g id="layer-board-grid-step-5" data-step="5" data-recipe-key="four-bar-basic">
+  <g id="layer-board-grid-step-5" data-step="5" data-recipe-key="planetary-gear-basic">
   <rect x="146" y="542" width="90" height="90" class="score board-outline"/>
   <text x="150" y="539" class="tiny" text-anchor="middle">1</text>
   <text x="155.857" y="539" class="tiny" text-anchor="middle">2</text>
@@ -1567,39 +1568,45 @@
   <circle cx="220.286" cy="628" r="0.72" class="drill board-hole" data-board-coord="O13" data-step="5"/>
   <circle cx="226.143" cy="628" r="0.72" class="drill board-hole" data-board-coord="O14" data-step="5"/>
   <circle cx="232" cy="628" r="0.72" class="drill board-hole" data-board-coord="O15" data-step="5"/>
-  <circle cx="202.714" cy="581.143" r="1.296" class="score reference-coordinate" data-reference-coord="G10" data-step="5"/>
+  <circle cx="202.714" cy="587" r="1.296" class="score reference-coordinate" data-reference-coord="H10" data-step="5"/>
   </g>
   <g id="layer-previous-step-ghost-step-5" data-step="5">
-  <text x="146" y="633" class="tiny" text-anchor="start">L2</text>
-  <text x="146" y="638" class="tiny" text-anchor="start">L4</text>
+  <text x="146" y="633" class="tiny" text-anchor="start">G12/G14 Ring</text>
+  <text x="146" y="638" class="tiny" text-anchor="start">G12</text>
+  <text x="146" y="643" class="tiny" text-anchor="start">L2</text>
   </g>
-  <g id="layer-new-part-highlight-step-5" data-step="5" data-app-mechanism="four_bar">
-  <circle cx="202.714" cy="581.143" r="2.1" class="score reference-marker" data-step="5" data-recipe-key="four-bar-basic" data-reference-coord="G10" data-app-mechanism="four_bar"/>
+  <g id="layer-new-part-highlight-step-5" data-step="5" data-app-mechanism="planetary_gear">
+  <circle cx="202.714" cy="587" r="2.1" class="score reference-marker" data-step="5" data-recipe-key="planetary-gear-basic" data-reference-coord="H10" data-app-mechanism="planetary_gear"/>
   </g>
-  <g id="layer-existing-parts-step-5" data-step="5" data-app-mechanism="four_bar">
-  <circle cx="202.714" cy="581.143" r="2.9" class="score board-part spacer-part" data-step="5" data-part-key="spacers:s8" data-part-index="1"/>
-  <circle cx="202.714" cy="581.143" r="1.1" class="drill board-part-hole" data-step="5" data-part-key="spacers:s8" data-part-index="1"/>
-  <circle cx="202.714" cy="581.143" r="3" class="score board-part generic-part" data-step="5" data-part-key="linkages:linkage-4-cell" data-part-index="2"/>
+  <g id="layer-existing-parts-step-5" data-step="5" data-app-mechanism="planetary_gear">
+  <circle cx="202.714" cy="587" r="2.9" class="score board-part spacer-part" data-step="5" data-part-key="spacers:s8" data-part-index="1"/>
+  <circle cx="202.714" cy="587" r="1.1" class="drill board-part-hole" data-step="5" data-part-key="spacers:s8" data-part-index="1"/>
+  <path d="M 207.992 587.19 L 209.104 587.807 L 208.952 588.602 L 207.642 588.9 L 207.387 589.461 L 208.121 590.499 L 207.639 591.149 L 206.329 590.85 L 205.856 591.244 L 206.067 592.499 L 205.351 592.875 L 204.301 592.037 L 203.704 592.187 L 203.349 593.409 L 202.541 593.438 L 201.958 592.226 L 201.355 592.103 L 200.506 593.049 L 199.765 592.725 L 199.766 591.381 L 199.276 591.008 L 198.1 591.492 L 197.573 590.878 L 198.157 589.668 L 197.877 589.119 L 196.608 589.045 L 196.399 588.263 L 197.451 587.426 L 197.437 586.81 L 196.325 586.193 L 196.477 585.398 L 197.787 585.1 L 198.042 584.539 L 197.308 583.501 L 197.789 582.851 L 199.099 583.15 L 199.572 582.756 L 199.362 581.501 L 200.077 581.125 L 201.128 581.963 L 201.725 581.813 L 202.079 580.591 L 202.888 580.562 L 203.47 581.774 L 204.073 581.897 L 204.923 580.951 L 205.664 581.275 L 205.663 582.619 L 206.153 582.992 L 207.329 582.508 L 207.856 583.122 L 207.272 584.332 L 207.551 584.881 L 208.821 584.955 L 209.029 585.737 L 207.978 586.574 Z" class="score board-part gear-part" style="fill:#fbbf24;fill-opacity:0.48;stroke:#5c4033;stroke-width:0.55;stroke-linejoin:round" data-step="5" data-part-key="gears:g14" data-part-index="2"/>
+  <circle cx="202.714" cy="587" r="1.35" class="drill board-part-hole" data-step="5" data-part-key="gears:g14" data-part-index="2"/>
+  <circle cx="206.063" cy="587" r="0.9" class="drill board-part-hole gear-attachment-hole" data-step="5" data-part-key="gears:g14" data-part-index="2" data-hole-index="0"/>
+  <circle cx="202.714" cy="590.349" r="0.9" class="drill board-part-hole gear-attachment-hole" data-step="5" data-part-key="gears:g14" data-part-index="2" data-hole-index="1"/>
+  <circle cx="199.365" cy="587" r="0.9" class="drill board-part-hole gear-attachment-hole" data-step="5" data-part-key="gears:g14" data-part-index="2" data-hole-index="2"/>
+  <circle cx="202.714" cy="583.651" r="0.9" class="drill board-part-hole gear-attachment-hole" data-step="5" data-part-key="gears:g14" data-part-index="2" data-hole-index="3"/>
   </g>
   <g id="layer-stack-diagram-step-5" data-step="5">
   <text x="266" y="545" class="small" text-anchor="start">Fastener stack</text>
-  <rect x="268" y="548.5" width="34" height="5" class="score stack-layer" data-step="5" data-stack-layer="1" data-stack-role="link-joint-hole" data-part-key=""/>
-  <text x="308" y="554" class="tiny" text-anchor="start">Moving joint near G10</text>
+  <rect x="268" y="548.5" width="34" height="5" class="score stack-layer" data-step="5" data-stack-layer="1" data-stack-role="carrier-hole" data-part-key=""/>
+  <text x="308" y="554" class="tiny" text-anchor="start">Carrier hole</text>
   <rect x="268" y="558" width="34" height="5" class="score stack-layer" data-step="5" data-stack-layer="2" data-stack-role="paper-fastener" data-part-key=""/>
   <text x="308" y="563.5" class="tiny" text-anchor="start">Fastener</text>
   <rect x="268" y="567.5" width="34" height="5" class="score stack-layer" data-step="5" data-stack-layer="3" data-stack-role="spacer" data-part-key="spacers:s8"/>
   <text x="308" y="573" class="tiny" text-anchor="start">S8</text>
-  <rect x="268" y="577" width="34" height="5" class="score stack-layer" data-step="5" data-stack-layer="4" data-stack-role="moving-part" data-part-key="linkages:linkage-4-cell"/>
-  <text x="308" y="582.5" class="tiny" text-anchor="start">L4</text>
+  <rect x="268" y="577" width="34" height="5" class="score stack-layer" data-step="5" data-stack-layer="4" data-stack-role="moving-part" data-part-key="gears:g14"/>
+  <text x="308" y="582.5" class="tiny" text-anchor="start">G14</text>
   <rect x="268" y="586.5" width="34" height="5" class="score stack-layer" data-step="5" data-stack-layer="5" data-stack-role="top-spacer" data-part-key="spacers:s8"/>
   <text x="308" y="592" class="tiny" text-anchor="start">S8</text>
   <rect x="268" y="596" width="34" height="5" class="score stack-layer" data-step="5" data-stack-layer="6" data-stack-role="fastener-tabs" data-part-key=""/>
   <text x="308" y="601.5" class="tiny" text-anchor="start">Loose tabs</text>
   </g>
-  <g id="layer-labels-step-5" data-step="5" data-board-coord="G10" data-part-key="S8 L4">
-  <text x="376" y="547" class="small" text-anchor="start">Link-joint ref: G10</text>
+  <g id="layer-labels-step-5" data-step="5" data-board-coord="H10" data-part-key="S8 G14">
+  <text x="376" y="547" class="small" text-anchor="start">Carrier ref: H10</text>
   <text x="376" y="561" class="part-card-label" text-anchor="start">Check</text>
-  <text x="376" y="569" class="small" text-anchor="start">The G10 joint floats with the links and is not pinned to the board.</text>
+  <text x="376" y="569" class="small" text-anchor="start">The planet axle travels with the carrier and rolls between sun and ring.</text>
   <text x="376" y="588" class="tiny" text-anchor="start">Spacer rule: spacer below moving part.</text>
   <text x="376" y="596" class="tiny" text-anchor="start">Paper fastener tabs stay loose until tested.</text>
   </g>
@@ -1607,5 +1614,341 @@
   <g id="layer-spacers-step-5" data-step="5"></g>
   <g id="layer-motion-arrows-step-5" data-step="5">
   <path d="M 484 610.000 L 522 610.000 L 514 604.000 M 522 610.000 L 514 616.000" class="score motion-arrow"/>
+  </g>
+  <rect x="8" y="638" width="544" height="129" class="score step-card"/>
+  <text x="16" y="649" class="coord-label" text-anchor="start">6</text>
+  <text x="28" y="648.5" class="step-title" text-anchor="start">Rotate the carrier</text>
+  <text x="28" y="655" class="small" text-anchor="start">Hold the ring fixed and use the carrier end/handle hole to orbit the planet around H8.</text>
+  <rect x="16" y="660" width="112" height="99" class="layout-box" style="fill:none;stroke:none" data-layout-box="6,parts,16,660,112,99" data-step="6" data-zone="parts"/>
+  <rect x="142" y="660" width="104" height="99" class="layout-box" style="fill:none;stroke:none" data-layout-box="6,board,142,660,104,99" data-step="6" data-zone="board"/>
+  <rect x="262" y="660" width="92" height="99" class="layout-box" style="fill:none;stroke:none" data-layout-box="6,stack,262,660,92,99" data-step="6" data-zone="stack"/>
+  <rect x="372" y="660" width="164" height="99" class="layout-box" style="fill:none;stroke:none" data-layout-box="6,check,372,660,164,99" data-step="6" data-zone="check"/>
+  <g id="layer-callouts-step-6" data-step="6" data-recipe-key="planetary-gear-basic">
+  <text x="18" y="667" class="small" text-anchor="start">Parts to add now</text>
+  <rect x="20" y="672" width="92" height="13" class="score part-card" style="fill:#fbbf24;fill-opacity:0.22;stroke:#fbbf24;stroke-width:0.6" data-step="6" data-part-key="gears:g12" data-part-index="1"/>
+  <circle cx="28" cy="678.5" r="4.2" class="score part-token" data-step="6" data-part-key="gears:g12" data-part-index="1"/>
+  <text x="37" y="677.7" class="part-card-label" text-anchor="start">G12</text>
+  <text x="37" y="682.4" class="tiny" text-anchor="start">Gear</text>
+  <rect x="20" y="687" width="92" height="13" class="score part-card" style="fill:#fbbf24;fill-opacity:0.22;stroke:#fbbf24;stroke-width:0.6" data-step="6" data-part-key="gears:g14" data-part-index="2"/>
+  <circle cx="28" cy="693.5" r="4.2" class="score part-token" data-step="6" data-part-key="gears:g14" data-part-index="2"/>
+  <text x="37" y="692.7" class="part-card-label" text-anchor="start">G14</text>
+  <text x="37" y="697.4" class="tiny" text-anchor="start">Gear</text>
+  <rect x="20" y="702" width="92" height="13" class="score part-card" style="fill:#60a5fa;fill-opacity:0.22;stroke:#60a5fa;stroke-width:0.6" data-step="6" data-part-key="linkages:linkage-2-cell" data-part-index="3"/>
+  <circle cx="28" cy="708.5" r="4.2" class="score part-token" data-step="6" data-part-key="linkages:linkage-2-cell" data-part-index="3"/>
+  <text x="37" y="707.7" class="part-card-label" text-anchor="start">L2</text>
+  <text x="37" y="712.4" class="tiny" text-anchor="start">Linkage</text>
+  </g>
+  <g id="layer-board-grid-step-6" data-step="6" data-recipe-key="planetary-gear-basic">
+  <rect x="146" y="664" width="90" height="90" class="score board-outline"/>
+  <text x="150" y="661" class="tiny" text-anchor="middle">1</text>
+  <text x="155.857" y="661" class="tiny" text-anchor="middle">2</text>
+  <text x="161.714" y="661" class="tiny" text-anchor="middle">3</text>
+  <text x="167.571" y="661" class="tiny" text-anchor="middle">4</text>
+  <text x="173.429" y="661" class="tiny" text-anchor="middle">5</text>
+  <text x="179.286" y="661" class="tiny" text-anchor="middle">6</text>
+  <text x="185.143" y="661" class="tiny" text-anchor="middle">7</text>
+  <text x="191" y="661" class="tiny" text-anchor="middle">8</text>
+  <text x="196.857" y="661" class="tiny" text-anchor="middle">9</text>
+  <text x="202.714" y="661" class="tiny" text-anchor="middle">10</text>
+  <text x="208.571" y="661" class="tiny" text-anchor="middle">11</text>
+  <text x="214.429" y="661" class="tiny" text-anchor="middle">12</text>
+  <text x="220.286" y="661" class="tiny" text-anchor="middle">13</text>
+  <text x="226.143" y="661" class="tiny" text-anchor="middle">14</text>
+  <text x="232" y="661" class="tiny" text-anchor="middle">15</text>
+  <text x="143" y="669" class="tiny" text-anchor="middle">A</text>
+  <text x="143" y="674.857" class="tiny" text-anchor="middle">B</text>
+  <text x="143" y="680.714" class="tiny" text-anchor="middle">C</text>
+  <text x="143" y="686.571" class="tiny" text-anchor="middle">D</text>
+  <text x="143" y="692.429" class="tiny" text-anchor="middle">E</text>
+  <text x="143" y="698.286" class="tiny" text-anchor="middle">F</text>
+  <text x="143" y="704.143" class="tiny" text-anchor="middle">G</text>
+  <text x="143" y="710" class="tiny" text-anchor="middle">H</text>
+  <text x="143" y="715.857" class="tiny" text-anchor="middle">I</text>
+  <text x="143" y="721.714" class="tiny" text-anchor="middle">J</text>
+  <text x="143" y="727.571" class="tiny" text-anchor="middle">K</text>
+  <text x="143" y="733.429" class="tiny" text-anchor="middle">L</text>
+  <text x="143" y="739.286" class="tiny" text-anchor="middle">M</text>
+  <text x="143" y="745.143" class="tiny" text-anchor="middle">N</text>
+  <text x="143" y="751" class="tiny" text-anchor="middle">O</text>
+  <circle cx="150" cy="668" r="0.72" class="drill board-hole" data-board-coord="A1" data-step="6"/>
+  <circle cx="155.857" cy="668" r="0.72" class="drill board-hole" data-board-coord="A2" data-step="6"/>
+  <circle cx="161.714" cy="668" r="0.72" class="drill board-hole" data-board-coord="A3" data-step="6"/>
+  <circle cx="167.571" cy="668" r="0.72" class="drill board-hole" data-board-coord="A4" data-step="6"/>
+  <circle cx="173.429" cy="668" r="0.72" class="drill board-hole" data-board-coord="A5" data-step="6"/>
+  <circle cx="179.286" cy="668" r="0.72" class="drill board-hole" data-board-coord="A6" data-step="6"/>
+  <circle cx="185.143" cy="668" r="0.72" class="drill board-hole" data-board-coord="A7" data-step="6"/>
+  <circle cx="191" cy="668" r="0.72" class="drill board-hole" data-board-coord="A8" data-step="6"/>
+  <circle cx="196.857" cy="668" r="0.72" class="drill board-hole" data-board-coord="A9" data-step="6"/>
+  <circle cx="202.714" cy="668" r="0.72" class="drill board-hole" data-board-coord="A10" data-step="6"/>
+  <circle cx="208.571" cy="668" r="0.72" class="drill board-hole" data-board-coord="A11" data-step="6"/>
+  <circle cx="214.429" cy="668" r="0.72" class="drill board-hole" data-board-coord="A12" data-step="6"/>
+  <circle cx="220.286" cy="668" r="0.72" class="drill board-hole" data-board-coord="A13" data-step="6"/>
+  <circle cx="226.143" cy="668" r="0.72" class="drill board-hole" data-board-coord="A14" data-step="6"/>
+  <circle cx="232" cy="668" r="0.72" class="drill board-hole" data-board-coord="A15" data-step="6"/>
+  <circle cx="150" cy="673.857" r="0.72" class="drill board-hole" data-board-coord="B1" data-step="6"/>
+  <circle cx="155.857" cy="673.857" r="0.72" class="drill board-hole" data-board-coord="B2" data-step="6"/>
+  <circle cx="161.714" cy="673.857" r="0.72" class="drill board-hole" data-board-coord="B3" data-step="6"/>
+  <circle cx="167.571" cy="673.857" r="0.72" class="drill board-hole" data-board-coord="B4" data-step="6"/>
+  <circle cx="173.429" cy="673.857" r="0.72" class="drill board-hole" data-board-coord="B5" data-step="6"/>
+  <circle cx="179.286" cy="673.857" r="0.72" class="drill board-hole" data-board-coord="B6" data-step="6"/>
+  <circle cx="185.143" cy="673.857" r="0.72" class="drill board-hole" data-board-coord="B7" data-step="6"/>
+  <circle cx="191" cy="673.857" r="0.72" class="drill board-hole" data-board-coord="B8" data-step="6"/>
+  <circle cx="196.857" cy="673.857" r="0.72" class="drill board-hole" data-board-coord="B9" data-step="6"/>
+  <circle cx="202.714" cy="673.857" r="0.72" class="drill board-hole" data-board-coord="B10" data-step="6"/>
+  <circle cx="208.571" cy="673.857" r="0.72" class="drill board-hole" data-board-coord="B11" data-step="6"/>
+  <circle cx="214.429" cy="673.857" r="0.72" class="drill board-hole" data-board-coord="B12" data-step="6"/>
+  <circle cx="220.286" cy="673.857" r="0.72" class="drill board-hole" data-board-coord="B13" data-step="6"/>
+  <circle cx="226.143" cy="673.857" r="0.72" class="drill board-hole" data-board-coord="B14" data-step="6"/>
+  <circle cx="232" cy="673.857" r="0.72" class="drill board-hole" data-board-coord="B15" data-step="6"/>
+  <circle cx="150" cy="679.714" r="0.72" class="drill board-hole" data-board-coord="C1" data-step="6"/>
+  <circle cx="155.857" cy="679.714" r="0.72" class="drill board-hole" data-board-coord="C2" data-step="6"/>
+  <circle cx="161.714" cy="679.714" r="0.72" class="drill board-hole" data-board-coord="C3" data-step="6"/>
+  <circle cx="167.571" cy="679.714" r="0.72" class="drill board-hole" data-board-coord="C4" data-step="6"/>
+  <circle cx="173.429" cy="679.714" r="0.72" class="drill board-hole" data-board-coord="C5" data-step="6"/>
+  <circle cx="179.286" cy="679.714" r="0.72" class="drill board-hole" data-board-coord="C6" data-step="6"/>
+  <circle cx="185.143" cy="679.714" r="0.72" class="drill board-hole" data-board-coord="C7" data-step="6"/>
+  <circle cx="191" cy="679.714" r="0.72" class="drill board-hole" data-board-coord="C8" data-step="6"/>
+  <circle cx="196.857" cy="679.714" r="0.72" class="drill board-hole" data-board-coord="C9" data-step="6"/>
+  <circle cx="202.714" cy="679.714" r="0.72" class="drill board-hole" data-board-coord="C10" data-step="6"/>
+  <circle cx="208.571" cy="679.714" r="0.72" class="drill board-hole" data-board-coord="C11" data-step="6"/>
+  <circle cx="214.429" cy="679.714" r="0.72" class="drill board-hole" data-board-coord="C12" data-step="6"/>
+  <circle cx="220.286" cy="679.714" r="0.72" class="drill board-hole" data-board-coord="C13" data-step="6"/>
+  <circle cx="226.143" cy="679.714" r="0.72" class="drill board-hole" data-board-coord="C14" data-step="6"/>
+  <circle cx="232" cy="679.714" r="0.72" class="drill board-hole" data-board-coord="C15" data-step="6"/>
+  <circle cx="150" cy="685.571" r="0.72" class="drill board-hole" data-board-coord="D1" data-step="6"/>
+  <circle cx="155.857" cy="685.571" r="0.72" class="drill board-hole" data-board-coord="D2" data-step="6"/>
+  <circle cx="161.714" cy="685.571" r="0.72" class="drill board-hole" data-board-coord="D3" data-step="6"/>
+  <circle cx="167.571" cy="685.571" r="0.72" class="drill board-hole" data-board-coord="D4" data-step="6"/>
+  <circle cx="173.429" cy="685.571" r="0.72" class="drill board-hole" data-board-coord="D5" data-step="6"/>
+  <circle cx="179.286" cy="685.571" r="0.72" class="drill board-hole" data-board-coord="D6" data-step="6"/>
+  <circle cx="185.143" cy="685.571" r="0.72" class="drill board-hole" data-board-coord="D7" data-step="6"/>
+  <circle cx="191" cy="685.571" r="0.72" class="drill board-hole" data-board-coord="D8" data-step="6"/>
+  <circle cx="196.857" cy="685.571" r="0.72" class="drill board-hole" data-board-coord="D9" data-step="6"/>
+  <circle cx="202.714" cy="685.571" r="0.72" class="drill board-hole" data-board-coord="D10" data-step="6"/>
+  <circle cx="208.571" cy="685.571" r="0.72" class="drill board-hole" data-board-coord="D11" data-step="6"/>
+  <circle cx="214.429" cy="685.571" r="0.72" class="drill board-hole" data-board-coord="D12" data-step="6"/>
+  <circle cx="220.286" cy="685.571" r="0.72" class="drill board-hole" data-board-coord="D13" data-step="6"/>
+  <circle cx="226.143" cy="685.571" r="0.72" class="drill board-hole" data-board-coord="D14" data-step="6"/>
+  <circle cx="232" cy="685.571" r="0.72" class="drill board-hole" data-board-coord="D15" data-step="6"/>
+  <circle cx="150" cy="691.429" r="0.72" class="drill board-hole" data-board-coord="E1" data-step="6"/>
+  <circle cx="155.857" cy="691.429" r="0.72" class="drill board-hole" data-board-coord="E2" data-step="6"/>
+  <circle cx="161.714" cy="691.429" r="0.72" class="drill board-hole" data-board-coord="E3" data-step="6"/>
+  <circle cx="167.571" cy="691.429" r="0.72" class="drill board-hole" data-board-coord="E4" data-step="6"/>
+  <circle cx="173.429" cy="691.429" r="0.72" class="drill board-hole" data-board-coord="E5" data-step="6"/>
+  <circle cx="179.286" cy="691.429" r="0.72" class="drill board-hole" data-board-coord="E6" data-step="6"/>
+  <circle cx="185.143" cy="691.429" r="0.72" class="drill board-hole" data-board-coord="E7" data-step="6"/>
+  <circle cx="191" cy="691.429" r="0.72" class="drill board-hole" data-board-coord="E8" data-step="6"/>
+  <circle cx="196.857" cy="691.429" r="0.72" class="drill board-hole" data-board-coord="E9" data-step="6"/>
+  <circle cx="202.714" cy="691.429" r="0.72" class="drill board-hole" data-board-coord="E10" data-step="6"/>
+  <circle cx="208.571" cy="691.429" r="0.72" class="drill board-hole" data-board-coord="E11" data-step="6"/>
+  <circle cx="214.429" cy="691.429" r="0.72" class="drill board-hole" data-board-coord="E12" data-step="6"/>
+  <circle cx="220.286" cy="691.429" r="0.72" class="drill board-hole" data-board-coord="E13" data-step="6"/>
+  <circle cx="226.143" cy="691.429" r="0.72" class="drill board-hole" data-board-coord="E14" data-step="6"/>
+  <circle cx="232" cy="691.429" r="0.72" class="drill board-hole" data-board-coord="E15" data-step="6"/>
+  <circle cx="150" cy="697.286" r="0.72" class="drill board-hole" data-board-coord="F1" data-step="6"/>
+  <circle cx="155.857" cy="697.286" r="0.72" class="drill board-hole" data-board-coord="F2" data-step="6"/>
+  <circle cx="161.714" cy="697.286" r="0.72" class="drill board-hole" data-board-coord="F3" data-step="6"/>
+  <circle cx="167.571" cy="697.286" r="0.72" class="drill board-hole" data-board-coord="F4" data-step="6"/>
+  <circle cx="173.429" cy="697.286" r="0.72" class="drill board-hole" data-board-coord="F5" data-step="6"/>
+  <circle cx="179.286" cy="697.286" r="0.72" class="drill board-hole" data-board-coord="F6" data-step="6"/>
+  <circle cx="185.143" cy="697.286" r="0.72" class="drill board-hole" data-board-coord="F7" data-step="6"/>
+  <circle cx="191" cy="697.286" r="0.72" class="drill board-hole" data-board-coord="F8" data-step="6"/>
+  <circle cx="196.857" cy="697.286" r="0.72" class="drill board-hole" data-board-coord="F9" data-step="6"/>
+  <circle cx="202.714" cy="697.286" r="0.72" class="drill board-hole" data-board-coord="F10" data-step="6"/>
+  <circle cx="208.571" cy="697.286" r="0.72" class="drill board-hole" data-board-coord="F11" data-step="6"/>
+  <circle cx="214.429" cy="697.286" r="0.72" class="drill board-hole" data-board-coord="F12" data-step="6"/>
+  <circle cx="220.286" cy="697.286" r="0.72" class="drill board-hole" data-board-coord="F13" data-step="6"/>
+  <circle cx="226.143" cy="697.286" r="0.72" class="drill board-hole" data-board-coord="F14" data-step="6"/>
+  <circle cx="232" cy="697.286" r="0.72" class="drill board-hole" data-board-coord="F15" data-step="6"/>
+  <circle cx="150" cy="703.143" r="0.72" class="drill board-hole" data-board-coord="G1" data-step="6"/>
+  <circle cx="155.857" cy="703.143" r="0.72" class="drill board-hole" data-board-coord="G2" data-step="6"/>
+  <circle cx="161.714" cy="703.143" r="0.72" class="drill board-hole" data-board-coord="G3" data-step="6"/>
+  <circle cx="167.571" cy="703.143" r="0.72" class="drill board-hole" data-board-coord="G4" data-step="6"/>
+  <circle cx="173.429" cy="703.143" r="0.72" class="drill board-hole" data-board-coord="G5" data-step="6"/>
+  <circle cx="179.286" cy="703.143" r="0.72" class="drill board-hole" data-board-coord="G6" data-step="6"/>
+  <circle cx="185.143" cy="703.143" r="0.72" class="drill board-hole" data-board-coord="G7" data-step="6"/>
+  <circle cx="191" cy="703.143" r="0.72" class="drill board-hole" data-board-coord="G8" data-step="6"/>
+  <circle cx="196.857" cy="703.143" r="0.72" class="drill board-hole" data-board-coord="G9" data-step="6"/>
+  <circle cx="202.714" cy="703.143" r="0.72" class="drill board-hole" data-board-coord="G10" data-step="6"/>
+  <circle cx="208.571" cy="703.143" r="0.72" class="drill board-hole" data-board-coord="G11" data-step="6"/>
+  <circle cx="214.429" cy="703.143" r="0.72" class="drill board-hole" data-board-coord="G12" data-step="6"/>
+  <circle cx="220.286" cy="703.143" r="0.72" class="drill board-hole" data-board-coord="G13" data-step="6"/>
+  <circle cx="226.143" cy="703.143" r="0.72" class="drill board-hole" data-board-coord="G14" data-step="6"/>
+  <circle cx="232" cy="703.143" r="0.72" class="drill board-hole" data-board-coord="G15" data-step="6"/>
+  <circle cx="150" cy="709" r="0.72" class="drill board-hole" data-board-coord="H1" data-step="6"/>
+  <circle cx="155.857" cy="709" r="0.72" class="drill board-hole" data-board-coord="H2" data-step="6"/>
+  <circle cx="161.714" cy="709" r="0.72" class="drill board-hole" data-board-coord="H3" data-step="6"/>
+  <circle cx="167.571" cy="709" r="0.72" class="drill board-hole" data-board-coord="H4" data-step="6"/>
+  <circle cx="173.429" cy="709" r="0.72" class="drill board-hole" data-board-coord="H5" data-step="6"/>
+  <circle cx="179.286" cy="709" r="0.72" class="drill board-hole" data-board-coord="H6" data-step="6"/>
+  <circle cx="185.143" cy="709" r="0.72" class="drill board-hole" data-board-coord="H7" data-step="6"/>
+  <circle cx="191" cy="709" r="0.72" class="drill board-hole active-board-hole" data-board-coord="H8" data-step="6"/>
+  <circle cx="196.857" cy="709" r="0.72" class="drill board-hole" data-board-coord="H9" data-step="6"/>
+  <circle cx="202.714" cy="709" r="0.72" class="drill board-hole" data-board-coord="H10" data-step="6"/>
+  <circle cx="208.571" cy="709" r="0.72" class="drill board-hole" data-board-coord="H11" data-step="6"/>
+  <circle cx="214.429" cy="709" r="0.72" class="drill board-hole" data-board-coord="H12" data-step="6"/>
+  <circle cx="220.286" cy="709" r="0.72" class="drill board-hole" data-board-coord="H13" data-step="6"/>
+  <circle cx="226.143" cy="709" r="0.72" class="drill board-hole" data-board-coord="H14" data-step="6"/>
+  <circle cx="232" cy="709" r="0.72" class="drill board-hole" data-board-coord="H15" data-step="6"/>
+  <circle cx="150" cy="714.857" r="0.72" class="drill board-hole" data-board-coord="I1" data-step="6"/>
+  <circle cx="155.857" cy="714.857" r="0.72" class="drill board-hole" data-board-coord="I2" data-step="6"/>
+  <circle cx="161.714" cy="714.857" r="0.72" class="drill board-hole" data-board-coord="I3" data-step="6"/>
+  <circle cx="167.571" cy="714.857" r="0.72" class="drill board-hole" data-board-coord="I4" data-step="6"/>
+  <circle cx="173.429" cy="714.857" r="0.72" class="drill board-hole" data-board-coord="I5" data-step="6"/>
+  <circle cx="179.286" cy="714.857" r="0.72" class="drill board-hole" data-board-coord="I6" data-step="6"/>
+  <circle cx="185.143" cy="714.857" r="0.72" class="drill board-hole" data-board-coord="I7" data-step="6"/>
+  <circle cx="191" cy="714.857" r="0.72" class="drill board-hole" data-board-coord="I8" data-step="6"/>
+  <circle cx="196.857" cy="714.857" r="0.72" class="drill board-hole" data-board-coord="I9" data-step="6"/>
+  <circle cx="202.714" cy="714.857" r="0.72" class="drill board-hole" data-board-coord="I10" data-step="6"/>
+  <circle cx="208.571" cy="714.857" r="0.72" class="drill board-hole" data-board-coord="I11" data-step="6"/>
+  <circle cx="214.429" cy="714.857" r="0.72" class="drill board-hole" data-board-coord="I12" data-step="6"/>
+  <circle cx="220.286" cy="714.857" r="0.72" class="drill board-hole" data-board-coord="I13" data-step="6"/>
+  <circle cx="226.143" cy="714.857" r="0.72" class="drill board-hole" data-board-coord="I14" data-step="6"/>
+  <circle cx="232" cy="714.857" r="0.72" class="drill board-hole" data-board-coord="I15" data-step="6"/>
+  <circle cx="150" cy="720.714" r="0.72" class="drill board-hole" data-board-coord="J1" data-step="6"/>
+  <circle cx="155.857" cy="720.714" r="0.72" class="drill board-hole" data-board-coord="J2" data-step="6"/>
+  <circle cx="161.714" cy="720.714" r="0.72" class="drill board-hole" data-board-coord="J3" data-step="6"/>
+  <circle cx="167.571" cy="720.714" r="0.72" class="drill board-hole" data-board-coord="J4" data-step="6"/>
+  <circle cx="173.429" cy="720.714" r="0.72" class="drill board-hole" data-board-coord="J5" data-step="6"/>
+  <circle cx="179.286" cy="720.714" r="0.72" class="drill board-hole" data-board-coord="J6" data-step="6"/>
+  <circle cx="185.143" cy="720.714" r="0.72" class="drill board-hole" data-board-coord="J7" data-step="6"/>
+  <circle cx="191" cy="720.714" r="0.72" class="drill board-hole" data-board-coord="J8" data-step="6"/>
+  <circle cx="196.857" cy="720.714" r="0.72" class="drill board-hole" data-board-coord="J9" data-step="6"/>
+  <circle cx="202.714" cy="720.714" r="0.72" class="drill board-hole" data-board-coord="J10" data-step="6"/>
+  <circle cx="208.571" cy="720.714" r="0.72" class="drill board-hole" data-board-coord="J11" data-step="6"/>
+  <circle cx="214.429" cy="720.714" r="0.72" class="drill board-hole" data-board-coord="J12" data-step="6"/>
+  <circle cx="220.286" cy="720.714" r="0.72" class="drill board-hole" data-board-coord="J13" data-step="6"/>
+  <circle cx="226.143" cy="720.714" r="0.72" class="drill board-hole" data-board-coord="J14" data-step="6"/>
+  <circle cx="232" cy="720.714" r="0.72" class="drill board-hole" data-board-coord="J15" data-step="6"/>
+  <circle cx="150" cy="726.571" r="0.72" class="drill board-hole" data-board-coord="K1" data-step="6"/>
+  <circle cx="155.857" cy="726.571" r="0.72" class="drill board-hole" data-board-coord="K2" data-step="6"/>
+  <circle cx="161.714" cy="726.571" r="0.72" class="drill board-hole" data-board-coord="K3" data-step="6"/>
+  <circle cx="167.571" cy="726.571" r="0.72" class="drill board-hole" data-board-coord="K4" data-step="6"/>
+  <circle cx="173.429" cy="726.571" r="0.72" class="drill board-hole" data-board-coord="K5" data-step="6"/>
+  <circle cx="179.286" cy="726.571" r="0.72" class="drill board-hole" data-board-coord="K6" data-step="6"/>
+  <circle cx="185.143" cy="726.571" r="0.72" class="drill board-hole" data-board-coord="K7" data-step="6"/>
+  <circle cx="191" cy="726.571" r="0.72" class="drill board-hole" data-board-coord="K8" data-step="6"/>
+  <circle cx="196.857" cy="726.571" r="0.72" class="drill board-hole" data-board-coord="K9" data-step="6"/>
+  <circle cx="202.714" cy="726.571" r="0.72" class="drill board-hole" data-board-coord="K10" data-step="6"/>
+  <circle cx="208.571" cy="726.571" r="0.72" class="drill board-hole" data-board-coord="K11" data-step="6"/>
+  <circle cx="214.429" cy="726.571" r="0.72" class="drill board-hole" data-board-coord="K12" data-step="6"/>
+  <circle cx="220.286" cy="726.571" r="0.72" class="drill board-hole" data-board-coord="K13" data-step="6"/>
+  <circle cx="226.143" cy="726.571" r="0.72" class="drill board-hole" data-board-coord="K14" data-step="6"/>
+  <circle cx="232" cy="726.571" r="0.72" class="drill board-hole" data-board-coord="K15" data-step="6"/>
+  <circle cx="150" cy="732.429" r="0.72" class="drill board-hole" data-board-coord="L1" data-step="6"/>
+  <circle cx="155.857" cy="732.429" r="0.72" class="drill board-hole" data-board-coord="L2" data-step="6"/>
+  <circle cx="161.714" cy="732.429" r="0.72" class="drill board-hole" data-board-coord="L3" data-step="6"/>
+  <circle cx="167.571" cy="732.429" r="0.72" class="drill board-hole" data-board-coord="L4" data-step="6"/>
+  <circle cx="173.429" cy="732.429" r="0.72" class="drill board-hole" data-board-coord="L5" data-step="6"/>
+  <circle cx="179.286" cy="732.429" r="0.72" class="drill board-hole" data-board-coord="L6" data-step="6"/>
+  <circle cx="185.143" cy="732.429" r="0.72" class="drill board-hole" data-board-coord="L7" data-step="6"/>
+  <circle cx="191" cy="732.429" r="0.72" class="drill board-hole" data-board-coord="L8" data-step="6"/>
+  <circle cx="196.857" cy="732.429" r="0.72" class="drill board-hole" data-board-coord="L9" data-step="6"/>
+  <circle cx="202.714" cy="732.429" r="0.72" class="drill board-hole" data-board-coord="L10" data-step="6"/>
+  <circle cx="208.571" cy="732.429" r="0.72" class="drill board-hole" data-board-coord="L11" data-step="6"/>
+  <circle cx="214.429" cy="732.429" r="0.72" class="drill board-hole" data-board-coord="L12" data-step="6"/>
+  <circle cx="220.286" cy="732.429" r="0.72" class="drill board-hole" data-board-coord="L13" data-step="6"/>
+  <circle cx="226.143" cy="732.429" r="0.72" class="drill board-hole" data-board-coord="L14" data-step="6"/>
+  <circle cx="232" cy="732.429" r="0.72" class="drill board-hole" data-board-coord="L15" data-step="6"/>
+  <circle cx="150" cy="738.286" r="0.72" class="drill board-hole" data-board-coord="M1" data-step="6"/>
+  <circle cx="155.857" cy="738.286" r="0.72" class="drill board-hole" data-board-coord="M2" data-step="6"/>
+  <circle cx="161.714" cy="738.286" r="0.72" class="drill board-hole" data-board-coord="M3" data-step="6"/>
+  <circle cx="167.571" cy="738.286" r="0.72" class="drill board-hole" data-board-coord="M4" data-step="6"/>
+  <circle cx="173.429" cy="738.286" r="0.72" class="drill board-hole" data-board-coord="M5" data-step="6"/>
+  <circle cx="179.286" cy="738.286" r="0.72" class="drill board-hole" data-board-coord="M6" data-step="6"/>
+  <circle cx="185.143" cy="738.286" r="0.72" class="drill board-hole" data-board-coord="M7" data-step="6"/>
+  <circle cx="191" cy="738.286" r="0.72" class="drill board-hole" data-board-coord="M8" data-step="6"/>
+  <circle cx="196.857" cy="738.286" r="0.72" class="drill board-hole" data-board-coord="M9" data-step="6"/>
+  <circle cx="202.714" cy="738.286" r="0.72" class="drill board-hole" data-board-coord="M10" data-step="6"/>
+  <circle cx="208.571" cy="738.286" r="0.72" class="drill board-hole" data-board-coord="M11" data-step="6"/>
+  <circle cx="214.429" cy="738.286" r="0.72" class="drill board-hole" data-board-coord="M12" data-step="6"/>
+  <circle cx="220.286" cy="738.286" r="0.72" class="drill board-hole" data-board-coord="M13" data-step="6"/>
+  <circle cx="226.143" cy="738.286" r="0.72" class="drill board-hole" data-board-coord="M14" data-step="6"/>
+  <circle cx="232" cy="738.286" r="0.72" class="drill board-hole" data-board-coord="M15" data-step="6"/>
+  <circle cx="150" cy="744.143" r="0.72" class="drill board-hole" data-board-coord="N1" data-step="6"/>
+  <circle cx="155.857" cy="744.143" r="0.72" class="drill board-hole" data-board-coord="N2" data-step="6"/>
+  <circle cx="161.714" cy="744.143" r="0.72" class="drill board-hole" data-board-coord="N3" data-step="6"/>
+  <circle cx="167.571" cy="744.143" r="0.72" class="drill board-hole" data-board-coord="N4" data-step="6"/>
+  <circle cx="173.429" cy="744.143" r="0.72" class="drill board-hole" data-board-coord="N5" data-step="6"/>
+  <circle cx="179.286" cy="744.143" r="0.72" class="drill board-hole" data-board-coord="N6" data-step="6"/>
+  <circle cx="185.143" cy="744.143" r="0.72" class="drill board-hole" data-board-coord="N7" data-step="6"/>
+  <circle cx="191" cy="744.143" r="0.72" class="drill board-hole" data-board-coord="N8" data-step="6"/>
+  <circle cx="196.857" cy="744.143" r="0.72" class="drill board-hole" data-board-coord="N9" data-step="6"/>
+  <circle cx="202.714" cy="744.143" r="0.72" class="drill board-hole" data-board-coord="N10" data-step="6"/>
+  <circle cx="208.571" cy="744.143" r="0.72" class="drill board-hole" data-board-coord="N11" data-step="6"/>
+  <circle cx="214.429" cy="744.143" r="0.72" class="drill board-hole" data-board-coord="N12" data-step="6"/>
+  <circle cx="220.286" cy="744.143" r="0.72" class="drill board-hole" data-board-coord="N13" data-step="6"/>
+  <circle cx="226.143" cy="744.143" r="0.72" class="drill board-hole" data-board-coord="N14" data-step="6"/>
+  <circle cx="232" cy="744.143" r="0.72" class="drill board-hole" data-board-coord="N15" data-step="6"/>
+  <circle cx="150" cy="750" r="0.72" class="drill board-hole" data-board-coord="O1" data-step="6"/>
+  <circle cx="155.857" cy="750" r="0.72" class="drill board-hole" data-board-coord="O2" data-step="6"/>
+  <circle cx="161.714" cy="750" r="0.72" class="drill board-hole" data-board-coord="O3" data-step="6"/>
+  <circle cx="167.571" cy="750" r="0.72" class="drill board-hole" data-board-coord="O4" data-step="6"/>
+  <circle cx="173.429" cy="750" r="0.72" class="drill board-hole" data-board-coord="O5" data-step="6"/>
+  <circle cx="179.286" cy="750" r="0.72" class="drill board-hole" data-board-coord="O6" data-step="6"/>
+  <circle cx="185.143" cy="750" r="0.72" class="drill board-hole" data-board-coord="O7" data-step="6"/>
+  <circle cx="191" cy="750" r="0.72" class="drill board-hole" data-board-coord="O8" data-step="6"/>
+  <circle cx="196.857" cy="750" r="0.72" class="drill board-hole" data-board-coord="O9" data-step="6"/>
+  <circle cx="202.714" cy="750" r="0.72" class="drill board-hole" data-board-coord="O10" data-step="6"/>
+  <circle cx="208.571" cy="750" r="0.72" class="drill board-hole" data-board-coord="O11" data-step="6"/>
+  <circle cx="214.429" cy="750" r="0.72" class="drill board-hole" data-board-coord="O12" data-step="6"/>
+  <circle cx="220.286" cy="750" r="0.72" class="drill board-hole" data-board-coord="O13" data-step="6"/>
+  <circle cx="226.143" cy="750" r="0.72" class="drill board-hole" data-board-coord="O14" data-step="6"/>
+  <circle cx="232" cy="750" r="0.72" class="drill board-hole" data-board-coord="O15" data-step="6"/>
+  <circle cx="202.714" cy="709" r="1.296" class="score reference-coordinate" data-reference-coord="H10" data-step="6"/>
+  </g>
+  <g id="layer-previous-step-ghost-step-6" data-step="6">
+  <text x="146" y="755" class="tiny" text-anchor="start">G12/G14 Ring</text>
+  <text x="146" y="760" class="tiny" text-anchor="start">G12</text>
+  <text x="146" y="765" class="tiny" text-anchor="start">G14</text>
+  <text x="146" y="770" class="tiny" text-anchor="start">L2</text>
+  </g>
+  <g id="layer-new-part-highlight-step-6" data-step="6" data-app-mechanism="planetary_gear">
+  <circle cx="191" cy="709" r="2.3" class="score new-part-highlight" data-step="6" data-recipe-key="planetary-gear-basic" data-board-coord="H8" data-app-mechanism="planetary_gear"/>
+  <circle cx="202.714" cy="709" r="2.1" class="score reference-marker" data-step="6" data-recipe-key="planetary-gear-basic" data-reference-coord="H10" data-app-mechanism="planetary_gear"/>
+  </g>
+  <g id="layer-existing-parts-step-6" data-step="6" data-app-mechanism="planetary_gear">
+  <path d="M 195.522 709.19 L 196.461 709.806 L 196.284 710.595 L 195.116 710.884 L 194.822 711.425 L 195.326 712.429 L 194.779 713.024 L 193.622 712.69 L 193.097 713.011 L 193.032 714.132 L 192.26 714.374 L 191.426 713.506 L 190.81 713.522 L 190.194 714.461 L 189.405 714.284 L 189.116 713.116 L 188.575 712.822 L 187.571 713.326 L 186.976 712.779 L 187.31 711.622 L 186.989 711.097 L 185.868 711.032 L 185.626 710.26 L 186.494 709.426 L 186.478 708.81 L 185.539 708.194 L 185.716 707.405 L 186.884 707.116 L 187.178 706.575 L 186.674 705.571 L 187.221 704.976 L 188.378 705.31 L 188.903 704.989 L 188.968 703.868 L 189.74 703.626 L 190.574 704.494 L 191.19 704.478 L 191.806 703.539 L 192.595 703.716 L 192.884 704.884 L 193.425 705.178 L 194.429 704.674 L 195.024 705.221 L 194.69 706.378 L 195.011 706.903 L 196.132 706.968 L 196.374 707.74 L 195.506 708.574 Z" class="score board-part gear-part" style="fill:#fbbf24;fill-opacity:0.48;stroke:#5c4033;stroke-width:0.55;stroke-linejoin:round" data-step="6" data-part-key="gears:g12" data-part-index="1"/>
+  <circle cx="191" cy="709" r="1.35" class="drill board-part-hole" data-step="6" data-part-key="gears:g12" data-part-index="1"/>
+  <circle cx="193.87" cy="709" r="0.9" class="drill board-part-hole gear-attachment-hole" data-step="6" data-part-key="gears:g12" data-part-index="1" data-hole-index="0"/>
+  <circle cx="191" cy="711.87" r="0.9" class="drill board-part-hole gear-attachment-hole" data-step="6" data-part-key="gears:g12" data-part-index="1" data-hole-index="1"/>
+  <circle cx="188.13" cy="709" r="0.9" class="drill board-part-hole gear-attachment-hole" data-step="6" data-part-key="gears:g12" data-part-index="1" data-hole-index="2"/>
+  <circle cx="191" cy="706.13" r="0.9" class="drill board-part-hole gear-attachment-hole" data-step="6" data-part-key="gears:g12" data-part-index="1" data-hole-index="3"/>
+  <path d="M 207.992 709.19 L 209.104 709.807 L 208.952 710.602 L 207.642 710.9 L 207.387 711.461 L 208.121 712.499 L 207.639 713.149 L 206.329 712.85 L 205.856 713.244 L 206.067 714.499 L 205.351 714.875 L 204.301 714.037 L 203.704 714.187 L 203.349 715.409 L 202.541 715.438 L 201.958 714.226 L 201.355 714.103 L 200.506 715.049 L 199.765 714.725 L 199.766 713.381 L 199.276 713.008 L 198.1 713.492 L 197.573 712.878 L 198.157 711.668 L 197.877 711.119 L 196.608 711.045 L 196.399 710.263 L 197.451 709.426 L 197.437 708.81 L 196.325 708.193 L 196.477 707.398 L 197.787 707.1 L 198.042 706.539 L 197.308 705.501 L 197.789 704.851 L 199.099 705.15 L 199.572 704.756 L 199.362 703.501 L 200.077 703.125 L 201.128 703.963 L 201.725 703.813 L 202.079 702.591 L 202.888 702.562 L 203.47 703.774 L 204.073 703.897 L 204.923 702.951 L 205.664 703.275 L 205.663 704.619 L 206.153 704.992 L 207.329 704.508 L 207.856 705.122 L 207.272 706.332 L 207.551 706.881 L 208.821 706.955 L 209.029 707.737 L 207.978 708.574 Z" class="score board-part gear-part" style="fill:#fbbf24;fill-opacity:0.48;stroke:#5c4033;stroke-width:0.55;stroke-linejoin:round" data-step="6" data-part-key="gears:g14" data-part-index="2"/>
+  <circle cx="202.714" cy="709" r="1.35" class="drill board-part-hole" data-step="6" data-part-key="gears:g14" data-part-index="2"/>
+  <circle cx="206.063" cy="709" r="0.9" class="drill board-part-hole gear-attachment-hole" data-step="6" data-part-key="gears:g14" data-part-index="2" data-hole-index="0"/>
+  <circle cx="202.714" cy="712.349" r="0.9" class="drill board-part-hole gear-attachment-hole" data-step="6" data-part-key="gears:g14" data-part-index="2" data-hole-index="1"/>
+  <circle cx="199.365" cy="709" r="0.9" class="drill board-part-hole gear-attachment-hole" data-step="6" data-part-key="gears:g14" data-part-index="2" data-hole-index="2"/>
+  <circle cx="202.714" cy="705.651" r="0.9" class="drill board-part-hole gear-attachment-hole" data-step="6" data-part-key="gears:g14" data-part-index="2" data-hole-index="3"/>
+  <path d="M 202.714 709 L 202.714 709" class="score board-part linkage-part" style="fill:none;stroke:#60a5fa;stroke-opacity:0.72;stroke-width:4.2;stroke-linecap:round" data-step="6" data-part-key="linkages:linkage-2-cell" data-part-index="3"/>
+  <circle cx="191" cy="709" r="1.1" class="drill board-part-hole linkage-hole" data-step="6" data-part-key="linkages:linkage-2-cell" data-part-index="3" data-hole-index="0"/>
+  <circle cx="202.714" cy="709" r="1.1" class="drill board-part-hole linkage-hole" data-step="6" data-part-key="linkages:linkage-2-cell" data-part-index="3" data-hole-index="1"/>
+  </g>
+  <g id="layer-stack-diagram-step-6" data-step="6">
+  <text x="266" y="667" class="small" text-anchor="start">Fastener stack</text>
+  <rect x="268" y="670.5" width="34" height="5" class="score stack-layer" data-step="6" data-stack-layer="1" data-stack-role="carrier-hole" data-part-key=""/>
+  <text x="308" y="676" class="tiny" text-anchor="start">Carrier hole</text>
+  <rect x="268" y="680" width="34" height="5" class="score stack-layer" data-step="6" data-stack-layer="2" data-stack-role="paper-fastener" data-part-key=""/>
+  <text x="308" y="685.5" class="tiny" text-anchor="start">Fastener</text>
+  <rect x="268" y="689.5" width="34" height="5" class="score stack-layer" data-step="6" data-stack-layer="3" data-stack-role="spacer" data-part-key="spacers:s8"/>
+  <text x="308" y="695" class="tiny" text-anchor="start">S8</text>
+  <rect x="268" y="699" width="34" height="5" class="score stack-layer" data-step="6" data-stack-layer="4" data-stack-role="moving-part" data-part-key="gears:g14"/>
+  <text x="308" y="704.5" class="tiny" text-anchor="start">G14</text>
+  <rect x="268" y="708.5" width="34" height="5" class="score stack-layer" data-step="6" data-stack-layer="5" data-stack-role="top-spacer" data-part-key="spacers:s8"/>
+  <text x="308" y="714" class="tiny" text-anchor="start">S8</text>
+  <rect x="268" y="718" width="34" height="5" class="score stack-layer" data-step="6" data-stack-layer="6" data-stack-role="fastener-tabs" data-part-key=""/>
+  <text x="308" y="723.5" class="tiny" text-anchor="start">Loose tabs</text>
+  </g>
+  <g id="layer-labels-step-6" data-step="6" data-board-coord="H8, H10" data-part-key="G12 G14 L2">
+  <text x="376" y="669" class="small" text-anchor="start">Board/ref: H8, H10</text>
+  <text x="376" y="683" class="part-card-label" text-anchor="start">Check</text>
+  <text x="376" y="691" class="small" text-anchor="start">If the orbit binds, loosen the planet fastener and spacer stack.</text>
+  <text x="376" y="710" class="tiny" text-anchor="start">Spacer rule: spacer below moving part.</text>
+  <text x="376" y="718" class="tiny" text-anchor="start">Paper fastener tabs stay loose until tested.</text>
+  </g>
+  <g id="layer-fasteners-step-6" data-step="6"></g>
+  <g id="layer-spacers-step-6" data-step="6"></g>
+  <g id="layer-motion-arrows-step-6" data-step="6">
+  <path d="M 484 732.000 L 522 732.000 L 514 726.000 M 522 732.000 L 514 738.000" class="score motion-arrow"/>
   </g>
 </svg>

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import sys
 
 import numpy as np
@@ -53,6 +54,11 @@ def _rect_center(item: QGraphicsEllipseItem) -> tuple[float, float]:
     return float(center.x()), float(center.y())
 
 
+def _bounds_center(item: object) -> tuple[float, float]:
+    rect = item.sceneBoundingRect()
+    return float(rect.center().x()), float(rect.center().y())
+
+
 def _assert_items_have_finite_bounds(items: list[object]) -> None:
     for item in items:
         rect = item.sceneBoundingRect()
@@ -83,13 +89,57 @@ def test_planetary_visuals_ignore_partial_simulation_positions_and_use_key_point
         transform_function=_identity,
     )
 
-    assert len(items) == 6
-    assert isinstance(items[0], QGraphicsEllipseItem)
-    assert isinstance(items[1], QGraphicsEllipseItem)
+    assert len(items) > 6
+    assert isinstance(items[0], QGraphicsPolygonItem)
+    assert isinstance(items[1], QGraphicsPolygonItem)
     assert isinstance(items[3], QGraphicsEllipseItem)
-    assert _rect_center(items[0]) == pytest.approx((100.0, 100.0))
-    assert _rect_center(items[1]) == pytest.approx((100.0, 150.0))
+    assert _bounds_center(items[0]) == pytest.approx((100.0, 100.0), abs=0.5)
+    assert _bounds_center(items[1]) == pytest.approx((100.0, 150.0), abs=0.5)
     assert _rect_center(items[3]) == pytest.approx((100.0, 165.0))
+
+
+def test_planetary_visuals_render_and_animate_multiple_planets(qapp: QApplication) -> None:
+    scene = QGraphicsScene()
+    layer_data = {
+        "type": "planetary_gear",
+        "params": {
+            "r_sun": 20.0,
+            "r_planet": 10.0,
+            "arm_length": 18.0,
+            "planet_count": 3,
+            "planet_teeth": 14,
+        },
+        "key_points": {
+            "sun_center": [0.0, 0.0],
+            "planet_center": [30.0, 0.0],
+            "tracking_point": [48.0, 0.0],
+        },
+    }
+
+    visual_items = MechanismVisualsFactory(scene).create_planetary_gear_visuals(
+        layer_data,
+        transform_function=_identity,
+    )
+    layer_data["visual_items"] = visual_items
+    keyed = {item.data(0): item for item in visual_items if hasattr(item, "data")}
+
+    assert all(
+        isinstance(keyed.get(f"planetary_planet_{idx}_body"), QGraphicsPolygonItem)
+        for idx in (1, 2, 3)
+    )
+    assert all(
+        isinstance(keyed.get(f"planetary_carrier_{idx}"), QGraphicsLineItem)
+        for idx in (1, 2, 3)
+    )
+
+    third_planet = keyed["planetary_planet_3_body"]
+    before = _bounds_center(third_planet)
+
+    animator = MechanismVisualAnimator(get_scene_transform=lambda _layer: _identity)
+    animator.update_visuals("planetary_multi", math.pi / 2.0, layer_data, None)
+
+    after = _bounds_center(third_planet)
+    assert after != pytest.approx(before)
 
 
 def test_fourbar_visuals_use_foundry_scene_key_points_without_simulation_data(

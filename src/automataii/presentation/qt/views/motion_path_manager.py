@@ -244,12 +244,20 @@ class MotionPathDrawer(QObject):
     def cancel_drawing(self) -> None:
         """Cancel the current motion path drawing."""
         logging.debug("Motion path drawing cancelled")
+        had_active_state = (
+            self._is_drawing_freehand
+            or bool(self._motion_path_points)
+            or bool(self._timed_path_points)
+            or self._motion_preview_path_item is not None
+            or self._current_target_item is not None
+        )
         self._current_target_item = None
         self._is_drawing_freehand = False
         self._motion_path_points.clear()
         self._timed_path_points.clear()
         self._cleanup_preview()
-        self.drawing_cancelled.emit()
+        if had_active_state:
+            self.drawing_cancelled.emit()
 
     # --- Path Overlays ---
 

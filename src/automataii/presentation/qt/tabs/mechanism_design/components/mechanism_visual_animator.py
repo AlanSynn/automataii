@@ -29,6 +29,11 @@ from PyQt6.QtWidgets import (
     QGraphicsRectItem,
 )
 
+from automataii.presentation.qt.gear_rendering import (
+    gear_attachment_hole_centers,
+    gear_hole_radius,
+    gear_outline_polygon,
+)
 from automataii.presentation.qt.mechanism_parameter_utils import (
     finite_param,
     gear_linkage_arm_length,
@@ -780,14 +785,24 @@ class MechanismVisualAnimator:
 
         # Update gear bodies
         if len(visual_items) >= 2:
-            if hasattr(visual_items[0], "setRect"):
+            gear1_teeth = int(round(finite_param(params, "gear1_teeth", default=12.0)))
+            gear2_teeth = int(round(finite_param(params, "gear2_teeth", default=16.0)))
+            if isinstance(visual_items[0], QGraphicsPolygonItem):
+                visual_items[0].setPolygon(
+                    gear_outline_polygon(g1_center_scene, r1_screen, gear1_teeth, theta1)
+                )
+            elif hasattr(visual_items[0], "setRect"):
                 visual_items[0].setRect(
                     g1_center_scene.x() - r1_screen,
                     g1_center_scene.y() - r1_screen,
                     r1_screen * 2,
                     r1_screen * 2,
                 )
-            if hasattr(visual_items[1], "setRect"):
+            if isinstance(visual_items[1], QGraphicsPolygonItem):
+                visual_items[1].setPolygon(
+                    gear_outline_polygon(g2_center_scene, r2_screen, gear2_teeth, theta2)
+                )
+            elif hasattr(visual_items[1], "setRect"):
                 visual_items[1].setRect(
                     g2_center_scene.x() - r2_screen,
                     g2_center_scene.y() - r2_screen,
@@ -809,10 +824,28 @@ class MechanismVisualAnimator:
                 )
                 visual_items[3].setLine(QLineF(g2_center_scene, end2))
 
+        keyed_items = {item.data(0): item for item in visual_items if hasattr(item, "data")}
+        for prefix, center_scene, radius_screen, angle in (
+            ("gear1_attachment_hole", g1_center_scene, r1_screen, theta1),
+            ("gear2_attachment_hole", g2_center_scene, r2_screen, theta2),
+        ):
+            hole_radius = gear_hole_radius(radius_screen)
+            for index, hole_center in enumerate(
+                gear_attachment_hole_centers(center_scene, radius_screen, angle, count=4)
+            ):
+                hole = keyed_items.get(f"{prefix}_{index}")
+                if isinstance(hole, QGraphicsEllipseItem):
+                    hole.setRect(
+                        hole_center.x() - hole_radius,
+                        hole_center.y() - hole_radius,
+                        hole_radius * 2,
+                        hole_radius * 2,
+                    )
+
         if not truthy_param(params.get("gear_linkage_enabled", False)):
             return
 
-        linkage_items = {item.data(0): item for item in visual_items if hasattr(item, "data")}
+        linkage_items = keyed_items
         arm = linkage_items.get("gear_linkage_arm")
         pin_marker = linkage_items.get("gear_linkage_pin")
         end_marker = linkage_items.get("gear_linkage_end")
@@ -871,6 +904,9 @@ class MechanismVisualAnimator:
         if not to_scene_coords:
             return
 
+        params = layer_data.get("params", {})
+        planet_count = min(max(int(round(finite_param(params, "planet_count", default=1.0))), 1), 4)
+
         # Try to use cache first
         cache = self._cache_manager.get_planetary_cache(mechanism_id) if mechanism_id else None
         reverse_direction = layer_data.get("reverse_direction", False)
@@ -882,7 +918,6 @@ class MechanismVisualAnimator:
             )
         else:
             # Fallback
-            params = layer_data.get("params", {})
             full_sim_data = layer_data.get("full_simulation_data", {})
             gear_positions = full_sim_data.get("gear_positions", {})
             key_points = layer_data.get("key_points", {})
@@ -893,26 +928,91 @@ class MechanismVisualAnimator:
             )
 
         # Transform to scene coordinates
-        planet_center_scene = to_scene_coords(planet_center_orig)
+        sun_center_scene = to_scene_coords(sun_center_orig)
+        orbit_vector = planet_center_orig - sun_center_orig
+        orbit_radius = float(np.linalg.norm(orbit_vector))
+        if not math.isfinite(orbit_radius) or orbit_radius <= 1e-6:
+            orbit_radius = r_planet * 2.0
+            orbit_vector = np.array([orbit_radius, 0.0], dtype=float)
+        base_angle = math.atan2(float(orbit_vector[1]), float(orbit_vector[0]))
+        planet_centers_orig = [
+            planet_center_orig
+            if index == 0
+            else sun_center_orig
+            + orbit_radius
+            * np.array(
+                [
+                    math.cos(base_angle + (2.0 * math.pi * index / planet_count)),
+                    math.sin(base_angle + (2.0 * math.pi * index / planet_count)),
+                ],
+                dtype=float,
+            )
+            for index in range(planet_count)
+        ]
+        planet_centers_scene = [to_scene_coords(center) for center in planet_centers_orig]
+        planet_center_scene = planet_centers_scene[0]
         tracking_scene = to_scene_coords(tracking_point_orig)
 
-        # Update planet gear position (item 1)
-        if len(visual_items) > 1 and isinstance(visual_items[1], QGraphicsEllipseItem):
-            planet_edge_orig = planet_center_orig + np.array([r_planet, 0])
-            planet_edge_scene = to_scene_coords(planet_edge_orig)
-            r_planet_screen = QLineF(planet_center_scene, planet_edge_scene).length()
+        planet_edge_orig = planet_center_orig + np.array([r_planet, 0])
+        planet_edge_scene = to_scene_coords(planet_edge_orig)
+        r_planet_screen = QLineF(planet_center_scene, planet_edge_scene).length()
+        planet_teeth = int(round(finite_param(params, "planet_teeth", default=12.0)))
+        keyed_items = {item.data(0): item for item in visual_items if hasattr(item, "data")}
 
-            visual_items[1].setRect(
-                planet_center_scene.x() - r_planet_screen,
-                planet_center_scene.y() - r_planet_screen,
-                r_planet_screen * 2,
-                r_planet_screen * 2,
+        for planet_index, planet_scene in enumerate(planet_centers_scene, start=1):
+            body = keyed_items.get(f"planetary_planet_{planet_index}_body")
+            if body is None and planet_index == 1 and len(visual_items) > 1:
+                body = visual_items[1]
+            phase = time + (2.0 * math.pi * (planet_index - 1) / planet_count)
+            if isinstance(body, QGraphicsPolygonItem):
+                body.setPolygon(
+                    gear_outline_polygon(planet_scene, r_planet_screen, planet_teeth, phase)
+                )
+            elif isinstance(body, QGraphicsEllipseItem):
+                body.setRect(
+                    planet_scene.x() - r_planet_screen,
+                    planet_scene.y() - r_planet_screen,
+                    r_planet_screen * 2,
+                    r_planet_screen * 2,
+                )
+
+            carrier = keyed_items.get(f"planetary_carrier_{planet_index}")
+            if isinstance(carrier, QGraphicsLineItem):
+                carrier.setLine(QLineF(sun_center_scene, planet_scene))
+
+            center_marker = keyed_items.get(f"planetary_planet_{planet_index}_center")
+            if isinstance(center_marker, QGraphicsEllipseItem):
+                center_marker.setRect(planet_scene.x() - 4.0, planet_scene.y() - 4.0, 8.0, 8.0)
+
+            hole_radius = gear_hole_radius(r_planet_screen)
+            for index, hole_center in enumerate(
+                gear_attachment_hole_centers(planet_scene, r_planet_screen, phase, count=4)
+            ):
+                hole = keyed_items.get(f"planetary_planet_{planet_index}_hole_{index}")
+                if hole is None and planet_index == 1:
+                    hole = keyed_items.get(f"planetary_planet_hole_{index}")
+                if isinstance(hole, QGraphicsEllipseItem):
+                    hole.setRect(
+                        hole_center.x() - hole_radius,
+                        hole_center.y() - hole_radius,
+                        hole_radius * 2,
+                        hole_radius * 2,
+                    )
+
+        # Update output arm from the primary planet to the tracking point.
+        arm = keyed_items.get("planetary_output_arm")
+        if arm is None and len(visual_items) > 2:
+            arm = visual_items[2]
+        if isinstance(arm, QGraphicsLineItem):
+            arm.setLine(QLineF(planet_center_scene, tracking_scene))
+
+        tracking_marker = keyed_items.get("planetary_output_pin")
+        if tracking_marker is None and len(visual_items) > 3:
+            tracking_marker = visual_items[3]
+        if isinstance(tracking_marker, QGraphicsEllipseItem):
+            tracking_marker.setRect(
+                tracking_scene.x() - 8.0,
+                tracking_scene.y() - 8.0,
+                16.0,
+                16.0,
             )
-
-        # Update arm line (item 2)
-        if len(visual_items) > 2 and isinstance(visual_items[2], QGraphicsLineItem):
-            visual_items[2].setLine(QLineF(planet_center_scene, tracking_scene))
-
-        # Update tracking point marker (item 3)
-        if len(visual_items) > 3 and isinstance(visual_items[3], QGraphicsEllipseItem):
-            visual_items[3].setRect(tracking_scene.x() - 8, tracking_scene.y() - 8, 16, 16)

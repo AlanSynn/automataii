@@ -39,7 +39,6 @@ from automataii.presentation.qt.views.components.path_vertex_editor import (
     PathVertexEditor,
 )
 from automataii.presentation.qt.views.motion_path_manager import (
-    TARGET_PATH_POINTS,
     MotionPathDrawer,
 )
 
@@ -264,6 +263,10 @@ class EditorView(QGraphicsView):
     def clear_corrected_overlay_for(self, key: str) -> None:
         """Clear only the corrected overlay for a component key, keeping raw overlay intact."""
         self._motion_path_drawer.clear_corrected_overlay_for(key)
+
+    def clear_raw_overlay_for(self, key: str) -> None:
+        """Clear only the raw overlay for a component key."""
+        self._motion_path_drawer.set_raw_overlay_path(key, None)
 
     def set_display_unit(self, unit: str):
         """Sets the display unit for the grid and updates the view."""
@@ -531,6 +534,27 @@ class EditorView(QGraphicsView):
         """Handle mouse press events based on the current mode."""
         scene_pos = self.mapToScene(event.pos())
 
+        # Cancellation must be evaluated before the right-button panning shortcut.
+        # Otherwise a right click while drawing silently enters pan mode instead of
+        # leaving the user in a safe/selectable state.
+        if event.button() == Qt.MouseButton.RightButton and (
+            self.current_mode == "define_motion_path"
+            or self.current_mode == "define_joint"
+            or self.current_mode.startswith("select_")
+        ):
+            if self.current_mode == "define_motion_path":
+                self._cancel_motion_path_drawing()
+            elif self.current_mode == "define_joint":
+                self._reset_joint_definition()
+            else:
+                logging.info(
+                    f"Point selection mode '{self.current_mode}' cancelled by right-click."
+                )
+                self.set_mode("select")
+            self._panning = False
+            self.viewport().setCursor(Qt.CursorShape.ArrowCursor)
+            return
+
         # --- Panning --- (Middle button, Alt+Left, or Right button)
         if (
             event.button() == Qt.MouseButton.MiddleButton
@@ -551,11 +575,13 @@ class EditorView(QGraphicsView):
             if self.current_mode == "define_joint":
                 self._handle_joint_definition_click(scene_pos, event.pos())
             elif self.current_mode == "define_motion_path":
-                # When starting a new path drawing, clear any previous points for this drawing session
+                # Keep legacy state in sync for old helper methods, but delegate
+                # authoritative timing/preview/final-path creation to
+                # MotionPathDrawer.
                 self._motion_path_points.clear()
                 self._motion_path_points.append(scene_pos)
                 self._is_drawing_freehand = True
-                self._update_motion_path_preview()  # Ensure preview starts/clears appropriately
+                self._motion_path_drawer.add_point(scene_pos)
             elif self.current_mode == "select_end_effector":
                 self._handle_end_effector_selection_click(scene_pos)
             elif self.current_mode == "select_cam_center":
@@ -641,109 +667,17 @@ class EditorView(QGraphicsView):
 
         if event.button() == Qt.MouseButton.LeftButton:
             if self.current_mode == "define_motion_path" and self._is_drawing_freehand:
-                num_original_points = len(self._motion_path_points)
-                if num_original_points >= 3:  # Need at least 3 points for a meaningful curve
-                    # Resample points
-                    # If fewer than TARGET_PATH_POINTS but >=3, use original points for spline for better representation
-                    # If more than TARGET_PATH_POINTS, resample down to TARGET_PATH_POINTS
-                    # _resample_points_simple currently pads if less, which might not be ideal for spline if too few.
-                    # Let's adjust the logic for spline points preparation here.
-
-                    points_for_spline = []
-                    if num_original_points < TARGET_PATH_POINTS:
-                        # If we have 3 to TARGET_PATH_POINTS-1 points, use them directly for the spline.
-                        # The spline creation will handle fewer points appropriately.
-                        points_for_spline = list(self._motion_path_points)
-                    else:
-                        # If more than or equal to TARGET_PATH_POINTS, resample to exactly TARGET_PATH_POINTS.
-                        points_for_spline = self._resample_points_simple(
-                            list(self._motion_path_points), TARGET_PATH_POINTS
-                        )
-
-                    if not points_for_spline or len(points_for_spline) < 3:
-                        logging.warning(
-                            f"Not enough points ({len(points_for_spline)}) for spline after resampling from {num_original_points}. Cancelling path."
-                        )
-                        self._cancel_motion_path_drawing()
-                        self._is_drawing_freehand = False
-                        self.set_mode("select")
-                        super().mouseReleaseEvent(event)  # Call base before returning
-                        return
-
-                    # Create the final spline path (open or closed based on user selection)
-                    final_path_data = self._create_spline_path(
-                        points_for_spline, closed_loop=self.current_path_is_closed, tension=0.5
-                    )
-
-                    final_path_item = QGraphicsPathItem()
-                    # User modified pen thickness to 5.0
-                    final_pen = QPen(QColor(0, 200, 0), 5.0)  # Green, solid, very thick
-                    final_pen.setCosmetic(True)
-                    final_path_item.setPen(final_pen)
-                    final_path_item.setPath(final_path_data)
-                    final_path_item.setZValue(
-                        Z_MOTION_PATH_PREVIEW - 1
-                    )  # Draw below future previews
-
-                    # Determine component_key for this path
-                    component_key = None
-                    if (
-                        self.parent_window
-                        and hasattr(self.parent_window, "selected_part_name")
-                        and self.parent_window.selected_part_name
-                    ):
-                        component_key = self.parent_window.selected_part_name
-                    elif (
-                        self.current_target_item_for_path
-                    ):  # Fallback if selected_part_name is not available
-                        component_key = self.current_target_item_for_path.part_info.name
-
-                    if component_key:
-                        # Remove previous final path for this component, if any
-                        if component_key in self.final_paths_map:
-                            old_path_item = self.final_paths_map.pop(component_key)
-                            if old_path_item and old_path_item.scene():
-                                self.scene().removeItem(old_path_item)
-                                logging.debug(
-                                    f"Removed previous final path for component '{component_key}'."
-                                )
-
-                        self.scene().addItem(final_path_item)
-                        self.final_paths_map[component_key] = final_path_item
-                        logging.debug(f"Added final path for component '{component_key}'.")
-                    else:
-                        # If no key, path is orphaned, but still add to scene for now (might be an error condition)
-                        self.scene().addItem(final_path_item)
-                        logging.warning(
-                            "Final path created without a component key. It might be orphaned."
-                        )
-
-                    # Emit the RESAMPLED points for external handling (e.g., by IKManager)
-                    # as these are the points that define the final visual shape.
-                    # Legacy path: no timing data available (pass empty list and 0 duration)
-                    self.freehandPathCompleted.emit(points_for_spline, [], 0.0)
-                    path_type_str = "closed" if self.current_path_is_closed else "open"
-                    logging.debug(
-                        f"Completed and finalized {path_type_str} spline motion path with {len(points_for_spline)} points (resampled from {num_original_points})."
-                    )
-
-                    # Clear the red dashed preview path
-                    if self._motion_preview_path_item and self._motion_preview_path_item.scene():
-                        self.scene().removeItem(self._motion_preview_path_item)
-                        self._motion_preview_path_item = None
-                    self._motion_path_points.clear()  # Clear original drawn points for next session
-
-                else:  # Path had less than 3 points originally, not enough for a curve
-                    logging.debug(
-                        f"Freehand path too short ({num_original_points} points), cancelling. Need at least 3 for a curve."
-                    )
-                    self._cancel_motion_path_drawing()  # Clears preview, resets state
-
+                component_key = self._current_motion_path_component_key()
+                finished = self._motion_path_drawer.finish_drawing(component_key)
                 self._is_drawing_freehand = False
+                self._motion_path_points.clear()
+                self._cleanup_motion_path_visuals()
                 # Only switch to select mode if vertex editing wasn't started
                 # (vertex editing mode is set by signal handlers after freehandPathCompleted)
                 if self.current_mode != "edit_vertices":
                     self.set_mode("select")
+                if not finished:
+                    logging.debug("Freehand path finish produced no path; drawing was cancelled.")
 
         super().mouseReleaseEvent(event)  # Call base for other release events
 
@@ -770,7 +704,7 @@ class EditorView(QGraphicsView):
             and self._motion_path_points
         ):
             self._motion_path_points.append(scene_pos)
-            self._update_motion_path_preview()
+            self._motion_path_drawer.add_point(scene_pos)
         else:
             super().mouseMoveEvent(event)
             # After super().mouseMoveEvent, which handles item dragging if ItemIsMovable,
@@ -979,6 +913,18 @@ class EditorView(QGraphicsView):
         logging.info("EditorView: Entered freehand motion path definition mode.")
         if target_item:
             logging.info(f"EditorView: Motion path target: {target_item.part_info.name}")
+
+    def _current_motion_path_component_key(self) -> str | None:
+        """Return the safest available component key for the active path draw."""
+        if (
+            self.parent_window
+            and hasattr(self.parent_window, "selected_part_name")
+            and self.parent_window.selected_part_name
+        ):
+            return self.parent_window.selected_part_name
+        if self.current_target_item_for_path and self.current_target_item_for_path.part_info:
+            return self.current_target_item_for_path.part_info.name
+        return None
 
     def _cancel_motion_path_drawing(self):
         """Cancels the current motion path drawing operation and cleans up."""
@@ -1335,7 +1281,15 @@ class EditorView(QGraphicsView):
     def _show_status_message(self, message: str):
         """Safely displays a message in the parent window's status bar."""
         if self.parent_window and hasattr(self.parent_window, "statusBar"):
-            self.parent_window.statusBar().showMessage(message, 5000)  # Show for 5 seconds
+            try:
+                status_bar = self.parent_window.statusBar()
+            except Exception:
+                logging.debug("Status bar lookup failed", exc_info=True)
+                status_bar = None
+            if status_bar and hasattr(status_bar, "showMessage"):
+                status_bar.showMessage(message, 5000)  # Show for 5 seconds
+            else:
+                logging.info(f"Status: {message}")
         else:
             logging.info(f"Status: {message}")  # Fallback logging
 

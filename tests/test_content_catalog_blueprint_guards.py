@@ -207,6 +207,31 @@ def test_single_large_blueprint_escapes_header_and_rejects_bad_snapshot() -> Non
     assert "onload" not in svg
 
 
+def test_single_large_blueprint_separates_cut_sheets_from_board_assembly() -> None:
+    svg = generate_single_large_blueprint(
+        [
+            ScenarioLayoutItem(
+                "Head",
+                ScaledBounds(0, 0, 20.0, 30.0),
+                "<rect width='20' height='30' />",
+                "part",
+            )
+        ],
+        800,
+        600,
+        title="Make Parts / Cut Sheets (Metric)",
+        scale_info="Character body components + mechanisms",
+        unit_system="metric",
+    )
+
+    assert "Make Parts / Cut Sheets boundary" in svg
+    assert "this sheet is not the board assembly order" in svg
+    assert "Character body components: 1" in svg
+    assert "Drill 4mm holes when shown" in svg
+    assert "Paper fasteners are hardware, not cut parts" in svg
+    assert "Fastener/spacer location is assigned in the Assembly Guide" in svg
+
+
 def test_png_blueprint_processor_escapes_part_names_and_invalid_metrics() -> None:
     processor = PNGBlueprintProcessor()
     contour = ManufacturingContour(

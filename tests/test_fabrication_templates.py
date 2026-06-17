@@ -25,6 +25,8 @@ from automataii.domain.mechanisms.cam.profile import (
 )
 from automataii.shared.physical_kit import (
     CAM_PRESETS,
+    DEFAULT_BOARD_COLUMNS,
+    DEFAULT_BOARD_ROWS,
     DEFAULT_GRID_CELL_CM,
     DEFAULT_HOLE_DIAMETER_MM,
     DEFAULT_PHYSICAL_KIT_PROFILE,
@@ -43,6 +45,8 @@ REQUIRED_TOP_LEVEL_KEYS = {
     "grid_pitch_mm",
     "grid_cell_cm",
     "hole_diameter_mm",
+    "board_rows",
+    "board_columns",
     "generated_by",
     "generated_at",
     "source_ssot",
@@ -281,11 +285,15 @@ def test_fabrication_generator_inventory_svg_contract_and_idempotence(tmp_path: 
     assert manifest["schema_version"] == "automataii.fabrication.v1"
     assert manifest["grid_pitch_mm"] == 20.0
     assert manifest["hole_diameter_mm"] == DEFAULT_HOLE_DIAMETER_MM
+    assert manifest["board_rows"] == DEFAULT_BOARD_ROWS
+    assert manifest["board_columns"] == DEFAULT_BOARD_COLUMNS
 
     gears, linkages, cams, followers, brackets, spacers, sheets = _manifest_lists(manifest)
+    ring_gears = cast(list[dict[str, Any]], cast(dict[str, Any], manifest["parts"])["ring_gears"])
     managed_files = _managed_files(manifest)
     assert len(managed_files) == len(set(managed_files))
     assert len(gears) == 4
+    assert len(ring_gears) == 1
     assert len(linkages) == 4
     assert len(cams) == 4
     assert len(followers) == 4
@@ -297,6 +305,8 @@ def test_fabrication_generator_inventory_svg_contract_and_idempotence(tmp_path: 
     assert any(path.startswith("sheets/07-follower-set") for path in managed_files)
     assert any(path.startswith("spacers/spacer-s8") for path in managed_files)
     assert any(path.startswith("sheets/08-spacer-set") for path in managed_files)
+    assert any(path.startswith("ring_gears/ring-g12-g14") for path in managed_files)
+    assert any(path.startswith("sheets/09-planetary-ring-set") for path in managed_files)
 
     for rel_path in managed_files:
         assert (tmp_path / rel_path).exists(), rel_path
@@ -317,6 +327,16 @@ def test_fabrication_generator_inventory_svg_contract_and_idempotence(tmp_path: 
         _assert_svg_geometry_inside_viewbox(root)
 
     assert [gear["teeth"] for gear in gears] == [preset.teeth for preset in GEAR_PRESETS]
+    ring = ring_gears[0]
+    assert ring["key"] == "ring-g12-g14"
+    assert ring["internal_teeth"] == 40
+    assert ring["compatible_sun_teeth"] == 12
+    assert ring["compatible_planet_teeth"] == 14
+    assert ring["mount_hole_count"] == 4
+    ring_root = _svg_root(tmp_path / str(ring["path"]))
+    assert _has_class(ring_root, "ring-inner-gear-outline")
+    assert _has_class(ring_root, "ring-mount-hole")
+    assert _has_attr(ring_root, "data-hole-role", "ring-mount")
     assert int(gears[0]["teeth"]) == 12
     assert float(gears[0]["outer_radius_mm"]) * 2.0 <= 42.0
     assert float(gears[-1]["outer_radius_mm"]) * 2.0 <= 60.0
@@ -665,9 +685,17 @@ def test_fabrication_generator_inventory_svg_contract_and_idempotence(tmp_path: 
         str(sheet["path"]).startswith("sheets/08-spacer-set") and "spacers" in sheet["contains"]
         for sheet in sheets
     )
+    assert any(
+        str(sheet["path"]).startswith("sheets/09-planetary-ring-set")
+        and "ring_gears" in sheet["contains"]
+        for sheet in sheets
+    )
     readme = (tmp_path / "README.md").read_text(encoding="utf-8")
-    assert "8 workshop sheets" in readme
-    assert "`gears/`, `linkages/`, `cams/`, `followers/`, `brackets/`, and `spacers/`" in readme
+    assert "9 workshop sheets" in readme
+    assert (
+        "`gears/`, `ring_gears/`, `linkages/`, `cams/`, `followers/`, "
+        "`brackets/`, and `spacers/`"
+    ) in readme
     assert "4 mm-wide vertical slots" in readme
 
     before = _hash_managed_files(tmp_path, managed_files)
@@ -783,6 +811,17 @@ def test_fabrication_generator_rejects_profiles_that_do_not_fit_sheet_layout(
     )
 
     with pytest.raises(ValueError, match="exactly four gears"):
+        write_fabrication_templates(tmp_path, profile=unsupported_profile)
+
+
+def test_fabrication_generator_rejects_non_15x15_board_profiles(tmp_path: Path) -> None:
+    unsupported_profile = replace(
+        DEFAULT_PHYSICAL_KIT_PROFILE,
+        key="custom-16x15-board",
+        board_rows=16,
+    )
+
+    with pytest.raises(ValueError, match="15x15 pegboard"):
         write_fabrication_templates(tmp_path, profile=unsupported_profile)
 
 

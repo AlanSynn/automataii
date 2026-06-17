@@ -309,6 +309,8 @@
   <g id="layer-new-part-highlight-step-1" data-step="1" data-app-mechanism="cam_follower">
   <circle cx="185.143" cy="110.714" r="2.3" class="score new-part-highlight" data-step="1" data-recipe-key="cam-follower-basic" data-board-coord="J7" data-app-mechanism="cam_follower"/>
   </g>
+  <g id="layer-existing-parts-step-1" data-step="1" data-app-mechanism="cam_follower">
+  </g>
   <g id="layer-stack-diagram-step-1" data-step="1">
   <text x="266" y="57" class="small" text-anchor="start">Fastener stack</text>
   <rect x="268" y="60.5" width="34" height="5" class="score stack-layer" data-step="1" data-stack-layer="1" data-stack-role="board" data-part-key=""/>
@@ -612,6 +614,12 @@
   </g>
   <g id="layer-new-part-highlight-step-2" data-step="2" data-app-mechanism="cam_follower">
   <circle cx="185.143" cy="232.714" r="2.3" class="score new-part-highlight" data-step="2" data-recipe-key="cam-follower-basic" data-board-coord="J7" data-app-mechanism="cam_follower"/>
+  </g>
+  <g id="layer-existing-parts-step-2" data-step="2" data-app-mechanism="cam_follower">
+  <circle cx="185.143" cy="232.714" r="2.9" class="score board-part spacer-part" data-step="2" data-part-key="spacers:s8" data-part-index="1"/>
+  <circle cx="185.143" cy="232.714" r="1.1" class="drill board-part-hole" data-step="2" data-part-key="spacers:s8" data-part-index="1"/>
+  <path d="M 179.143 232.714 C 181.143 225.714 190.143 226.714 192.143 232.714 C 190.143 238.714 180.143 239.714 179.143 232.714 Z" class="score board-part cam-part" style="fill:#f472b6;fill-opacity:0.45;stroke:#7c2d12;stroke-width:0.5" data-step="2" data-part-key="cams:eccentric" data-part-index="2"/>
+  <circle cx="185.143" cy="232.714" r="1.2" class="drill board-part-hole" data-step="2" data-part-key="cams:eccentric" data-part-index="2"/>
   </g>
   <g id="layer-stack-diagram-step-2" data-step="2">
   <text x="266" y="179" class="small" text-anchor="start">Fastener stack</text>
@@ -922,6 +930,11 @@
   </g>
   <g id="layer-new-part-highlight-step-3" data-step="3" data-app-mechanism="cam_follower">
   <circle cx="185.143" cy="337.143" r="2.3" class="score new-part-highlight" data-step="3" data-recipe-key="cam-follower-basic" data-board-coord="G7" data-app-mechanism="cam_follower"/>
+  </g>
+  <g id="layer-existing-parts-step-3" data-step="3" data-app-mechanism="cam_follower">
+  <circle cx="185.143" cy="337.143" r="2.9" class="score board-part spacer-part" data-step="3" data-part-key="spacers:s12" data-part-index="1"/>
+  <circle cx="185.143" cy="337.143" r="1.1" class="drill board-part-hole" data-step="3" data-part-key="spacers:s12" data-part-index="1"/>
+  <circle cx="185.143" cy="337.143" r="3" class="score board-part generic-part" data-step="3" data-part-key="followers:f3-round" data-part-index="2"/>
   </g>
   <g id="layer-stack-diagram-step-3" data-step="3">
   <text x="266" y="301" class="small" text-anchor="start">Fastener stack</text>
@@ -1234,6 +1247,11 @@
   <g id="layer-new-part-highlight-step-4" data-step="4" data-app-mechanism="cam_follower">
   <circle cx="185.143" cy="476.714" r="2.3" class="score new-part-highlight" data-step="4" data-recipe-key="cam-follower-basic" data-board-coord="J7" data-app-mechanism="cam_follower"/>
   <circle cx="185.143" cy="459.143" r="2.3" class="score new-part-highlight" data-step="4" data-recipe-key="cam-follower-basic" data-board-coord="G7" data-app-mechanism="cam_follower"/>
+  </g>
+  <g id="layer-existing-parts-step-4" data-step="4" data-app-mechanism="cam_follower">
+  <path d="M 179.143 476.714 C 181.143 469.714 190.143 470.714 192.143 476.714 C 190.143 482.714 180.143 483.714 179.143 476.714 Z" class="score board-part cam-part" style="fill:#f472b6;fill-opacity:0.45;stroke:#7c2d12;stroke-width:0.5" data-step="4" data-part-key="cams:eccentric" data-part-index="1"/>
+  <circle cx="185.143" cy="476.714" r="1.2" class="drill board-part-hole" data-step="4" data-part-key="cams:eccentric" data-part-index="1"/>
+  <circle cx="185.143" cy="459.143" r="3" class="score board-part generic-part" data-step="4" data-part-key="followers:f3-round" data-part-index="2"/>
   </g>
   <g id="layer-stack-diagram-step-4" data-step="4">
   <text x="266" y="423" class="small" text-anchor="start">Fastener stack</text>

@@ -35,6 +35,13 @@ from PyQt6.QtWidgets import (
 )
 from scipy.spatial.distance import directed_hausdorff
 
+from automataii.presentation.qt.gear_rendering import (
+    annulus_path,
+    gear_attachment_hole_centers,
+    gear_hole_radius,
+    gear_outline_polygon,
+    radial_tick_lines,
+)
 from automataii.presentation.qt.tabs.cam_geometry import build_pear_cam_profile
 from automataii.shared.physical_kit import (
     gear_center_distance,
@@ -816,24 +823,41 @@ class MechanismPreviewWidget(QGraphicsView):
         def to_screen_coords(p: np.ndarray) -> QPointF:
             return to_screen_coords_func(p, transform)
 
-        def draw_gear(center: np.ndarray, radius: float, angle: float, color: QColor) -> None:
-            path = QPainterPath()
-            for i in range(101):
-                theta = 2 * np.pi * i / 100
-                p_orig = center + radius * np.array([np.cos(theta), np.sin(theta)])
-                p_screen = to_screen_coords(p_orig)
-                if i == 0:
-                    path.moveTo(p_screen)
-                else:
-                    path.lineTo(p_screen)
-            self._preview_scene.addPath(path, QPen(color, 4), QBrush(color.lighter(170)))
+        def draw_gear(
+            center: np.ndarray,
+            radius: float,
+            angle: float,
+            teeth: float,
+            color: QColor,
+        ) -> None:
+            center_screen = to_screen_coords(center)
+            edge_screen = to_screen_coords(center + np.array([radius, 0.0]))
+            radius_screen = QLineF(center_screen, edge_screen).length()
+            polygon = gear_outline_polygon(center_screen, radius_screen, teeth, angle)
+            self._preview_scene.addPolygon(polygon, QPen(color, 4), QBrush(color.lighter(170)))
+            hole_radius = gear_hole_radius(radius_screen)
+            for hole_center in gear_attachment_hole_centers(
+                center_screen, radius_screen, angle, count=4
+            ):
+                self._preview_scene.addEllipse(
+                    hole_center.x() - hole_radius,
+                    hole_center.y() - hole_radius,
+                    hole_radius * 2,
+                    hole_radius * 2,
+                    QPen(QColor("#5c4033"), 1),
+                    QBrush(QColor(255, 255, 255, 220)),
+                )
 
-            p1 = to_screen_coords(center)
+            p1 = center_screen
             p2 = to_screen_coords(center + radius * np.array([np.cos(angle), np.sin(angle)]))
             self._preview_scene.addLine(QLineF(p1, p2), QPen(QColor("white"), 2))
 
-        draw_gear(g1_center, r1, theta1, QColor("#3498db"))
-        draw_gear(g2_center, r2, theta2, QColor("#2ecc71"))
+        draw_gear(
+            g1_center, r1, theta1, _finite_float(params.get("gear1_teeth"), 12.0), QColor("#3498db")
+        )
+        draw_gear(
+            g2_center, r2, theta2, _finite_float(params.get("gear2_teeth"), 16.0), QColor("#2ecc71")
+        )
 
     def _draw_planetary_gear_from_sim(
         self, transform: QTransform, full_sim_data: dict[str, Any], params: dict[str, Any]
@@ -847,6 +871,7 @@ class MechanismPreviewWidget(QGraphicsView):
         tracking_point = np.array(gear_pos["tracking_points"][frame_idx])
         r_sun = _finite_float(params.get("r_sun", params.get("sun_radius", 20.0)), 20.0)
         r_planet = _finite_float(params.get("r_planet", params.get("planet_radius", 20.0)), 20.0)
+        planet_count = min(max(int(round(_finite_float(params.get("planet_count"), 1.0))), 1), 4)
 
         to_screen_coords_func = self._get_transform_for_sim_data(gear_pos, "tracking_points")
         if not to_screen_coords_func:
@@ -855,24 +880,76 @@ class MechanismPreviewWidget(QGraphicsView):
         def to_screen_coords(p: np.ndarray) -> QPointF:
             return to_screen_coords_func(p, transform)
 
-        def draw_gear(center: np.ndarray, radius: float, color: QColor) -> None:
-            p1_screen = to_screen_coords(center)
-            p2_screen = to_screen_coords(center + np.array([radius, 0]))
-            radius_screen = QLineF(p1_screen, p2_screen).length()
+        orbit_vector = planet_center - sun_center
+        orbit_radius = float(np.linalg.norm(orbit_vector))
+        if not np.isfinite(orbit_radius) or orbit_radius <= 1e-6:
+            orbit_radius = r_sun + r_planet
+            orbit_vector = np.array([orbit_radius, 0.0], dtype=float)
+        base_angle = float(np.arctan2(orbit_vector[1], orbit_vector[0]))
+        planet_centers = [
+            planet_center
+            if index == 0
+            else sun_center
+            + orbit_radius
+            * np.array(
+                [
+                    np.cos(base_angle + (2.0 * np.pi * index / planet_count)),
+                    np.sin(base_angle + (2.0 * np.pi * index / planet_count)),
+                ],
+                dtype=float,
+            )
+            for index in range(planet_count)
+        ]
 
-            self._preview_scene.addEllipse(
-                p1_screen.x() - radius_screen,
-                p1_screen.y() - radius_screen,
-                radius_screen * 2,
-                radius_screen * 2,
+        sun_screen = to_screen_coords(sun_center)
+        planet_screens = [to_screen_coords(center) for center in planet_centers]
+        planet_screen = planet_screens[0]
+        r_sun_screen = QLineF(
+            sun_screen, to_screen_coords(sun_center + np.array([r_sun, 0.0]))
+        ).length()
+        r_planet_screen = QLineF(
+            planet_screen, to_screen_coords(planet_center + np.array([r_planet, 0.0]))
+        ).length()
+        ring_inner = QLineF(sun_screen, planet_screen).length() + r_planet_screen * 0.55
+        ring_outer = ring_inner + max(7.0, min(14.0, r_planet_screen * 0.45))
+        self._preview_scene.addPath(
+            annulus_path(sun_screen, ring_outer, ring_inner),
+            QPen(QColor("#5d6d7e"), 2),
+            QBrush(QColor(180, 185, 190, 80)),
+        )
+        for start, end in radial_tick_lines(sun_screen, ring_inner - 2, ring_inner + 4, 32):
+            self._preview_scene.addLine(QLineF(start, end), QPen(QColor("#5d6d7e"), 1))
+
+        def draw_gear(
+            center_screen: QPointF,
+            radius_screen: float,
+            teeth: float,
+            color: QColor,
+        ) -> None:
+            self._preview_scene.addPolygon(
+                gear_outline_polygon(center_screen, radius_screen, teeth, 0.0),
                 QPen(color, 4),
                 QBrush(color.lighter(150)),
             )
 
-        draw_gear(sun_center, r_sun, QColor("#7f8c8d"))
-        draw_gear(planet_center, r_planet, QColor("#e67e22"))
+        draw_gear(
+            sun_screen,
+            r_sun_screen,
+            _finite_float(params.get("sun_teeth"), 12.0),
+            QColor("#7f8c8d"),
+        )
+        for current_planet_screen in planet_screens:
+            self._preview_scene.addLine(
+                QLineF(sun_screen, current_planet_screen), QPen(QColor("#d4a017"), 2)
+            )
+            draw_gear(
+                current_planet_screen,
+                r_planet_screen,
+                _finite_float(params.get("planet_teeth"), 12.0),
+                QColor("#e67e22"),
+            )
 
-        p1 = to_screen_coords(planet_center)
+        p1 = planet_screen
         p2 = to_screen_coords(tracking_point)
         self._preview_scene.addLine(QLineF(p1, p2), QPen(QColor("#f39c12"), 3))
         self._preview_scene.addEllipse(

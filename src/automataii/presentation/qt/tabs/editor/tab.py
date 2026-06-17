@@ -621,6 +621,23 @@ class EditorTab(QWidget):
                 count += 1
         return count
 
+    @staticmethod
+    def _parts_data_from_project_manager(project_data_manager: Any) -> Any:
+        """Return project parts from the full SSOT manager or a lightweight fallback.
+
+        Several Editor operations run during startup, tests, or teardown when
+        the parent window may expose only a minimal project-data object. This
+        lookup must not raise inside UI callbacks.
+        """
+        get_current_parts_data = getattr(project_data_manager, "get_current_parts_data", None)
+        if callable(get_current_parts_data):
+            try:
+                return get_current_parts_data()
+            except Exception:
+                logging.debug("Project parts lookup failed", exc_info=True)
+                return None
+        return getattr(project_data_manager, "parts", None)
+
     def _update_part_list_styles(self):
         """Update item backgrounds to show which parts have paths."""
         # Create sophisticated brushes for parts with and without paths
@@ -1354,7 +1371,9 @@ class EditorTab(QWidget):
             hasattr(self.main_window, "project_data_manager")
             and self.main_window.project_data_manager
         ):
-            current_parts = self.main_window.project_data_manager.get_current_parts_data()
+            current_parts = self._parts_data_from_project_manager(
+                self.main_window.project_data_manager
+            )
             if current_parts and part_name in current_parts:
                 current_parts[part_name].motion_path = new_path
 
@@ -1382,7 +1401,9 @@ class EditorTab(QWidget):
         # Try to get the most up-to-date parts data
         parts_data_to_use = None
         if hasattr(main_window, "project_data_manager") and main_window.project_data_manager:
-            parts_data_to_use = main_window.project_data_manager.get_current_parts_data()
+            parts_data_to_use = self._parts_data_from_project_manager(
+                main_window.project_data_manager
+            )
 
         # Fallback to local parts data if project data manager doesn't have it
         if (

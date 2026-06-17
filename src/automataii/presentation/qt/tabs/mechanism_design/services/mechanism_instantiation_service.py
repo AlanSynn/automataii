@@ -73,6 +73,7 @@ FOUNDRY_TO_DESIGN_TYPE_MAPPING: dict[str, str] = {
     "cam_follower": "cam",
     "gear_train": "gear",
     "gear_linkage": "gear",
+    "planetary_gear": "planetary_gear",
     "slider_crank": "4_bar_linkage",  # Approximate with 4-bar for now
 }
 
@@ -84,6 +85,7 @@ FOUNDRY_TYPE_ALIASES: dict[str, str] = {
     "gear": "gear_train",
     "gear+linkage": "gear_linkage",
     "gear_linkage_train": "gear_linkage",
+    "planetary": "planetary_gear",
     "slider-crank": "slider_crank",
     "slidercrank": "slider_crank",
 }
@@ -1371,6 +1373,58 @@ class MechanismInstantiationService:
                         foundry_params["linkage_arm_length"],
                         grid_cell_cm_from_params(foundry_params) * 20.0,
                     )
+
+        elif normalized_type == "planetary_gear":
+            gear_presets = profile.gear_presets or GEAR_PRESETS
+            default_sun = gear_presets[0].teeth
+            default_planet = gear_presets[min(1, len(gear_presets) - 1)].teeth
+            sun_teeth = _positive_int(foundry_params.get("sun_teeth", default_sun), default_sun)
+            planet_teeth = _positive_int(
+                foundry_params.get("planet_teeth", default_planet),
+                default_planet,
+            )
+            if grid_enabled:
+                sun_teeth = nearest_gear_teeth(sun_teeth, profile=profile)
+                planet_teeth = nearest_gear_teeth(planet_teeth, profile=profile)
+                r_sun = gear_radius_for_teeth(sun_teeth, profile=profile)
+                r_planet = gear_radius_for_teeth(planet_teeth, profile=profile)
+            else:
+                r_sun = _positive_finite_float(
+                    foundry_params.get(
+                        "sun_radius",
+                        foundry_params.get(
+                            "r_sun",
+                            freeform_gear_radius_for_teeth(sun_teeth, profile=profile),
+                        ),
+                    ),
+                    freeform_gear_radius_for_teeth(sun_teeth, profile=profile),
+                )
+                r_planet = _positive_finite_float(
+                    foundry_params.get(
+                        "planet_radius",
+                        foundry_params.get(
+                            "r_planet",
+                            freeform_gear_radius_for_teeth(planet_teeth, profile=profile),
+                        ),
+                    ),
+                    freeform_gear_radius_for_teeth(planet_teeth, profile=profile),
+                )
+            params["sun_teeth"] = sun_teeth
+            params["planet_teeth"] = planet_teeth
+            params["r_sun"] = r_sun
+            params["r_planet"] = r_planet
+            params["sun_radius"] = r_sun
+            params["planet_radius"] = r_planet
+            params["planet_count"] = int(
+                min(max(_positive_int(foundry_params.get("planet_count", 1), 1), 1), 4)
+            )
+            params["arm_length"] = _positive_finite_float(
+                foundry_params.get("carrier_arm_length", foundry_params.get("arm_length", 40.0)),
+                40.0,
+            )
+            params["carrier_arm_length"] = params["arm_length"]
+            if "input_angle" in foundry_params:
+                params["input_angle"] = _finite_float(foundry_params["input_angle"], 0.0)
 
         elif normalized_type == "slider_crank":
             # Approximate slider-crank with a 4-bar payload for current Design internals.

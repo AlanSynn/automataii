@@ -2,6 +2,8 @@ from pytest import LogCaptureFixture
 
 from automataii.shared.physical_kit import (
     CAM_PRESETS,
+    DEFAULT_BOARD_COLUMNS,
+    DEFAULT_BOARD_ROWS,
     DEFAULT_GRID_CELL_CM,
     DEFAULT_GRID_PITCH_MM,
     DEFAULT_HOLE_DIAMETER_MM,
@@ -31,8 +33,12 @@ def test_physical_kit_default_grid_and_variant_counts() -> None:
     assert DEFAULT_GRID_PITCH_MM == 20.0
     assert DEFAULT_GRID_CELL_CM == 2.0
     assert DEFAULT_HOLE_DIAMETER_MM == 4.0
+    assert DEFAULT_BOARD_ROWS == 15
+    assert DEFAULT_BOARD_COLUMNS == 15
     assert DEFAULT_PHYSICAL_KIT_PROFILE.default_pitch_mm == DEFAULT_GRID_PITCH_MM
     assert DEFAULT_PHYSICAL_KIT_PROFILE.hole_diameter_mm == DEFAULT_HOLE_DIAMETER_MM
+    assert DEFAULT_PHYSICAL_KIT_PROFILE.board_rows == DEFAULT_BOARD_ROWS
+    assert DEFAULT_PHYSICAL_KIT_PROFILE.board_columns == DEFAULT_BOARD_COLUMNS
     assert DEFAULT_PHYSICAL_KIT_PROFILE.grid_pitch_choices == GRID_PITCH_CHOICES
     assert DEFAULT_PHYSICAL_KIT_PROFILE.linkage_length_cells == LINKAGE_LENGTH_CELLS
     assert DEFAULT_PHYSICAL_KIT_PROFILE.gear_presets == GEAR_PRESETS
@@ -77,6 +83,8 @@ def test_physical_context_uses_supported_pitch_presets_when_enabled() -> None:
     assert context.grid_cell_cm == 2.5
     assert context.as_params()["physical_profile_key"] == DEFAULT_PHYSICAL_KIT_PROFILE.key
     assert context.as_params()["hole_diameter_mm"] == DEFAULT_HOLE_DIAMETER_MM
+    assert context.as_params()["board_rows"] == DEFAULT_BOARD_ROWS
+    assert context.as_params()["board_columns"] == DEFAULT_BOARD_COLUMNS
 
 
 def test_unknown_physical_profile_key_warns_before_defaulting(
@@ -161,6 +169,33 @@ def test_gear_snapping_preserves_physical_pair_contract() -> None:
     assert snapped_from_radii["gear2_teeth"] == 18
     assert snapped_from_radii["r1"] == 27.0
     assert snapped_from_radii["r2"] == 27.0
+
+
+def test_gear_linkage_and_planetary_snap_to_fabricated_linkage_lengths() -> None:
+    gear_linkage = snap_physical_params(
+        "gear_linkage",
+        {"gear1_teeth": 13, "gear2_teeth": 17, "linkage_arm_length": 93.0},
+        2.0,
+    )
+    assert gear_linkage["gear1_teeth"] == 14
+    assert gear_linkage["gear2_teeth"] == 18
+    assert gear_linkage["linkage_arm_length"] == 80.0
+
+    planetary = snap_physical_params(
+        "planetary_gear",
+        {
+            "sun_teeth": 13,
+            "planet_teeth": 17,
+            "planet_count": 0,
+            "carrier_arm_length": 131.0,
+        },
+        2.5,
+    )
+    assert planetary["sun_teeth"] == 14
+    assert planetary["planet_teeth"] == 18
+    assert planetary["planet_count"] == 1
+    assert planetary["carrier_arm_length"] == 150.0
+    assert planetary["arm_length"] == 150.0
 
 
 def test_linkage_and_cam_snapping_use_board_pitch() -> None:

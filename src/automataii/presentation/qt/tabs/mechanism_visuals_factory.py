@@ -8,6 +8,8 @@ separation between the main tab logic and visual rendering concerns.
 import logging
 import math
 import xml.etree.ElementTree as ET
+from collections.abc import Callable
+from typing import TypeVar
 
 import numpy as np
 from PyQt6.QtCore import QLineF, QPointF, Qt
@@ -25,6 +27,13 @@ from PyQt6.QtWidgets import (
 from automataii.config.z_indices import (
     Z_MECHANISM_PIVOT,
     Z_SELECTION_MARKER,
+)
+from automataii.presentation.qt.gear_rendering import (
+    annulus_path,
+    gear_attachment_hole_centers,
+    gear_hole_radius,
+    gear_outline_polygon,
+    radial_tick_lines,
 )
 from automataii.presentation.qt.mechanism_parameter_utils import (
     finite_float,
@@ -47,9 +56,18 @@ from automataii.shared.physical_kit import (
     physical_profile_from_params,
 )
 
+_GraphicsItemT = TypeVar("_GraphicsItemT", bound=QGraphicsItem)
+_SceneTransform = Callable[[object], QPointF]
+
+
+def _require_graphics_item(item: _GraphicsItemT | None) -> _GraphicsItemT:
+    """Narrow PyQt scene factory return types; Qt returns an item at runtime."""
+    assert item is not None
+    return item
+
 
 def _cosmetic_pen(
-    color: QColor | str,
+    color: QColor | Qt.GlobalColor | str,
     width: float = 3.0,
     style: Qt.PenStyle = Qt.PenStyle.SolidLine,
     cap: Qt.PenCapStyle = Qt.PenCapStyle.RoundCap,
@@ -136,7 +154,7 @@ class MechanismVisualsFactory:
         self.show_diagnostics = show_diagnostics
 
     def create_4bar_linkage_visuals(
-        self, mechanism_data: dict, transform_function=None
+        self, mechanism_data: dict, transform_function: _SceneTransform | None = None
     ) -> list[QGraphicsItem]:
         """Create visual representation of 4-bar linkage with triangular coupler (like dataset generator)."""
         to_scene_coords = transform_function or self._get_scene_transform_function(mechanism_data)
@@ -159,6 +177,11 @@ class MechanismVisualsFactory:
         # back directly to [0, l1] would render a second, detached linkage in
         # the corner while handles/blueprint still point to the imported layer.
         full_sim_data = mechanism_data.get("full_simulation_data", {})
+        p1: np.ndarray | None = None
+        p2: np.ndarray | None = None
+        p3: np.ndarray | None = None
+        p4: np.ndarray | None = None
+        p_coupler: np.ndarray | None = None
         if "joint_positions" in full_sim_data:
             joint_positions = full_sim_data["joint_positions"]
             has_initial_frame = isinstance(joint_positions, dict) and all(
@@ -261,6 +284,9 @@ class MechanismVisualsFactory:
                 else:
                     p_coupler = p3
 
+        if p1 is None or p2 is None or p3 is None or p4 is None or p_coupler is None:
+            return []
+
         # Transform all points to scene coordinates
         p1_t = to_scene_coords(p1)
         p2_t = to_scene_coords(p2)
@@ -268,7 +294,7 @@ class MechanismVisualsFactory:
         p4_t = to_scene_coords(p4)
         p_coupler_t = to_scene_coords(p_coupler)
 
-        visual_items = []
+        visual_items: list[QGraphicsItem] = []
 
         # Draw basic links (driver and follower) with cosmetic pens
         driver_link = QGraphicsLineItem(QLineF(p1_t, p3_t))
@@ -333,28 +359,44 @@ class MechanismVisualsFactory:
 
         for pos, color, name in zip(pivot_positions, pivot_colors, pivot_names, strict=False):
             # Outer circle
-            outer_pivot = self.scene.addEllipse(
-                pos.x() - 8, pos.y() - 8, 16, 16, _cosmetic_pen(color.darker(150), 2), QBrush(color)
+            outer_pivot = _require_graphics_item(
+                self.scene.addEllipse(
+                    pos.x() - 8,
+                    pos.y() - 8,
+                    16,
+                    16,
+                    _cosmetic_pen(color.darker(150), 2),
+                    QBrush(color),
+                )
             )
             outer_pivot.setZValue(Z_MECHANISM_PIVOT)
             outer_pivot.setToolTip(name)  # Add tooltip for identification
             visual_items.append(outer_pivot)
 
             # Inner highlight
-            inner_pivot = self.scene.addEllipse(
-                pos.x() - 4, pos.y() - 4, 8, 8, QPen(Qt.PenStyle.NoPen), QBrush(color.lighter(150))
+            inner_pivot = _require_graphics_item(
+                self.scene.addEllipse(
+                    pos.x() - 4,
+                    pos.y() - 4,
+                    8,
+                    8,
+                    QPen(Qt.PenStyle.NoPen),
+                    QBrush(color.lighter(150)),
+                )
             )
             inner_pivot.setZValue(Z_MECHANISM_PIVOT + 1)
             visual_items.append(inner_pivot)
 
         # Add coupler point marker (red dot)
-        coupler_marker = self.scene.addEllipse(
-            p_coupler_t.x() - 4,
-            p_coupler_t.y() - 4,
-            8,
-            8,
-            _cosmetic_pen("#ff0000", 2),
-            QBrush(QColor("#ff0000")),
+        coupler_marker = _require_graphics_item(
+            self.scene.addEllipse(
+                p_coupler_t.x() - 4,
+                p_coupler_t.y() - 4,
+                8,
+                8,
+                _cosmetic_pen("#ff0000", 2),
+                QBrush(QColor("#ff0000")),
+            )
         )
         coupler_marker.setZValue(Z_SELECTION_MARKER)
         coupler_marker.setToolTip("Coupler Point (follows path)")
@@ -408,17 +450,19 @@ class MechanismVisualsFactory:
                 status = "CAUTION"
             halo_center = p2_t
             radius = 24.0
-            halo = self.scene.addEllipse(
-                halo_center.x() - radius,
-                halo_center.y() - radius,
-                radius * 2,
-                radius * 2,
-                _cosmetic_pen(color, 5),
-                QBrush(Qt.BrushStyle.NoBrush),
+            halo = _require_graphics_item(
+                self.scene.addEllipse(
+                    halo_center.x() - radius,
+                    halo_center.y() - radius,
+                    radius * 2,
+                    radius * 2,
+                    _cosmetic_pen(color, 5),
+                    QBrush(Qt.BrushStyle.NoBrush),
+                )
             )
             halo.setZValue(30)
             visual_items.append(halo)
-            label = self.scene.addText(f"μ_min={mu_min:.0f}° {status}")
+            label = _require_graphics_item(self.scene.addText(f"μ_min={mu_min:.0f}° {status}"))
             label.setDefaultTextColor(color)
             label.setPos(halo_center.x() + radius + 6, halo_center.y() - 8)
             label.setZValue(31)
@@ -427,10 +471,10 @@ class MechanismVisualsFactory:
             logging.debug("Suppressed exception", exc_info=True)
 
     def create_5bar_linkage_visuals(
-        self, mechanism_data: dict, transform_function=None
+        self, mechanism_data: dict, transform_function: _SceneTransform | None = None
     ) -> list[QGraphicsItem]:
         """Create visual representation for 5-bar linkage mechanism."""
-        visual_items = []
+        visual_items: list[QGraphicsItem] = []
 
         try:
             params = mechanism_data.get("params", {})
@@ -531,10 +575,10 @@ class MechanismVisualsFactory:
         return visual_items
 
     def create_6bar_linkage_visuals(
-        self, mechanism_data: dict, transform_function=None
+        self, mechanism_data: dict, transform_function: _SceneTransform | None = None
     ) -> list[QGraphicsItem]:
         """Create visual representation for 6-bar linkage mechanism (Stephenson Type I)."""
-        visual_items = []
+        visual_items: list[QGraphicsItem] = []
 
         try:
             params = mechanism_data.get("params", {})
@@ -648,7 +692,10 @@ class MechanismVisualsFactory:
         return visual_items
 
     def create_cam_visuals(
-        self, mechanism_data: dict, transform_function=None, character_position=None
+        self,
+        mechanism_data: dict,
+        transform_function: _SceneTransform | None = None,
+        character_position: object | None = None,
     ) -> list[QGraphicsItem]:
         """Create visual representation of cam and follower mechanism using analytic pear-cam profile.
 
@@ -1066,11 +1113,13 @@ class MechanismVisualsFactory:
         """
         if template_points is None or len(template_points) < 3:
             # Fallback circular cam
-            pts = []
+            fallback_points: list[list[float]] = []
             for i in range(num_samples + 1):
                 theta = 2 * np.pi * i / num_samples
-                pts.append([base_radius * np.cos(theta), base_radius * np.sin(theta)])
-            return np.array(pts, dtype=float)
+                fallback_points.append(
+                    [base_radius * np.cos(theta), base_radius * np.sin(theta)]
+                )
+            return np.array(fallback_points, dtype=float)
 
         thetas = np.linspace(0, 2 * np.pi, num_samples + 1)
         u = np.stack([np.cos(thetas), np.sin(thetas)], axis=1)  # (N,2)
@@ -1084,8 +1133,8 @@ class MechanismVisualsFactory:
         denom = max(1e-9, r_max - r_min)
         s = (r_templ - r_min) / denom
         r_new = base_radius + eccentricity * s
-        pts = np.stack([r_new * np.cos(thetas), r_new * np.sin(thetas)], axis=1)
-        return pts.astype(float)
+        points = np.stack([r_new * np.cos(thetas), r_new * np.sin(thetas)], axis=1)
+        return points.astype(float)
 
     def _build_pear_cam_profile(
         self,
@@ -1105,19 +1154,22 @@ class MechanismVisualsFactory:
         - align_max_to_deg: angle where radius is maximum (default 90° => +Y)
         - r(θ) = base_radius + eccentricity * s(θ)
         """
-        return build_pear_cam_profile(
-            base_radius=base_radius,
-            eccentricity=eccentricity,
-            rise_deg=rise_deg,
-            high_dwell_deg=high_dwell_deg,
-            return_deg=return_deg,
-            dwell_low_deg=dwell_low_deg,
-            align_max_to_deg=align_max_to_deg,
-            num_samples=num_samples,
+        return np.asarray(
+            build_pear_cam_profile(
+                base_radius=base_radius,
+                eccentricity=eccentricity,
+                rise_deg=rise_deg,
+                high_dwell_deg=high_dwell_deg,
+                return_deg=return_deg,
+                dwell_low_deg=dwell_low_deg,
+                align_max_to_deg=align_max_to_deg,
+                num_samples=num_samples,
+            ),
+            dtype=float,
         )
 
     def create_gear_visuals(
-        self, mechanism_data: dict, transform_function=None
+        self, mechanism_data: dict, transform_function: _SceneTransform | None = None
     ) -> list[QGraphicsItem]:
         """Create visual representation of gear train mechanism."""
         params = mechanism_data.get("params", {})
@@ -1180,32 +1232,32 @@ class MechanismVisualsFactory:
             gear2_edge_scene = to_scene_coords(gear2_edge_orig)
             r2_screen = QLineF(gear2_center_scene, gear2_edge_scene).length()
 
-        visual_items = []
+        visual_items: list[QGraphicsItem] = []
+        gear1_teeth = int(round(finite_float(params.get("gear1_teeth"), 12.0)))
+        gear2_teeth = int(round(finite_float(params.get("gear2_teeth"), 16.0)))
 
-        # Create gear 1 (driver) with proper screen coordinates
+        # Create gear 1 (driver) with visible tooth geometry.
         gear1_color = QColor("#3498db")  # Blue
 
-        gear1_body = self.scene.addEllipse(
-            gear1_center_scene.x() - r1_screen,
-            gear1_center_scene.y() - r1_screen,
-            r1_screen * 2,
-            r1_screen * 2,
-            _cosmetic_pen(gear1_color, 4),
-            QBrush(gear1_color.lighter(170)),
+        gear1_body = _require_graphics_item(
+            self.scene.addPolygon(
+                gear_outline_polygon(gear1_center_scene, r1_screen, gear1_teeth, 0.0),
+                _cosmetic_pen(gear1_color, 4),
+                QBrush(gear1_color.lighter(170)),
+            )
         )
         gear1_body.setZValue(15)  # Above parts
         visual_items.append(gear1_body)
 
-        # Create gear 2 (driven) with proper screen coordinates
+        # Create gear 2 (driven) with visible tooth geometry.
         gear2_color = QColor("#2ecc71")  # Green
 
-        gear2_body = self.scene.addEllipse(
-            gear2_center_scene.x() - r2_screen,
-            gear2_center_scene.y() - r2_screen,
-            r2_screen * 2,
-            r2_screen * 2,
-            _cosmetic_pen(gear2_color, 4),
-            QBrush(gear2_color.lighter(170)),
+        gear2_body = _require_graphics_item(
+            self.scene.addPolygon(
+                gear_outline_polygon(gear2_center_scene, r2_screen, gear2_teeth, 0.0),
+                _cosmetic_pen(gear2_color, 4),
+                QBrush(gear2_color.lighter(170)),
+            )
         )
         gear2_body.setZValue(15)  # Above parts
         visual_items.append(gear2_body)
@@ -1214,50 +1266,80 @@ class MechanismVisualsFactory:
         indicator_color = QColor("#ffffff")  # White lines
 
         # Gear 1 indicator (initially horizontal) - use screen-space radius
-        gear1_indicator = self.scene.addLine(
-            gear1_center_scene.x(),
-            gear1_center_scene.y(),
-            gear1_center_scene.x() + r1_screen,
-            gear1_center_scene.y(),
-            _cosmetic_pen(indicator_color, 3),
+        gear1_indicator = _require_graphics_item(
+            self.scene.addLine(
+                gear1_center_scene.x(),
+                gear1_center_scene.y(),
+                gear1_center_scene.x() + r1_screen,
+                gear1_center_scene.y(),
+                _cosmetic_pen(indicator_color, 3),
+            )
         )
         gear1_indicator.setZValue(15)
         visual_items.append(gear1_indicator)
 
         # Gear 2 indicator (initially horizontal) - use screen-space radius
-        gear2_indicator = self.scene.addLine(
-            gear2_center_scene.x(),
-            gear2_center_scene.y(),
-            gear2_center_scene.x() + r2_screen,
-            gear2_center_scene.y(),
-            _cosmetic_pen(indicator_color, 3),
+        gear2_indicator = _require_graphics_item(
+            self.scene.addLine(
+                gear2_center_scene.x(),
+                gear2_center_scene.y(),
+                gear2_center_scene.x() + r2_screen,
+                gear2_center_scene.y(),
+                _cosmetic_pen(indicator_color, 3),
+            )
         )
         gear2_indicator.setZValue(15)
         visual_items.append(gear2_indicator)
+
+        for center_scene, radius_screen, prefix in (
+            (gear1_center_scene, r1_screen, "gear1_attachment_hole"),
+            (gear2_center_scene, r2_screen, "gear2_attachment_hole"),
+        ):
+            hole_radius = gear_hole_radius(radius_screen)
+            for index, hole_center in enumerate(
+                gear_attachment_hole_centers(center_scene, radius_screen, count=4)
+            ):
+                hole = _require_graphics_item(
+                    self.scene.addEllipse(
+                        hole_center.x() - hole_radius,
+                        hole_center.y() - hole_radius,
+                        hole_radius * 2,
+                        hole_radius * 2,
+                        _cosmetic_pen("#5c4033", 1.5),
+                        QBrush(QColor(255, 255, 255, 225)),
+                    )
+                )
+                hole.setData(0, f"{prefix}_{index}")
+                hole.setZValue(16)
+                visual_items.append(hole)
 
         # Create center pivots
         pivot_color = QColor("#f39c12")  # Orange
 
         # Gear 1 center
-        gear1_pivot = self.scene.addEllipse(
-            gear1_center_scene.x() - 8,
-            gear1_center_scene.y() - 8,
-            16,
-            16,
-            _cosmetic_pen(pivot_color.darker(150), 3),
-            QBrush(pivot_color),
+        gear1_pivot = _require_graphics_item(
+            self.scene.addEllipse(
+                gear1_center_scene.x() - 8,
+                gear1_center_scene.y() - 8,
+                16,
+                16,
+                _cosmetic_pen(pivot_color.darker(150), 3),
+                QBrush(pivot_color),
+            )
         )
         gear1_pivot.setZValue(20)
         visual_items.append(gear1_pivot)
 
         # Gear 2 center
-        gear2_pivot = self.scene.addEllipse(
-            gear2_center_scene.x() - 8,
-            gear2_center_scene.y() - 8,
-            16,
-            16,
-            _cosmetic_pen(pivot_color.darker(150), 3),
-            QBrush(pivot_color),
+        gear2_pivot = _require_graphics_item(
+            self.scene.addEllipse(
+                gear2_center_scene.x() - 8,
+                gear2_center_scene.y() - 8,
+                16,
+                16,
+                _cosmetic_pen(pivot_color.darker(150), 3),
+                QBrush(pivot_color),
+            )
         )
         gear2_pivot.setZValue(20)
         visual_items.append(gear2_pivot)
@@ -1291,9 +1373,11 @@ class MechanismVisualsFactory:
                 pin_scene = to_scene_coords(pin_orig)
                 end_scene = to_scene_coords(end_orig)
 
-            linkage_arm = self.scene.addLine(
-                QLineF(pin_scene, end_scene),
-                _cosmetic_pen("#d62728", 5),
+            linkage_arm = _require_graphics_item(
+                self.scene.addLine(
+                    QLineF(pin_scene, end_scene),
+                    _cosmetic_pen("#d62728", 5),
+                )
             )
             linkage_arm.setData(0, "gear_linkage_arm")
             linkage_arm.setZValue(22)
@@ -1303,13 +1387,15 @@ class MechanismVisualsFactory:
                 ("gear_linkage_pin", pin_scene, QColor("#ff9896")),
                 ("gear_linkage_end", end_scene, QColor("#d62728")),
             ):
-                marker = self.scene.addEllipse(
-                    point.x() - 5.0,
-                    point.y() - 5.0,
-                    10.0,
-                    10.0,
-                    _cosmetic_pen("#7f1d1d", 2),
-                    QBrush(color),
+                marker = _require_graphics_item(
+                    self.scene.addEllipse(
+                        point.x() - 5.0,
+                        point.y() - 5.0,
+                        10.0,
+                        10.0,
+                        _cosmetic_pen("#7f1d1d", 2),
+                        QBrush(color),
+                    )
                 )
                 marker.setData(0, key)
                 marker.setZValue(23)
@@ -1319,21 +1405,25 @@ class MechanismVisualsFactory:
             # --- Diagnostics overlay: pitch circles and center distance check ---
             try:
                 dashed = _cosmetic_pen("#7f8c8d", 1, Qt.PenStyle.DashLine)
-                pc1 = self.scene.addEllipse(
-                    gear1_center_scene.x() - r1_screen,
-                    gear1_center_scene.y() - r1_screen,
-                    r1_screen * 2,
-                    r1_screen * 2,
-                    dashed,
+                pc1 = _require_graphics_item(
+                    self.scene.addEllipse(
+                        gear1_center_scene.x() - r1_screen,
+                        gear1_center_scene.y() - r1_screen,
+                        r1_screen * 2,
+                        r1_screen * 2,
+                        dashed,
+                    )
                 )
                 pc1.setZValue(12)
                 visual_items.append(pc1)
-                pc2 = self.scene.addEllipse(
-                    gear2_center_scene.x() - r2_screen,
-                    gear2_center_scene.y() - r2_screen,
-                    r2_screen * 2,
-                    r2_screen * 2,
-                    dashed,
+                pc2 = _require_graphics_item(
+                    self.scene.addEllipse(
+                        gear2_center_scene.x() - r2_screen,
+                        gear2_center_scene.y() - r2_screen,
+                        r2_screen * 2,
+                        r2_screen * 2,
+                        dashed,
+                    )
                 )
                 pc2.setZValue(12)
                 visual_items.append(pc2)
@@ -1355,7 +1445,9 @@ class MechanismVisualsFactory:
                     )
                 mismatch = abs(d_orig - desired)
                 if mismatch > 0.5:
-                    warn = self.scene.addText(f"Center distance off by {mismatch:.1f}")
+                    warn = _require_graphics_item(
+                        self.scene.addText(f"Center distance off by {mismatch:.1f}")
+                    )
                     warn.setDefaultTextColor(QColor("#e74c3c"))
                     warn.setPos(
                         (gear1_center_scene.x() + gear2_center_scene.x()) / 2.0,
@@ -1369,7 +1461,7 @@ class MechanismVisualsFactory:
         return visual_items
 
     def create_planetary_gear_visuals(
-        self, mechanism_data: dict, transform_function=None
+        self, mechanism_data: dict, transform_function: _SceneTransform | None = None
     ) -> list[QGraphicsItem]:
         """Create visual representation of planetary gear mechanism."""
         to_scene_coords = transform_function or self._get_scene_transform_function(mechanism_data)
@@ -1382,7 +1474,7 @@ class MechanismVisualsFactory:
         r_planet = positive_finite_float(params.get("r_planet", 30), 30.0)
         arm_length = positive_finite_float(params.get("arm_length", 15), 15.0)
 
-        visual_items = []
+        visual_items: list[QGraphicsItem] = []
 
         # Try to get initial positions from simulation data
         full_sim_data = mechanism_data.get("full_simulation_data", {})
@@ -1437,9 +1529,32 @@ class MechanismVisualsFactory:
             else:
                 tracking_point_orig = tracking_point
 
+        planet_count = min(max(int(round(finite_float(params.get("planet_count"), 1.0))), 1), 4)
+        orbit_vector = planet_center_orig - sun_center_orig
+        orbit_radius = float(np.linalg.norm(orbit_vector))
+        if not math.isfinite(orbit_radius) or orbit_radius <= 1e-6:
+            orbit_radius = r_sun + r_planet
+            orbit_vector = np.array([orbit_radius, 0.0], dtype=float)
+        base_angle = math.atan2(float(orbit_vector[1]), float(orbit_vector[0]))
+        planet_centers_orig = [
+            planet_center_orig
+            if index == 0
+            else sun_center_orig
+            + orbit_radius
+            * np.array(
+                [
+                    math.cos(base_angle + (2.0 * math.pi * index / planet_count)),
+                    math.sin(base_angle + (2.0 * math.pi * index / planet_count)),
+                ],
+                dtype=float,
+            )
+            for index in range(planet_count)
+        ]
+
         # Transform to scene coordinates
         sun_center_scene = to_scene_coords(sun_center_orig)
-        planet_center_scene = to_scene_coords(planet_center_orig)
+        planet_centers_scene = [to_scene_coords(center) for center in planet_centers_orig]
+        planet_center_scene = planet_centers_scene[0]
         tracking_point_scene = to_scene_coords(tracking_point_orig)
 
         # Calculate screen radii for proper scaling
@@ -1452,50 +1567,78 @@ class MechanismVisualsFactory:
         r_sun_screen = QLineF(sun_center_scene, sun_edge_scene).length()
         r_planet_screen = QLineF(planet_center_scene, planet_edge_scene).length()
 
+        sun_teeth = int(round(finite_float(params.get("sun_teeth"), 12.0)))
+        planet_teeth = int(round(finite_float(params.get("planet_teeth"), 12.0)))
+        ring_inner = QLineF(sun_center_scene, planet_center_scene).length() + r_planet_screen * 0.55
+        ring_outer = ring_inner + max(7.0, min(16.0, r_planet_screen * 0.45))
+        decorative_items: list[QGraphicsItem] = []
+        ring_path = _require_graphics_item(
+            self.scene.addPath(
+                annulus_path(sun_center_scene, ring_outer, ring_inner),
+                _cosmetic_pen("#5d6d7e", 3),
+                QBrush(QColor(180, 185, 190, 80)),
+            )
+        )
+        ring_path.setZValue(10)
+        decorative_items.append(ring_path)
+
+        for start, end in radial_tick_lines(sun_center_scene, ring_inner - 2, ring_inner + 4, 36):
+            tick = _require_graphics_item(
+                self.scene.addLine(QLineF(start, end), _cosmetic_pen("#5d6d7e", 1))
+            )
+            tick.setZValue(11)
+            decorative_items.append(tick)
+
         # Create sun gear (stationary)
         sun_color = QColor("#7f8c8d")  # Gray
-        sun_gear = self.scene.addEllipse(
-            sun_center_scene.x() - r_sun_screen,
-            sun_center_scene.y() - r_sun_screen,
-            r_sun_screen * 2,
-            r_sun_screen * 2,
-            _cosmetic_pen(sun_color, 4),
-            QBrush(sun_color.lighter(150)),
+        sun_gear = _require_graphics_item(
+            self.scene.addPolygon(
+                gear_outline_polygon(sun_center_scene, r_sun_screen, sun_teeth, 0.0),
+                _cosmetic_pen(sun_color, 4),
+                QBrush(sun_color.lighter(150)),
+            )
         )
+        sun_gear.setData(0, "planetary_sun_body")
         sun_gear.setZValue(14)  # Base level, above parts
         visual_items.append(sun_gear)
 
-        # Create planet gear (orbiting)
+        # Create primary planet gear (orbiting)
         planet_color = QColor("#e67e22")  # Orange
-        planet_gear = self.scene.addEllipse(
-            planet_center_scene.x() - r_planet_screen,
-            planet_center_scene.y() - r_planet_screen,
-            r_planet_screen * 2,
-            r_planet_screen * 2,
-            _cosmetic_pen(planet_color, 4),
-            QBrush(planet_color.lighter(150)),
+        planet_gear = _require_graphics_item(
+            self.scene.addPolygon(
+                gear_outline_polygon(planet_center_scene, r_planet_screen, planet_teeth, 0.0),
+                _cosmetic_pen(planet_color, 4),
+                QBrush(planet_color.lighter(150)),
+            )
         )
+        planet_gear.setData(0, "planetary_planet_1_body")
         planet_gear.setZValue(15)  # Above base level
         visual_items.append(planet_gear)
 
         # Create arm connecting planet center to tracking point
         arm_color = QColor("#f39c12")  # Golden
-        arm_line = self.scene.addLine(
-            QLineF(planet_center_scene, tracking_point_scene), _cosmetic_pen(arm_color, 3)
+        arm_line = _require_graphics_item(
+            self.scene.addLine(
+                QLineF(planet_center_scene, tracking_point_scene), _cosmetic_pen(arm_color, 3)
+            )
         )
+        arm_line.setData(0, "planetary_output_arm")
         arm_line.setZValue(15)
         visual_items.append(arm_line)
 
         # Create tracking point marker
         tracking_color = QColor("#e74c3c")  # Red
-        tracking_marker = self.scene.addEllipse(
-            tracking_point_scene.x() - 8,
-            tracking_point_scene.y() - 8,
-            16,
-            16,
-            _cosmetic_pen(tracking_color, 2),
-            QBrush(tracking_color),
+        tracking_marker = _require_graphics_item(
+            self.scene.addEllipse(
+                tracking_point_scene.x() - 8,
+                tracking_point_scene.y() - 8,
+                16,
+                16,
+                _cosmetic_pen(tracking_color, 2),
+                QBrush(tracking_color),
+            )
         )
+        tracking_marker.setData(0, "planetary_output_pin")
         tracking_marker.setZValue(20)
         visual_items.append(tracking_marker)
 
@@ -1503,32 +1646,104 @@ class MechanismVisualsFactory:
         center_color = QColor("#3498db")  # Blue
 
         # Sun center marker
-        sun_center_marker = self.scene.addEllipse(
-            sun_center_scene.x() - 6,
-            sun_center_scene.y() - 6,
-            12,
-            12,
-            _cosmetic_pen(center_color.darker(150), 2),
-            QBrush(center_color),
+        sun_center_marker = _require_graphics_item(
+            self.scene.addEllipse(
+                sun_center_scene.x() - 6,
+                sun_center_scene.y() - 6,
+                12,
+                12,
+                _cosmetic_pen(center_color.darker(150), 2),
+                QBrush(center_color),
+            )
         )
+        sun_center_marker.setData(0, "planetary_sun_center")
         sun_center_marker.setZValue(25)
         visual_items.append(sun_center_marker)
 
         # Planet center marker
-        planet_center_marker = self.scene.addEllipse(
-            planet_center_scene.x() - 4,
-            planet_center_scene.y() - 4,
-            8,
-            8,
-            _cosmetic_pen(center_color.darker(150), 1),
-            QBrush(center_color.lighter(130)),
+        planet_center_marker = _require_graphics_item(
+            self.scene.addEllipse(
+                planet_center_scene.x() - 4,
+                planet_center_scene.y() - 4,
+                8,
+                8,
+                _cosmetic_pen(center_color.darker(150), 1),
+                QBrush(center_color.lighter(130)),
+            )
         )
+        planet_center_marker.setData(0, "planetary_planet_1_center")
         planet_center_marker.setZValue(25)
         visual_items.append(planet_center_marker)
 
+        carrier_color = QColor("#d4a017")
+        for index, center_scene in enumerate(planet_centers_scene, start=1):
+            carrier_line = _require_graphics_item(
+                self.scene.addLine(
+                    QLineF(sun_center_scene, center_scene),
+                    _cosmetic_pen(carrier_color, 2),
+                )
+            )
+            carrier_line.setData(0, f"planetary_carrier_{index}")
+            carrier_line.setZValue(13)
+            visual_items.append(carrier_line)
+
+        for index, center_scene in enumerate(planet_centers_scene[1:], start=2):
+            extra_planet = _require_graphics_item(
+                self.scene.addPolygon(
+                    gear_outline_polygon(center_scene, r_planet_screen, planet_teeth, 0.0),
+                    _cosmetic_pen(planet_color, 4),
+                    QBrush(planet_color.lighter(150)),
+                )
+            )
+            extra_planet.setData(0, f"planetary_planet_{index}_body")
+            extra_planet.setZValue(15)
+            visual_items.append(extra_planet)
+
+            extra_marker = _require_graphics_item(
+                self.scene.addEllipse(
+                    center_scene.x() - 4,
+                    center_scene.y() - 4,
+                    8,
+                    8,
+                    _cosmetic_pen(center_color.darker(150), 1),
+                    QBrush(center_color.lighter(130)),
+                )
+            )
+            extra_marker.setData(0, f"planetary_planet_{index}_center")
+            extra_marker.setZValue(25)
+            visual_items.append(extra_marker)
+
+        hole_specs: list[tuple[QPointF, float, str]] = [
+            (sun_center_scene, r_sun_screen, "planetary_sun_hole"),
+        ]
+        hole_specs.extend(
+            (center_scene, r_planet_screen, f"planetary_planet_{index}_hole")
+            for index, center_scene in enumerate(planet_centers_scene, start=1)
+        )
+        for center_scene, radius_screen, prefix in hole_specs:
+            hole_radius = gear_hole_radius(radius_screen)
+            for index, hole_center in enumerate(
+                gear_attachment_hole_centers(center_scene, radius_screen, count=4)
+            ):
+                hole = _require_graphics_item(
+                    self.scene.addEllipse(
+                        hole_center.x() - hole_radius,
+                        hole_center.y() - hole_radius,
+                        hole_radius * 2,
+                        hole_radius * 2,
+                        _cosmetic_pen("#5c4033", 1.3),
+                        QBrush(QColor(255, 255, 255, 225)),
+                    )
+                )
+                hole.setData(0, f"{prefix}_{index}")
+                hole.setZValue(18)
+                visual_items.append(hole)
+
+        visual_items.extend(decorative_items)
+
         return visual_items
 
-    def _get_scene_transform_function(self, layer_data: dict):
+    def _get_scene_transform_function(self, layer_data: dict) -> _SceneTransform | None:
         """
         Returns None - transform function is provided by caller via layer_data.
 

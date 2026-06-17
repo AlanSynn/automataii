@@ -198,6 +198,14 @@ class SensemakingService:
             motion_question="Does the linkage need a bigger swing, different timing, or less force?",
             kit_move="Use a 4 mm crank hole and a loose bracket so the link can rotate freely.",
         ),
+        "planetary_gear": MechanismStory(
+            mechanism_type="planetary_gear",
+            title="Planetary gear",
+            focus="A sun gear drives orbiting planets held by a carrier arm.",
+            chain="sun teeth → planet orbit → carrier/output point",
+            motion_question="Should the motion feel compact, orbital, or geared-down?",
+            kit_move="Pin the sun first, then add the carrier and planet with loose spacers.",
+        ),
         "slider_crank": MechanismStory(
             mechanism_type="slider_crank",
             title="Slider-crank",
@@ -248,6 +256,15 @@ class SensemakingService:
                 "linkage_end",
                 "linkage_end",
                 "Linkage end",
+            ),
+        ),
+        "planetary_gear": (
+            SensemakingMotionPoint("Planet center", "planet_center", "planet_center", "Planet"),
+            SensemakingMotionPoint(
+                "Output pin",
+                "tracking_point",
+                "tracking_point",
+                "Output pin",
             ),
         ),
         "slider_crank": (
@@ -442,6 +459,50 @@ class SensemakingService:
             principle="A longer linkage carries motion farther but can add side load.",
             build_hint="Check the linkage clears neighboring gears, brackets, and spacers.",
             prompt="Did length solve reach, or did it introduce rubbing?",
+        ),
+        ("planetary_gear", "sun_teeth"): CauseEffectRule(
+            mechanism_type="planetary_gear",
+            parameter_key="sun_teeth",
+            parameter_label="Sun gear teeth",
+            role="Central gear size",
+            cause_label="You changed the gear in the middle of the planetary set.",
+            effect_label="The planet orbit and carrier speed relationship changes.",
+            principle="Sun and planet tooth counts set the compact gear ratio.",
+            build_hint="Keep the sun axle straight before adding the carrier.",
+            prompt="Does the output need stronger reduction or quicker orbital motion?",
+        ),
+        ("planetary_gear", "planet_teeth"): CauseEffectRule(
+            mechanism_type="planetary_gear",
+            parameter_key="planet_teeth",
+            parameter_label="Planet gear teeth",
+            role="Orbiting gear size",
+            cause_label="You changed the gears riding around the sun.",
+            effect_label="The carrier needs a different orbit radius and mesh spacing.",
+            principle="Planet size determines both tooth ratio and physical spacing.",
+            build_hint="Choose planets that still fit on the same board neighborhood.",
+            prompt="Did the new planet size improve compactness or make spacing harder?",
+        ),
+        ("planetary_gear", "planet_count"): CauseEffectRule(
+            mechanism_type="planetary_gear",
+            parameter_key="planet_count",
+            parameter_label="Planet count",
+            role="Load sharing",
+            cause_label="You changed how many planets ride on the carrier.",
+            effect_label="The visual motion becomes more balanced, but assembly needs more pins.",
+            principle="More planets share load but add alignment constraints.",
+            build_hint="Prototype with one planet first, then mirror additional planets.",
+            prompt="Is balance worth the extra assembly complexity here?",
+        ),
+        ("planetary_gear", "carrier_arm_length"): CauseEffectRule(
+            mechanism_type="planetary_gear",
+            parameter_key="carrier_arm_length",
+            parameter_label="Carrier handle length",
+            role="Output reach",
+            cause_label="You changed the handle hole extending from the carrier.",
+            effect_label="The output pin reaches a larger or smaller character anchor area.",
+            principle="Carrier reach affects where compact orbital motion can be delivered.",
+            build_hint="Use a loose paper fastener at the carrier handle hole.",
+            prompt="Does the handle reach the character without rubbing the planets?",
         ),
         ("slider_crank", "crank_length"): CauseEffectRule(
             mechanism_type="slider_crank",
@@ -747,6 +808,15 @@ class SensemakingService:
             return (
                 "Watch the driven gear: speed changes, direction stays reversed.",
                 f"Ratio {teeth1:.0f}:{teeth2:.0f}; output turns about {ratio:.2f}× per input turn.",
+            )
+
+        if mechanism_type == "planetary_gear":
+            sun = cls._positive_number(current_parameters.get("sun_teeth"), 12.0)
+            planet = cls._positive_number(current_parameters.get("planet_teeth"), 14.0)
+            count = cls._positive_number(current_parameters.get("planet_count"), 1.0)
+            return (
+                "Watch the planet/output pin: the motion stays compact while the carrier orbits.",
+                f"Sun {sun:.0f} teeth, planet {planet:.0f} teeth, {count:.0f} planets share the carrier.",
             )
 
         if mechanism_type == "slider_crank":

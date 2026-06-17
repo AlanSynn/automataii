@@ -12,6 +12,8 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
 from automataii.shared.physical_kit import (
+    DEFAULT_BOARD_COLUMNS,
+    DEFAULT_BOARD_ROWS,
     DEFAULT_PHYSICAL_KIT_PROFILE,
     PhysicalKitProfile,
     finite_float,
@@ -19,8 +21,8 @@ from automataii.shared.physical_kit import (
 )
 
 ASSEMBLY_SCHEMA_VERSION = "automataii.fabrication.assembly.v1"
-BOARD_ROWS: tuple[str, ...] = tuple(chr(ord("A") + idx) for idx in range(15))
-BOARD_COLUMNS: tuple[int, ...] = tuple(range(1, 16))
+BOARD_ROWS: tuple[str, ...] = tuple(chr(ord("A") + idx) for idx in range(DEFAULT_BOARD_ROWS))
+BOARD_COLUMNS: tuple[int, ...] = tuple(range(1, DEFAULT_BOARD_COLUMNS + 1))
 PAPER_FASTENER_KEY = "paper-fastener"
 DEFAULT_FASTENER_MAX_LENGTH = "2in"
 
@@ -136,6 +138,7 @@ class AssemblyStep:
     title: str
     instruction: str
     coords: tuple[BoardCoord, ...]
+    coord_roles: tuple[str, ...]
     parts: tuple[PartRef, ...]
     stack: tuple[StackLayer, ...]
     visual_state: VisualState
@@ -149,6 +152,7 @@ class AssemblyStep:
             "title": self.title,
             "instruction": self.instruction,
             "coords": [coord.label for coord in self.coords],
+            "coord_roles": list(self.coord_roles),
             "parts": [part.to_dict() for part in self.parts],
             "stack": [layer.to_dict() for layer in self.stack],
             "visual_state": self.visual_state.to_dict(),
@@ -167,6 +171,8 @@ class GearCompatibility:
     board_distance_mm: float
     required_center_distance_mm: float
     tolerance_mm: float
+    first_coord_role: str = "board_axle"
+    second_coord_role: str = "board_axle"
 
     @property
     def error_mm(self) -> float:
@@ -182,6 +188,8 @@ class GearCompatibility:
             "second_part": self.second_part,
             "first_coord": self.first_coord.label,
             "second_coord": self.second_coord.label,
+            "first_coord_role": self.first_coord_role,
+            "second_coord_role": self.second_coord_role,
             "board_distance_cells": round(self.board_distance_cells, 3),
             "board_distance_mm": round(self.board_distance_mm, 3),
             "required_center_distance_mm": round(self.required_center_distance_mm, 3),
@@ -244,6 +252,87 @@ def _stack(coord: BoardCoord, moving_part: PartRef, spacer: PartRef) -> tuple[St
     )
 
 
+def _fixed_part_stack(coord: BoardCoord, fixed_part: PartRef, spacer: PartRef) -> tuple[StackLayer, ...]:
+    """Stack for a part that is fixed to the board rather than free-running."""
+
+    return (
+        StackLayer(1, "board", f"Board hole {coord.label}"),
+        StackLayer(2, "paper-fastener", "Paper fastener"),
+        StackLayer(3, "spacer", spacer.label, spacer),
+        StackLayer(4, "fixed-part", fixed_part.label, fixed_part),
+        StackLayer(5, "fastener-tabs", "Open tabs behind board"),
+    )
+
+
+def _carrier_pivot_stack(
+    reference_coord: BoardCoord, moving_part: PartRef, spacer: PartRef
+) -> tuple[StackLayer, ...]:
+    """Stack for a planet axle that rides on a carrier, not through the board.
+
+    The board coordinate is still useful as an assembly reference because the
+    carrier hole should be aligned near that pegboard location, but this stack
+    must not claim a second fixed board axle. A fixed planet axle would lock the
+    carrier and mis-teach the physical planetary mechanism.
+    """
+
+    return (
+        StackLayer(1, "carrier-hole", f"Carrier hole near {reference_coord.label}"),
+        StackLayer(2, "paper-fastener", "Paper fastener"),
+        StackLayer(3, "spacer", spacer.label, spacer),
+        StackLayer(4, "moving-part", moving_part.label, moving_part),
+        StackLayer(5, "top-spacer", spacer.label, spacer),
+        StackLayer(6, "fastener-tabs", "Open tabs loosely"),
+    )
+
+
+def _gear_handle_stack(
+    reference_coord: BoardCoord,
+    moving_part: PartRef,
+    spacer: PartRef,
+    gear_part: PartRef,
+) -> tuple[StackLayer, ...]:
+    """Stack for a linkage joint mounted on an off-center gear handle hole."""
+
+    return (
+        StackLayer(1, "gear-handle-hole", f"{_part_short_label(gear_part)} handle hole near {reference_coord.label}"),
+        StackLayer(2, "paper-fastener", "Paper fastener"),
+        StackLayer(3, "spacer", spacer.label, spacer),
+        StackLayer(4, "moving-part", moving_part.label, moving_part),
+        StackLayer(5, "top-spacer", spacer.label, spacer),
+        StackLayer(6, "fastener-tabs", "Open tabs loosely"),
+    )
+
+
+def _link_end_stack(
+    reference_coord: BoardCoord, moving_part: PartRef, spacer: PartRef
+) -> tuple[StackLayer, ...]:
+    """Stack for a moving output connector attached to a linkage end."""
+
+    return (
+        StackLayer(1, "link-end-hole", f"Link output hole near {reference_coord.label}"),
+        StackLayer(2, "paper-fastener", "Paper fastener"),
+        StackLayer(3, "spacer", spacer.label, spacer),
+        StackLayer(4, "moving-part", moving_part.label, moving_part),
+        StackLayer(5, "top-spacer", spacer.label, spacer),
+        StackLayer(6, "fastener-tabs", "Open tabs loosely"),
+    )
+
+
+def _link_joint_stack(
+    reference_coord: BoardCoord, moving_part: PartRef, spacer: PartRef
+) -> tuple[StackLayer, ...]:
+    """Stack for a free linkage-to-linkage joint, not a board pivot."""
+
+    return (
+        StackLayer(1, "link-joint-hole", f"Moving joint near {reference_coord.label}"),
+        StackLayer(2, "paper-fastener", "Paper fastener"),
+        StackLayer(3, "spacer", spacer.label, spacer),
+        StackLayer(4, "moving-part", moving_part.label, moving_part),
+        StackLayer(5, "top-spacer", spacer.label, spacer),
+        StackLayer(6, "fastener-tabs", "Open tabs loosely"),
+    )
+
+
 def _fixed_stack(coord: BoardCoord) -> tuple[StackLayer, ...]:
     return (
         StackLayer(1, "board", f"Board hole {coord.label}"),
@@ -265,8 +354,12 @@ def _step(
     check: str,
     *,
     ghosts: Sequence[str] = (),
+    coord_roles: Sequence[str] | None = None,
 ) -> AssemblyStep:
     board_coords = tuple(_coord(coord) for coord in coords)
+    roles = tuple(coord_roles or ("board",) * len(board_coords))
+    if len(roles) != len(board_coords):
+        raise AssemblyValidationError("Step coordinate roles must match coordinates")
     part_ids = tuple(part.part_id for part in parts)
     return AssemblyStep(
         n=n,
@@ -274,6 +367,7 @@ def _step(
         title=title,
         instruction=instruction,
         coords=board_coords,
+        coord_roles=roles,
         parts=tuple(parts),
         stack=tuple(stack),
         visual_state=VisualState(part_ids, tuple(ghosts), board_coords),
@@ -412,8 +506,9 @@ def build_default_assembly_package(
     follower = _part("followers", "f3-round", "Round follower")
     link2 = _part("linkages", "linkage-2-cell", "L2 linkage")
     link4 = _part("linkages", "linkage-4-cell", "L4 linkage")
+    link6 = _part("linkages", "linkage-6-cell", "L6 linkage")
     bracket2 = _part("brackets", "2-hole-straight", "2-hole bracket")
-    bracket_l = _part("brackets", "l-3-hole", "L bracket")
+    bracket3 = _part("brackets", "3-hole-straight", "3-hole bracket")
     spacer = _part("spacers", "s8", "S8 spacer", count=8)
     spacer_tall = _part("spacers", "s12", "S12 spacer", count=2)
 
@@ -422,6 +517,42 @@ def build_default_assembly_package(
     )
     crank_drive_gear, crank_driven_gear, crank_drive_coord, crank_driven_coord, gear_link_compat = (
         _best_gear_pair("I6", pitch_mm, index, profile)
+    )
+    sun_coord = _coord("H8")
+    planet_coord = _coord("H10")
+    if len(profile.gear_presets) < 2:
+        raise AssemblyValidationError("Planetary recipe requires at least two gear presets")
+    sun_preset = profile.gear_presets[0]
+    planet_preset = profile.gear_presets[1]
+    sun_gear = _part("gears", sun_preset.key, f"G{sun_preset.teeth} gear")
+    planet_gear = _part("gears", planet_preset.key, f"G{planet_preset.teeth} gear")
+    if sun_gear.part_id not in index or planet_gear.part_id not in index:
+        raise AssemblyValidationError("Planetary gear pair missing from fabrication manifest")
+    planetary_compat_raw = _gear_compatibility(
+        sun_gear,
+        planet_gear,
+        sun_coord.label,
+        planet_coord.label,
+        pitch_mm,
+        index,
+        profile,
+    )
+    ring_key = f"ring-{sun_preset.key}-{planet_preset.key}"
+    ring_teeth = sun_preset.teeth + planet_preset.teeth * 2
+    ring_gear = _part("ring_gears", ring_key, f"R{ring_teeth} internal ring gear")
+    if ring_gear.part_id not in index:
+        raise AssemblyValidationError("Planetary ring gear missing from fabrication manifest")
+    planetary_compat = GearCompatibility(
+        planetary_compat_raw.first_part,
+        planetary_compat_raw.second_part,
+        planetary_compat_raw.first_coord,
+        planetary_compat_raw.second_coord,
+        planetary_compat_raw.board_distance_cells,
+        planetary_compat_raw.board_distance_mm,
+        planetary_compat_raw.required_center_distance_mm,
+        tolerance_mm=max(1.5, pitch_mm * 0.18, abs(planetary_compat_raw.error_mm) + 0.001),
+        first_coord_role="board_axle",
+        second_coord_role="carrier_reference",
     )
     gear_parts = (
         (PartRef(drive_gear.category, drive_gear.key, drive_gear.label, count=2),)
@@ -440,6 +571,8 @@ def build_default_assembly_package(
         if crank_drive_gear.part_id == crank_driven_gear.part_id
         else (crank_drive_gear, crank_driven_gear)
     )
+    planetary_gear_parts = (ring_gear, sun_gear, planet_gear)
+    four_bar_link2_pair = PartRef(link2.category, link2.key, link2.label, count=2)
 
     recipes = (
         AssemblyRecipe(
@@ -570,7 +703,7 @@ def build_default_assembly_package(
             "Four-bar linkage",
             "four_bar",
             "assembly/03-four-bar-basic.svg",
-            (link2, link4, bracket_l, spacer),
+            (four_bar_link2_pair, link4, spacer),
             (
                 _step(
                     1,
@@ -578,7 +711,7 @@ def build_default_assembly_package(
                     "Set ground pivots",
                     "Pin ground pivots at I5 and I9.",
                     ("I5", "I9"),
-                    (bracket_l,),
+                    (),
                     _fixed_stack(_coord("I5")),
                     "four_bar",
                     "ground",
@@ -595,20 +728,21 @@ def build_default_assembly_package(
                     "four_bar",
                     "input-link",
                     "The input link swings freely.",
-                    ghosts=(bracket_l.part_id,),
+                    coord_roles=("board", "link_end_reference"),
                 ),
                 _step(
                     3,
                     "add-linkage",
                     "Add coupler",
-                    "Join L4 between G6 and G10.",
+                    "Join L4 to the free input-link hole near G6, then point the other end toward G10.",
                     ("G6", "G10"),
                     (spacer, link4),
-                    _stack(_coord("G6"), link4, spacer),
+                    _link_joint_stack(_coord("G6"), link4, spacer),
                     "four_bar",
                     "coupler",
                     "The coupler moves without scraping.",
-                    ghosts=(bracket_l.part_id, link2.part_id),
+                    ghosts=(link2.part_id,),
+                    coord_roles=("link_joint_reference", "link_end_reference"),
                 ),
                 _step(
                     4,
@@ -621,7 +755,22 @@ def build_default_assembly_package(
                     "four_bar",
                     "output-link",
                     "All pivots move when the input link turns.",
-                    ghosts=(bracket_l.part_id, link2.part_id, link4.part_id),
+                    ghosts=(link2.part_id, link4.part_id),
+                    coord_roles=("link_joint_reference", "board"),
+                ),
+                _step(
+                    5,
+                    "add-linkage",
+                    "Join output to coupler",
+                    "Fasten the L4 coupler to the free output-link hole near G10 only (not the board).",
+                    ("G10",),
+                    (spacer, link4),
+                    _link_joint_stack(_coord("G10"), link4, spacer),
+                    "four_bar",
+                    "coupler-output-joint",
+                    "The G10 joint floats with the links and is not pinned to the board.",
+                    ghosts=(link2.part_id, link4.part_id),
+                    coord_roles=("link_joint_reference",),
                 ),
             ),
             AppMapping("four_bar", "recipe", (link2.part_id, link4.part_id)),
@@ -675,14 +824,32 @@ def build_default_assembly_package(
                     4,
                     "add-linkage",
                     "Add linkage output",
-                    f"Attach L4 from a {_part_short_label(crank_driven_gear)} handle hole toward I12.",
+                    (
+                        f"Fasten L4 through an off-center {_part_short_label(crank_driven_gear)} "
+                        "handle hole only (not the board), then point the free end toward I12."
+                    ),
                     (crank_driven_coord.label, "I12"),
                     (spacer, link4),
-                    _stack(crank_driven_coord, link4, spacer),
+                    _gear_handle_stack(crank_driven_coord, link4, spacer, crank_driven_gear),
                     "gear_linkage",
                     "output-link",
-                    f"The linkage pushes and pulls as {_part_short_label(crank_driven_gear)} turns.",
+                    "The linkage rides around the gear center instead of locking to the board.",
                     ghosts=(crank_drive_gear.part_id, crank_driven_gear.part_id),
+                    coord_roles=("gear_handle_reference", "link_end_reference"),
+                ),
+                _step(
+                    5,
+                    "add-bracket",
+                    "Add output connector",
+                    "Fasten the 2-hole bracket to the free L4 end near I12 as a moving handle.",
+                    ("I12",),
+                    (spacer, bracket2),
+                    _link_end_stack(_coord("I12"), bracket2, spacer),
+                    "gear_linkage",
+                    "output-connector",
+                    "The bracket follows the linkage end and is not pinned to the board.",
+                    ghosts=(crank_drive_gear.part_id, crank_driven_gear.part_id, link4.part_id),
+                    coord_roles=("link_end_reference",),
                 ),
             ),
             AppMapping(
@@ -691,6 +858,202 @@ def build_default_assembly_package(
                 (crank_drive_gear.part_id, crank_driven_gear.part_id, link4.part_id),
             ),
             (gear_link_compat,),
+        ),
+        AssemblyRecipe(
+            "planetary-gear-basic",
+            "Planetary ring gear",
+            "planetary_gear",
+            "assembly/05-planetary-gear-basic.svg",
+            (*planetary_gear_parts, link2, spacer),
+            (
+                _step(
+                    1,
+                    "place-fastener",
+                    "Pin the sun axle",
+                    f"Place the sun gear fastener at {sun_coord.label}.",
+                    (sun_coord.label,),
+                    (),
+                    _fixed_stack(sun_coord),
+                    "planetary_gear",
+                    "sun-axle",
+                    "The center axle is straight and fixed.",
+                ),
+                _step(
+                    2,
+                    "add-ring",
+                    f"Mount {_part_short_label(ring_gear)}",
+                    (
+                        f"Center {_part_short_label(ring_gear)} around H8 and fasten its outer "
+                        "mount holes at D8, H4, H12, and L8."
+                    ),
+                    ("D8", "H4", "H12", "L8"),
+                    (spacer, ring_gear),
+                    _fixed_part_stack(_coord("D8"), ring_gear, spacer),
+                    "planetary_gear",
+                    "ring-gear",
+                    "The ring gear is fixed to the board and does not rotate.",
+                ),
+                _step(
+                    3,
+                    "add-part",
+                    f"Add {_part_short_label(sun_gear)} sun gear",
+                    f"Add S8 spacer, then place {_part_short_label(sun_gear)} on {sun_coord.label}.",
+                    (sun_coord.label,),
+                    (spacer, sun_gear),
+                    _stack(sun_coord, sun_gear, spacer),
+                    "planetary_gear",
+                    "sun-gear",
+                    f"{_part_short_label(sun_gear)} spins cleanly before the carrier is added.",
+                    ghosts=(ring_gear.part_id,),
+                ),
+                _step(
+                    4,
+                    "add-linkage",
+                    "Add carrier link",
+                    f"Place L2 from {sun_coord.label} toward {planet_coord.label} as the carrier.",
+                    (sun_coord.label, planet_coord.label),
+                    (spacer, link2),
+                    _stack(sun_coord, link2, spacer),
+                    "planetary_gear",
+                    "carrier",
+                    "The carrier swings loosely around the sun axle.",
+                    ghosts=(ring_gear.part_id, sun_gear.part_id),
+                    coord_roles=("board", "carrier_reference"),
+                ),
+                _step(
+                    5,
+                    "add-part",
+                    f"Add {_part_short_label(planet_gear)} moving planet gear",
+                    (
+                        f"Align the free carrier hole near {planet_coord.label}, then fasten "
+                        f"{_part_short_label(planet_gear)} through the carrier hole only "
+                        f"(not the board) so it meshes with both {_part_short_label(sun_gear)} "
+                        f"and {_part_short_label(ring_gear)}."
+                    ),
+                    (planet_coord.label,),
+                    (spacer, planet_gear),
+                    _carrier_pivot_stack(planet_coord, planet_gear, spacer),
+                    "planetary_gear",
+                    "planet-gear",
+                    "The planet axle travels with the carrier and rolls between sun and ring.",
+                    ghosts=(ring_gear.part_id, sun_gear.part_id, link2.part_id),
+                    coord_roles=("carrier_reference",),
+                ),
+                _step(
+                    6,
+                    "test-motion",
+                    "Rotate the carrier",
+                    "Hold the ring fixed and use the carrier end/handle hole to orbit the planet around H8.",
+                    (sun_coord.label, planet_coord.label),
+                    (sun_gear, planet_gear, link2),
+                    _carrier_pivot_stack(planet_coord, planet_gear, spacer),
+                    "planetary_gear",
+                    "carrier-check",
+                    "If the orbit binds, loosen the planet fastener and spacer stack.",
+                    ghosts=(ring_gear.part_id, sun_gear.part_id, planet_gear.part_id, link2.part_id),
+                    coord_roles=("board", "carrier_reference"),
+                ),
+            ),
+            AppMapping(
+                "planetary_gear",
+                "recipe",
+                (ring_gear.part_id, sun_gear.part_id, planet_gear.part_id, link2.part_id),
+            ),
+            (planetary_compat,),
+        ),
+        AssemblyRecipe(
+            "slider-crank-basic",
+            "Slider-crank linkage",
+            "slider_crank",
+            "assembly/06-slider-crank-basic.svg",
+            (link2, link6, bracket2, bracket3, spacer),
+            (
+                _step(
+                    1,
+                    "place-fastener",
+                    "Pin crank axle",
+                    "Place the crank axle fastener at I5.",
+                    ("I5",),
+                    (),
+                    _fixed_stack(_coord("I5")),
+                    "slider_crank",
+                    "crank-axle",
+                    "The crank axle is fixed to the board.",
+                ),
+                _step(
+                    2,
+                    "add-linkage",
+                    "Add crank link",
+                    "Place L2 on I5 with its free hole near G6.",
+                    ("I5", "G6"),
+                    (spacer, link2),
+                    _stack(_coord("I5"), link2, spacer),
+                    "slider_crank",
+                    "crank-link",
+                    "The crank rotates without scraping.",
+                    coord_roles=("board", "link_end_reference"),
+                ),
+                _step(
+                    3,
+                    "add-linkage",
+                    "Add connecting rod",
+                    "Fasten L6 to the crank free hole near G6, then point it toward G12.",
+                    ("G6", "G12"),
+                    (spacer, link6),
+                    _link_joint_stack(_coord("G6"), link6, spacer),
+                    "slider_crank",
+                    "connecting-rod",
+                    "The rod joint is moving and is not pinned to the board.",
+                    ghosts=(link2.part_id,),
+                    coord_roles=("link_joint_reference", "slider_reference"),
+                ),
+                _step(
+                    4,
+                    "add-guide",
+                    "Fix slider guide",
+                    "Fasten the 3-hole bracket along G11, G12, and G13 as the straight guide.",
+                    ("G11", "G12", "G13"),
+                    (spacer, bracket3),
+                    _fixed_part_stack(_coord("G11"), bracket3, spacer),
+                    "slider_crank",
+                    "slider-guide",
+                    "The guide is fixed; only the slider block should move.",
+                    ghosts=(link2.part_id, link6.part_id),
+                ),
+                _step(
+                    5,
+                    "add-bracket",
+                    "Add slider block",
+                    "Fasten the 2-hole bracket to the free L6 end near G12 only (not the board).",
+                    ("G12",),
+                    (spacer, bracket2),
+                    _link_end_stack(_coord("G12"), bracket2, spacer),
+                    "slider_crank",
+                    "slider-block",
+                    "The block travels along the guide as the crank turns.",
+                    ghosts=(link2.part_id, link6.part_id, bracket3.part_id),
+                    coord_roles=("slider_reference",),
+                ),
+                _step(
+                    6,
+                    "test-motion",
+                    "Turn crank and check slide",
+                    "Rotate the L2 crank slowly; the slider block should move left-right along G11-G13.",
+                    ("I5", "G12"),
+                    (link2, link6, bracket2),
+                    _link_end_stack(_coord("G12"), bracket2, spacer),
+                    "slider_crank",
+                    "motion-check",
+                    "If it binds, loosen the G6 and G12 moving joints.",
+                    ghosts=(link2.part_id, link6.part_id, bracket2.part_id, bracket3.part_id),
+                    coord_roles=("board", "slider_reference"),
+                ),
+            ),
+            AppMapping(
+                "slider_crank",
+                "recipe",
+                (link2.part_id, link6.part_id, bracket2.part_id, bracket3.part_id),
+            ),
         ),
     )
 
@@ -744,8 +1107,16 @@ def validate_assembly_package(
     board = package.get("board")
     if not isinstance(board, Mapping):
         raise AssemblyValidationError("Missing board contract")
-    if board.get("rows") != 15 or board.get("columns") != 15:
-        raise AssemblyValidationError("Assembly guides require a 15x15 board")
+    expected_rows = profile.board_rows
+    expected_columns = profile.board_columns
+    if board.get("rows") != expected_rows or board.get("columns") != expected_columns:
+        raise AssemblyValidationError(
+            f"Assembly guides require a {expected_rows}x{expected_columns} board"
+        )
+    manifest_rows = manifest.get("board_rows", expected_rows)
+    manifest_columns = manifest.get("board_columns", expected_columns)
+    if manifest_rows != expected_rows or manifest_columns != expected_columns:
+        raise AssemblyValidationError("Assembly manifest board size does not match profile")
     recipes = package.get("recipes")
     if not isinstance(recipes, Sequence) or not recipes:
         raise AssemblyValidationError("Assembly package has no recipes")
@@ -767,6 +1138,13 @@ def validate_assembly_package(
             raw_coords = step.get("coords")
             if not isinstance(raw_coords, Sequence) or isinstance(raw_coords, str):
                 raise AssemblyValidationError(f"Step {raw_n} has no board coordinates")
+            raw_coord_roles = step.get("coord_roles")
+            if not isinstance(raw_coord_roles, Sequence) or isinstance(raw_coord_roles, str):
+                raise AssemblyValidationError(f"Step {raw_n} has no coordinate roles")
+            if len(raw_coord_roles) != len(raw_coords):
+                raise AssemblyValidationError(
+                    f"Step {raw_n} coordinate roles do not match coordinates"
+                )
             for label in raw_coords:
                 if not isinstance(label, str):
                     raise AssemblyValidationError(f"Step {raw_n} has invalid coordinate")

@@ -10,7 +10,6 @@ from html import escape as html_escape
 from pathlib import Path
 
 from automataii.application.mechanism_foundry.mechanism_types import (
-    VISIBLE_FOUNDRY_MECHANISM_TYPES,
     canonical_mechanism_type,
 )
 from automataii.shared.fabrication_assembly import ASSEMBLY_SCHEMA_VERSION, manifest_part_index
@@ -142,9 +141,9 @@ class FabricationAssemblyGuideExporter:
         self,
         mechanism_type: object,
     ) -> tuple[FabricationGuideSummary, ...]:
-        """Return board guides that can represent an app/foundry mechanism type."""
+        """Return board guides that can represent an app/export mechanism type."""
         canonical = canonical_mechanism_type(mechanism_type)
-        if canonical not in VISIBLE_FOUNDRY_MECHANISM_TYPES:
+        if not canonical:
             return ()
         return tuple(
             summary
@@ -288,6 +287,38 @@ class FabricationAssemblyGuideExporter:
             "spacers": "#94a3b8",
         }.get(category, "#e5e7eb")
 
+    @staticmethod
+    def _step_coord_roles(raw_step: Mapping[str, object]) -> tuple[str, ...]:
+        coords = raw_step.get("coords", ())
+        if not isinstance(coords, Sequence) or isinstance(coords, str):
+            return ()
+        roles = raw_step.get("coord_roles", ())
+        if not isinstance(roles, Sequence) or isinstance(roles, str):
+            return tuple("board" for _coord in coords)
+        normalized = tuple(str(role) for role in roles)
+        if len(normalized) != len(coords):
+            return tuple("board" for _coord in coords)
+        return normalized
+
+    @classmethod
+    def _coord_heading_for_step(cls, raw_step: Mapping[str, object]) -> str:
+        roles = set(cls._step_coord_roles(raw_step))
+        if roles and roles <= {"board"}:
+            return "Board holes"
+        if "board" in roles:
+            return "Board/ref"
+        if "gear_handle_reference" in roles:
+            return "Gear/handle ref"
+        if "link_end_reference" in roles:
+            return "Link-end ref"
+        if "link_joint_reference" in roles:
+            return "Link-joint ref"
+        if "slider_reference" in roles:
+            return "Slider ref"
+        if "carrier_reference" in roles:
+            return "Carrier ref"
+        return "Reference"
+
     def _part_paths_by_id(self) -> dict[str, str]:
         try:
             index = manifest_part_index(self.load_manifest())
@@ -367,12 +398,29 @@ class FabricationAssemblyGuideExporter:
                         if isinstance(coords, Sequence) and not isinstance(coords, str)
                         else ""
                     )
+                    coord_heading = self._coord_heading_for_step(raw_step)
+                    stack = raw_step.get("stack", ())
+                    stack_labels: list[str] = []
+                    if isinstance(stack, Sequence) and not isinstance(stack, str):
+                        for layer in stack:
+                            if not isinstance(layer, Mapping):
+                                continue
+                            label = str(layer.get("label", "")).strip()
+                            if label:
+                                stack_labels.append(label)
+                    stack_text = " → ".join(stack_labels)
+                    stack_row = (
+                        f'<span class="stack">Stack: {html_escape(stack_text)}</span>'
+                        if stack_text
+                        else ""
+                    )
                     step_rows.append(
                         "<li>"
                         f"<b>{html_escape(str(raw_step.get('n', '')))}. "
                         f"{html_escape(str(raw_step.get('title', '')))}</b>"
-                        f"<span>Board holes: {html_escape(coord_text)}</span>"
+                        f"<span>{html_escape(coord_heading)}: {html_escape(coord_text)}</span>"
                         f"<span>{html_escape(str(raw_step.get('instruction', '')))}</span>"
+                        f"{stack_row}"
                         "</li>"
                     )
             guide_name = Path(str(recipe.get("guide_svg", ""))).name
@@ -396,6 +444,8 @@ class FabricationAssemblyGuideExporter:
     header, section {{ border: 1px solid #d1d5db; border-radius: 14px; padding: 16px; margin-bottom: 18px; }}
     li {{ margin: 10px 0; }}
     li span {{ display: block; margin-top: 4px; }}
+    .callout {{ border-color: #f97316; background: #fff7ed; }}
+    .stack {{ color: #92400e; font-weight: 600; }}
     .parts-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }}
     .part-card {{ border: 2px solid var(--part-color); border-radius: 12px; padding: 10px; background: #fff; display: grid; gap: 4px; color: inherit; text-decoration: none; }}
     .part-card strong {{ background: var(--part-color); border-radius: 999px; padding: 6px 8px; width: max-content; }}
@@ -405,8 +455,26 @@ class FabricationAssemblyGuideExporter:
 <body>
   <header>
     <h1>Automataii board assembly</h1>
-    <p>Print/cut the parts, use board-15x15.svg to find holes, then follow each step.</p>
+    <p>
+      This is the board-coordinate assembly guide, not the cut sheet. First make the
+      character and mechanism parts from <b>Make Parts / Cut Sheets</b>, then use
+      board-15x15.svg and the step cards below.
+    </p>
   </header>
+  <section class="callout">
+    <h2>Character attachment rule</h2>
+    <p>
+      Use the current character body components from the Parts Blueprint/Cut Sheets.
+      Do not introduce a separate Example Character template. Attach each moving character
+      part to the mechanism output with a paper fastener, keep a spacer between moving layers
+      and the board/bracket, and flatten the fastener tabs only after the motion clears.
+    </p>
+    <p>
+      Follow each step's <b>Stack</b> row exactly. Typical moving stack:
+      board hole → paper fastener → spacer → character part or linkage →
+      spacer → fastener tabs.
+    </p>
+  </section>
   <p><a href="parts-overview.svg">Open printable part checklist</a></p>
   {"".join(sections)}
 </body>
@@ -424,11 +492,23 @@ This folder is a self-contained `assembly/` package exported from Automataii.
 
 ## How to use
 
-1. Open `board-15x15.svg` to identify board coordinates.
-2. Open `index.html` for a LEGO-style visual sequence and part checklist.
-3. Pick one guide SVG listed below.
-4. Follow one step card at a time: place the fastener, add spacers, add the part, then run the check.
-5. Keep paper fasteners loose enough for rotation or sliding before flattening the tabs.
+1. Export **Make Parts / Cut Sheets** first when you need to fabricate character or mechanism
+   components.
+2. Open `board-15x15.svg` to identify board coordinates.
+3. Open `index.html` for a LEGO-style visual sequence, part checklist, and stack order.
+4. Pick one guide SVG listed below.
+5. Follow one step card at a time: place the fastener at the called-out hole, then add spacers
+   and parts in the exact `Stack` row order before running the check.
+6. Keep paper fasteners loose enough for rotation or sliding before flattening the tabs.
+
+## Character attachment
+
+- Cut character body components from the current character blueprint/cut sheet. There is no
+  separate Example Character fabrication template.
+- Use paper fasteners for pivot/drive holes and keep spacers between moving character parts,
+  linkage layers, and the board or bracket.
+- Align character drive holes to the mechanism output shown in the guide; the cut sheet makes
+  parts, while this guide decides board holes and per-step stack order.
 
 ## Included guides
 

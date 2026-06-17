@@ -14,6 +14,7 @@ from typing import Any
 
 from automataii.domain.generation.layout import ScaledBounds
 from automataii.shared.physical_kit import (
+    finite_float,
     gear_center_distance,
     gear_clearance_from_params,
     gear_teeth_for_radius,
@@ -188,9 +189,38 @@ class GearSVGGenerator:
 
         rs = mm.get("r_sun_mm", 20.0)
         rp = mm.get("r_planet_mm", 12.0)
-        profile = physical_profile_from_params(mech_data.get("params", mech_data))
+        param_source: dict[str, Any] = {}
+        for source_key in ("params", "parameters"):
+            source = mech_data.get(source_key, {})
+            if isinstance(source, dict):
+                param_source.update(source)
+        for passthrough_key in (
+            "planet_count",
+            "num_planets",
+            "physical_profile_key",
+            "grid_system_enabled",
+        ):
+            if passthrough_key in mech_data and passthrough_key not in param_source:
+                param_source[passthrough_key] = mech_data[passthrough_key]
+        param_source.setdefault("r_sun_mm", rs)
+        param_source.setdefault("r_planet_mm", rp)
+
+        profile = physical_profile_from_params(param_source)
         rr = rs + 2 * rp  # Ring gear radius
-        num_planets = 3
+        num_planets = min(
+            max(
+                int(
+                    round(
+                        finite_float(
+                            param_source.get("planet_count", param_source.get("num_planets", 1)),
+                            1.0,
+                        )
+                    )
+                ),
+                1,
+            ),
+            4,
+        )
 
         kp = mech_data.get("key_points", {})
         factor = float(mech_data.get("total_scale_factor", 1.0))

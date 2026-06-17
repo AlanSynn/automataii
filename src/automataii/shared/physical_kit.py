@@ -15,6 +15,8 @@ from typing import SupportsFloat, SupportsIndex
 DEFAULT_GRID_PITCH_MM = 20.0
 DEFAULT_GRID_CELL_CM = DEFAULT_GRID_PITCH_MM / 10.0
 DEFAULT_HOLE_DIAMETER_MM = 4.0
+DEFAULT_BOARD_ROWS = 15
+DEFAULT_BOARD_COLUMNS = 15
 GEAR_RADIUS_PER_TOOTH_MM = 1.5
 DEFAULT_GEAR_CLEARANCE_MM = 2.0
 LINKAGE_LENGTH_CELLS: tuple[int, ...] = (2, 4, 6, 8)
@@ -99,6 +101,8 @@ class PhysicalKitProfile:
     gear_radius_per_tooth_mm: float
     default_gear_clearance_mm: float
     hole_diameter_mm: float = DEFAULT_HOLE_DIAMETER_MM
+    board_rows: int = DEFAULT_BOARD_ROWS
+    board_columns: int = DEFAULT_BOARD_COLUMNS
     follower_presets: tuple[FollowerPreset, ...] = ()
 
 
@@ -118,6 +122,8 @@ class PhysicalKitContext:
             "grid_pitch_choice": self.grid_pitch_choice,
             "physical_profile_key": self.profile.key,
             "hole_diameter_mm": self.profile.hole_diameter_mm,
+            "board_rows": self.profile.board_rows,
+            "board_columns": self.profile.board_columns,
         }
 
 
@@ -511,6 +517,67 @@ def snap_gear_params(
     return snapped
 
 
+def snap_gear_linkage_params(
+    params: Mapping[str, object],
+    grid_cell_cm: object = DEFAULT_GRID_CELL_CM,
+    *,
+    profile: PhysicalKitProfile = DEFAULT_PHYSICAL_KIT_PROFILE,
+) -> dict[str, object]:
+    """Snap a gear pair plus crank/linkage handle to fabricated kit parts."""
+    snapped = snap_gear_params(params, profile=profile)
+    default_length = allowed_linkage_lengths_mm(grid_cell_cm, profile=profile)[1]
+    snapped["linkage_arm_length"] = nearest_linkage_length_mm(
+        snapped.get("linkage_arm_length", default_length),
+        grid_cell_cm,
+        profile=profile,
+    )
+    return snapped
+
+
+def snap_planetary_gear_params(
+    params: Mapping[str, object],
+    grid_cell_cm: object = DEFAULT_GRID_CELL_CM,
+    *,
+    profile: PhysicalKitProfile = DEFAULT_PHYSICAL_KIT_PROFILE,
+) -> dict[str, object]:
+    snapped = dict(params)
+    sun_teeth = gear_teeth_from_params(
+        snapped,
+        ("sun_teeth",),
+        ("r_sun", "sun_radius"),
+        _gear_preset_at(profile, 0).teeth,
+        profile=profile,
+    )
+    planet_teeth = gear_teeth_from_params(
+        snapped,
+        ("planet_teeth",),
+        ("r_planet", "planet_radius"),
+        _gear_preset_at(profile, 1).teeth,
+        profile=profile,
+    )
+    r_sun = gear_radius_for_teeth(sun_teeth, profile=profile)
+    r_planet = gear_radius_for_teeth(planet_teeth, profile=profile)
+    snapped["sun_teeth"] = sun_teeth
+    snapped["planet_teeth"] = planet_teeth
+    snapped["r_sun"] = r_sun
+    snapped["r_planet"] = r_planet
+    snapped["sun_radius"] = r_sun
+    snapped["planet_radius"] = r_planet
+    snapped["planet_count"] = int(
+        min(max(round(finite_float(snapped.get("planet_count"), 1.0)), 1), 4)
+    )
+    default_length = allowed_linkage_lengths_mm(grid_cell_cm, profile=profile)[0]
+    snapped["carrier_arm_length"] = nearest_linkage_length_mm(
+        snapped.get("carrier_arm_length", snapped.get("arm_length", default_length)),
+        grid_cell_cm,
+        profile=profile,
+    )
+    snapped["arm_length"] = snapped["carrier_arm_length"]
+    snapped.setdefault("gear_clearance", profile.default_gear_clearance_mm)
+    snapped.setdefault("mesh_clearance", snapped["gear_clearance"])
+    return snapped
+
+
 def nearest_cam_preset(
     params: Mapping[str, object],
     grid_cell_cm: object = DEFAULT_GRID_CELL_CM,
@@ -595,6 +662,10 @@ def snap_physical_params(
         return snap_linkage_params(snapped, grid_cell_cm, profile=profile)
     if normalized == "gear_train":
         return snap_gear_params(snapped, profile=profile)
+    if normalized == "gear_linkage":
+        return snap_gear_linkage_params(snapped, grid_cell_cm, profile=profile)
+    if normalized == "planetary_gear":
+        return snap_planetary_gear_params(snapped, grid_cell_cm, profile=profile)
     if normalized == "cam_follower":
         return snap_cam_params(snapped, grid_cell_cm, profile=profile)
     return snapped
@@ -613,9 +684,29 @@ def snap_parameter_value(
     normalized_grid_cell_cm = grid_step_mm(grid_cell_cm) / 10.0
     if normalized in {"four_bar", "slider_crank"} and key in LINKAGE_PARAM_KEYS:
         return nearest_linkage_length_mm(value, normalized_grid_cell_cm, profile=profile)
-    if normalized == "gear_train" and key in {"gear1_teeth", "gear2_teeth"}:
+    if normalized == "gear_linkage" and key == "linkage_arm_length":
+        return nearest_linkage_length_mm(value, normalized_grid_cell_cm, profile=profile)
+    if normalized in {"gear_train", "gear_linkage"} and key in {"gear1_teeth", "gear2_teeth"}:
         return float(nearest_gear_teeth(value, profile=profile))
-    if normalized == "gear_train" and key in {"gear1_radius", "gear2_radius", "r1", "r2"}:
+    if normalized in {"gear_train", "gear_linkage"} and key in {
+        "gear1_radius",
+        "gear2_radius",
+        "r1",
+        "r2",
+    }:
+        return nearest_gear_radius_mm(value, profile=profile)
+    if normalized == "planetary_gear" and key in {"sun_teeth", "planet_teeth"}:
+        return float(nearest_gear_teeth(value, profile=profile))
+    if normalized == "planetary_gear" and key == "planet_count":
+        return float(int(min(max(round(finite_float(value, 1.0)), 1), 4)))
+    if normalized == "planetary_gear" and key in {"carrier_arm_length", "arm_length"}:
+        return nearest_linkage_length_mm(value, normalized_grid_cell_cm, profile=profile)
+    if normalized == "planetary_gear" and key in {
+        "r_sun",
+        "r_planet",
+        "sun_radius",
+        "planet_radius",
+    }:
         return nearest_gear_radius_mm(value, profile=profile)
     if normalized == "cam_follower":
         if key in {"cam_radius", "base_radius"}:
@@ -656,7 +747,8 @@ def normalize_mechanism_type(mechanism_type: object) -> str:
         "gear": "gear_train",
         "gears": "gear_train",
         "gear_train": "gear_train",
-        "planetary_gear": "gear_train",
+        "planetary": "planetary_gear",
+        "planetary_gear": "planetary_gear",
     }
     return mapping.get(key, key)
 

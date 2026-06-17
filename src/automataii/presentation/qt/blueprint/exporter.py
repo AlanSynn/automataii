@@ -78,7 +78,7 @@ class BlueprintExporter:
         dialog = QDialog(self._parent)
         dialog.setWindowTitle("Export Fabrication")
         dialog.setModal(True)
-        dialog.resize(430, 220)
+        dialog.resize(520, 240)
 
         layout = QVBoxLayout()
         title_label = QLabel("Choose what you want to export:")
@@ -86,19 +86,23 @@ class BlueprintExporter:
         layout.addWidget(title_label)
 
         option_group = QButtonGroup()
-        assembly_radio = QRadioButton("Board Assembly Guide")
+        assembly_radio = QRadioButton(
+            "Board Assembly Guide (15x15 coordinates + fastener/spacer stack)"
+        )
         assembly_radio.setToolTip("Step-by-step 15x15 board guide for fabricated kit parts")
         assembly_radio.setChecked(True)
         option_group.addButton(assembly_radio, 0)
         layout.addWidget(assembly_radio)
 
-        parts_radio = QRadioButton("Make Parts / Cut Sheets")
+        parts_radio = QRadioButton(
+            "Make Parts / Cut Sheets (character + mechanism parts + hardware list)"
+        )
         parts_radio.setToolTip("Blueprint/cut-sheet export for making components")
         option_group.addButton(parts_radio, 1)
         layout.addWidget(parts_radio)
 
         info_label = QLabel(
-            "Board guides use board coordinates and part IDs. Cut sheets are for making parts."
+            "Cut sheets make character/mechanism components; board guides show how to assemble them."
         )
         info_label.setStyleSheet("color: #666; font-size: 11px; margin-top: 10px;")
         layout.addWidget(info_label)
@@ -228,7 +232,9 @@ class BlueprintExporter:
                     f"Parts: {len(part_items)}\n"
                     f"Mechanisms: {len(mechanism_layers)}\n"
                     f"Scale: {screen_scale_info.get('mm_per_pixel', 0.36):.3f} mm/pixel\n\n"
-                    "Use these sheets to make components, then use Board Assembly Guide to build.",
+                    "Use these sheets to cut character/mechanism components and review the hardware "
+                    "list, then use the Board Assembly Guide for board holes, spacers, brackets, and "
+                    "paper fastener stack order.",
                 )
             else:
                 logging.warning("[BLUEPRINT] Cut-sheet export failed")

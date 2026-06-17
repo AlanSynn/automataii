@@ -171,6 +171,12 @@ def _fabrication_spec(
 
 def _validate_fabrication_profile(profile: PhysicalKitProfile) -> None:
     """Fail fast when the fixed workshop-sheet layout cannot represent a profile."""
+    if profile.board_rows != len(BOARD_ROWS) or profile.board_columns != len(BOARD_COLUMNS):
+        raise ValueError(
+            "Fabrication assembly guides are currently fixed to the 15x15 pegboard; "
+            f"unsupported profile {profile.key!r}: "
+            f"board_rows={profile.board_rows}, board_columns={profile.board_columns}"
+        )
     actual_counts = {
         "gear_presets": len(profile.gear_presets),
         "linkage_length_cells": len(profile.linkage_length_cells),
@@ -252,8 +258,16 @@ def _circle(
     return f"  <circle {attrs}/>"
 
 
-def _path(d: str, class_name: str, *, extra: dict[str, object] | None = None) -> str:
+def _path(
+    d: str,
+    class_name: str,
+    *,
+    extra: dict[str, object] | None = None,
+    style: str | None = None,
+) -> str:
     attrs = _attrs(d=d, class_=class_name)
+    if style is not None:
+        attrs = f'{attrs} style="{escape(style)}"'
     if extra:
         attrs = f"{attrs} {_data_attrs(**extra)}"
     return f"  <path {attrs}/>"
@@ -531,6 +545,132 @@ def _gear_template(preset: GearPreset, spec: FabricationSpec) -> SvgTemplate:
         desc=(
             f"{preset.label} gear with {_fmt(spec.hole_diameter_mm)} mm axle and "
             "linkage/bracket/crank/handle holes."
+        ),
+        width_mm=width,
+        height_mm=height,
+        elements=tuple(elements),
+        metadata=metadata,
+    )
+
+
+def _planetary_ring_key(sun: GearPreset, planet: GearPreset) -> str:
+    return f"ring-{sun.key}-{planet.key}"
+
+
+def _planetary_ring_teeth(sun: GearPreset, planet: GearPreset) -> int:
+    return int(sun.teeth) + int(planet.teeth) * 2
+
+
+def _ring_inner_outline_path(
+    cx: float,
+    cy: float,
+    teeth: int,
+    tip_radius: float,
+    root_radius: float,
+) -> str:
+    """Return the internal-tooth cut path for a fixed planetary ring gear."""
+
+    points: list[tuple[float, float]] = []
+    for idx in range(teeth * 4):
+        theta = 2.0 * math.pi * idx / (teeth * 4)
+        radius = tip_radius if idx % 4 in (1, 2) else root_radius
+        points.append((cx + radius * math.cos(theta), cy + radius * math.sin(theta)))
+    return _polygon_path(tuple(points))
+
+
+def _ring_gear_template(sun: GearPreset, planet: GearPreset, spec: FabricationSpec) -> SvgTemplate:
+    ring_teeth = _planetary_ring_teeth(sun, planet)
+    pitch_radius = gear_radius_for_teeth(ring_teeth, profile=spec.profile)
+    tooth_depth = spec.profile.gear_radius_per_tooth_mm
+    tip_radius = max(spec.hole_radius_mm + 12.0, pitch_radius - tooth_depth * 1.15)
+    root_radius = pitch_radius + tooth_depth * 0.85
+    mount_radius = spec.pitch_mm * 4.0
+    outer_radius = max(root_radius + 14.0, mount_radius + spec.hole_radius_mm + 8.0)
+    margin = 8.0
+    cx = outer_radius + margin
+    cy = outer_radius + margin
+    mount_offsets = (
+        (0.0, -mount_radius),
+        (-mount_radius, 0.0),
+        (mount_radius, 0.0),
+        (0.0, mount_radius),
+    )
+    key = _planetary_ring_key(sun, planet)
+    path = f"ring_gears/{key}.svg"
+    elements = [
+        _circle(
+            cx,
+            cy,
+            outer_radius,
+            "cut ring-outer-outline",
+            extra={
+                "ring_key": key,
+                "outer_radius_mm": _fmt(outer_radius),
+                "internal_teeth": ring_teeth,
+            },
+        ),
+        _path(
+            _ring_inner_outline_path(cx, cy, ring_teeth, tip_radius, root_radius),
+            "cut ring-inner-gear-outline",
+            extra={
+                "ring_key": key,
+                "internal_teeth": ring_teeth,
+                "pitch_radius_mm": _fmt(pitch_radius),
+                "tip_radius_mm": _fmt(tip_radius),
+                "root_radius_mm": _fmt(root_radius),
+            },
+        ),
+        _circle(cx, cy, pitch_radius, "score ring-pitch-circle"),
+    ]
+    for idx, (dx, dy) in enumerate(mount_offsets):
+        elements.append(
+            _circle(
+                cx + dx,
+                cy + dy,
+                spec.hole_radius_mm,
+                "drill ring-mount-hole bracket-hole",
+                extra={
+                    "hole_role": "ring-mount",
+                    "hole_diameter_mm": spec.hole_diameter_attr,
+                    "hole_index": idx,
+                    "hole_x_offset_mm": _fmt(dx),
+                    "hole_y_offset_mm": _fmt(dy),
+                    "mount_radius_mm": _fmt(mount_radius),
+                },
+            )
+        )
+    elements.append(
+        _text(
+            cx,
+            cy + outer_radius + 6.0,
+            f"R{ring_teeth} ring for G{sun.teeth}+G{planet.teeth}",
+        )
+    )
+    metadata: dict[str, object] = {
+        "key": key,
+        "teeth": ring_teeth,
+        "internal_teeth": ring_teeth,
+        "label": f"R{ring_teeth} internal ring gear",
+        "path": path,
+        "compatible_sun_teeth": sun.teeth,
+        "compatible_planet_teeth": planet.teeth,
+        "pitch_radius_mm": round(pitch_radius, 3),
+        "inner_tip_radius_mm": round(tip_radius, 3),
+        "inner_root_radius_mm": round(root_radius, 3),
+        "outer_radius_mm": round(outer_radius, 3),
+        "hole_diameter_mm": spec.hole_diameter_mm,
+        "mount_hole_count": len(mount_offsets),
+        "mount_radius_mm": round(mount_radius, 3),
+        "mount_hole_centers_mm": [[round(dx, 3), round(dy, 3)] for dx, dy in mount_offsets],
+    }
+    width = outer_radius * 2.0 + margin * 2.0
+    height = width + 10.0
+    return SvgTemplate(
+        path=path,
+        title=f"Automataii fabrication planetary ring gear R{ring_teeth}",
+        desc=(
+            f"Fixed internal ring gear for G{sun.teeth} sun and G{planet.teeth} planet gears, "
+            f"with {_fmt(spec.hole_diameter_mm)} mm board-mount holes."
         ),
         width_mm=width,
         height_mm=height,
@@ -1225,6 +1365,24 @@ def _build_sheets(spec: FabricationSpec) -> list[SvgTemplate]:
         gear_sheet.extend(_translate(element, x, y) for element in elements)
     sheets.append(_sheet_template("01-gear-set", "Gear set", ["gears"], gear_sheet, spec))
 
+    ring_sheet = _sheet_label(
+        "09 Planetary ring gear",
+        "Fixed internal ring gear for the board-mounted planetary guide",
+    )
+    ring_template = _ring_gear_template(spec.profile.gear_presets[0], spec.profile.gear_presets[1], spec)
+    ring_sheet.extend(_translate(element, 12.0, 28.0) for element in ring_template.elements)
+    sheets.append(
+        _sheet_template(
+            "09-planetary-ring-set",
+            "Planetary ring gear",
+            ["ring_gears"],
+            ring_sheet,
+            spec,
+            width_mm=220.0,
+            height_mm=240.0,
+        )
+    )
+
     linkage_sheet = _sheet_label("02 Linkage set", "2/4/6/8-cell board-compatible linkage bars")
     for idx, cells in enumerate(spec.profile.linkage_length_cells):
         elements, _ = _linkage_elements(cells, spec, label=False)
@@ -1351,7 +1509,9 @@ def _build_sheets(spec: FabricationSpec) -> list[SvgTemplate]:
 
 
 def _part_label(part_id: str) -> str:
-    _, _, key = part_id.partition(":")
+    category, _, key = part_id.partition(":")
+    if category == "ring_gears":
+        return key.removeprefix("ring-").replace("-", "/").upper() + " Ring"
     if key.startswith("g") and key[1:].isdigit():
         return f"G{key[1:]}"
     if key.startswith("linkage-"):
@@ -1370,6 +1530,7 @@ def _part_color(part_id: str) -> str:
     category = _part_category(part_id)
     return {
         "gears": "#fbbf24",
+        "ring_gears": "#f59e0b",
         "linkages": "#60a5fa",
         "cams": "#f472b6",
         "followers": "#34d399",
@@ -1420,6 +1581,29 @@ def _step_coord_labels(step: dict[str, object]) -> list[str]:
     return [str(coord) for coord in coords]
 
 
+def _step_coord_roles(step: dict[str, object]) -> list[str]:
+    coords = _step_coord_labels(step)
+    roles = step.get("coord_roles", [])
+    if not isinstance(roles, list):
+        return ["board"] * len(coords)
+    normalized = [str(role) for role in roles]
+    if len(normalized) != len(coords):
+        return ["board"] * len(coords)
+    return normalized
+
+
+def _step_coord_pairs(step: dict[str, object]) -> list[tuple[str, str]]:
+    return list(zip(_step_coord_labels(step), _step_coord_roles(step), strict=False))
+
+
+def _board_coord_labels(step: dict[str, object]) -> list[str]:
+    return [coord for coord, role in _step_coord_pairs(step) if role == "board"]
+
+
+def _reference_coord_labels(step: dict[str, object]) -> list[str]:
+    return [coord for coord, role in _step_coord_pairs(step) if role != "board"]
+
+
 def _step_part_ids(step: dict[str, object]) -> list[str]:
     parts = step.get("parts", [])
     if not isinstance(parts, list):
@@ -1448,8 +1632,165 @@ def _step_ghost_parts(step: dict[str, object]) -> list[str]:
 def _coord_to_board_xy(coord: str, x: float, y: float, size: float) -> tuple[float, float]:
     row = coord[0].upper()
     col = int(coord[1:])
-    pitch = size / 14.0
+    pitch = size / max(1, len(BOARD_COLUMNS) - 1)
     return x + (col - 1) * pitch, y + BOARD_ROWS.index(row) * pitch
+
+
+def _mini_gear_teeth(part_id: str) -> int:
+    _, _, key = part_id.partition(":")
+    if key.startswith("g") and key[1:].isdigit():
+        return int(key[1:])
+    return 12
+
+
+def _mini_gear_path(cx: float, cy: float, radius: float, teeth: int) -> str:
+    points: list[tuple[float, float]] = []
+    root = max(1.0, radius * 0.82)
+    outer = radius
+    for tooth in range(max(6, min(teeth, 32))):
+        base = 2.0 * math.pi * tooth / teeth
+        for fraction, point_radius in ((0.08, root), (0.28, outer), (0.56, outer), (0.82, root)):
+            theta = base + 2.0 * math.pi * fraction / teeth
+            points.append(
+                (cx + point_radius * math.cos(theta), cy + point_radius * math.sin(theta))
+            )
+    return _polygon_path(tuple(points))
+
+
+def _mini_part_overlay_elements(
+    part_ids: list[str],
+    coords: list[str],
+    *,
+    board_x: float,
+    board_y: float,
+    board_size: float,
+    step: int,
+) -> list[str]:
+    if not part_ids or not coords:
+        return []
+    coord_points = [_coord_to_board_xy(coord, board_x, board_y, board_size) for coord in coords]
+    elements: list[str] = []
+    for index, part_id in enumerate(part_ids):
+        category = _part_category(part_id)
+        color = _part_color(part_id)
+        x1, y1 = coord_points[min(index, len(coord_points) - 1)]
+        common_extra = {"step": step, "part_key": part_id, "part_index": index + 1}
+        if category == "ring_gears":
+            ring_cx = sum(point[0] for point in coord_points) / len(coord_points)
+            ring_cy = sum(point[1] for point in coord_points) / len(coord_points)
+            ring_radius = max(9.0, max(math.dist((ring_cx, ring_cy), point) for point in coord_points))
+            elements.append(
+                _circle(
+                    ring_cx,
+                    ring_cy,
+                    ring_radius + 2.8,
+                    "score board-part ring-gear-part",
+                    extra=common_extra,
+                )
+            )
+            elements.append(
+                _circle(
+                    ring_cx,
+                    ring_cy,
+                    max(3.0, ring_radius * 0.68),
+                    "score board-part ring-inner-reference",
+                    extra=common_extra,
+                )
+            )
+            for hole_idx, (hx, hy) in enumerate(coord_points):
+                elements.append(
+                    _circle(
+                        hx,
+                        hy,
+                        1.0,
+                        "drill board-part-hole ring-mount-hole",
+                        extra={**common_extra, "hole_index": hole_idx},
+                    )
+                )
+        elif category == "gears":
+            teeth = _mini_gear_teeth(part_id)
+            radius = max(5.4, min(8.4, teeth * 0.46))
+            elements.append(
+                _path(
+                    _mini_gear_path(x1, y1, radius, teeth),
+                    "score board-part gear-part",
+                    extra=common_extra,
+                    style=(
+                        f"fill:{color};fill-opacity:0.48;stroke:#5c4033;"
+                        "stroke-width:0.55;stroke-linejoin:round"
+                    ),
+                )
+            )
+            elements.append(_circle(x1, y1, 1.35, "drill board-part-hole", extra=common_extra))
+            for hole_idx in range(4):
+                theta = 2.0 * math.pi * hole_idx / 4.0
+                elements.append(
+                    _circle(
+                        x1 + radius * 0.52 * math.cos(theta),
+                        y1 + radius * 0.52 * math.sin(theta),
+                        0.9,
+                        "drill board-part-hole gear-attachment-hole",
+                        extra={**common_extra, "hole_index": hole_idx},
+                    )
+                )
+        elif category in {"linkages", "brackets"} and len(coord_points) >= 2:
+            x2, y2 = coord_points[-1]
+            elements.append(
+                _path(
+                    f"M {_fmt(x1)} {_fmt(y1)} L {_fmt(x2)} {_fmt(y2)}",
+                    "score board-part linkage-part",
+                    extra=common_extra,
+                    style=(
+                        f"fill:none;stroke:{color};stroke-opacity:0.72;"
+                        "stroke-width:4.2;stroke-linecap:round"
+                    ),
+                )
+            )
+            for hole_idx, (hx, hy) in enumerate((coord_points[0], coord_points[-1])):
+                elements.append(
+                    _circle(
+                        hx,
+                        hy,
+                        1.1,
+                        "drill board-part-hole linkage-hole",
+                        extra={**common_extra, "hole_index": hole_idx},
+                    )
+                )
+        elif category == "spacers":
+            elements.append(
+                _circle(
+                    x1,
+                    y1,
+                    2.9,
+                    "score board-part spacer-part",
+                    extra=common_extra,
+                )
+            )
+            elements.append(_circle(x1, y1, 1.1, "drill board-part-hole", extra=common_extra))
+        elif category == "cams":
+            elements.append(
+                _path(
+                    f"M {_fmt(x1 - 6)} {_fmt(y1)} C {_fmt(x1 - 4)} {_fmt(y1 - 7)} "
+                    f"{_fmt(x1 + 5)} {_fmt(y1 - 6)} {_fmt(x1 + 7)} {_fmt(y1)} "
+                    f"C {_fmt(x1 + 5)} {_fmt(y1 + 6)} {_fmt(x1 - 5)} {_fmt(y1 + 7)} "
+                    f"{_fmt(x1 - 6)} {_fmt(y1)} Z",
+                    "score board-part cam-part",
+                    extra=common_extra,
+                    style=f"fill:{color};fill-opacity:0.45;stroke:#7c2d12;stroke-width:0.5",
+                )
+            )
+            elements.append(_circle(x1, y1, 1.2, "drill board-part-hole", extra=common_extra))
+        else:
+            elements.append(
+                _circle(
+                    x1,
+                    y1,
+                    3.0,
+                    "score board-part generic-part",
+                    extra=common_extra,
+                )
+            )
+    return elements
 
 
 def _layout_box(step: int, zone: str, x: float, y: float, width: float, height: float) -> str:
@@ -1483,10 +1824,12 @@ def _assembly_board_grid_elements(
     size: float,
     hole_radius: float = 0.72,
     highlighted: list[str] | None = None,
+    references: list[str] | None = None,
     step: int | None = None,
 ) -> list[str]:
     highlighted = highlighted or []
-    pitch = size / 14.0
+    references = references or []
+    pitch = size / max(1, len(BOARD_COLUMNS) - 1)
     elements: list[str] = [_rect(x - 4.0, y - 4.0, size + 8.0, size + 8.0, "score board-outline")]
     for col in BOARD_COLUMNS:
         elements.append(_text(x + (col - 1) * pitch, y - 7.0, str(col), class_name="tiny"))
@@ -1504,6 +1847,20 @@ def _assembly_board_grid_elements(
             if label in highlighted:
                 class_name = "drill board-hole active-board-hole"
             elements.append(_circle(cx, cy, hole_radius, class_name, extra=extra))
+    for label in references:
+        cx, cy = _coord_to_board_xy(label, x, y, size)
+        reference_extra: dict[str, object] = {"reference_coord": label}
+        if step is not None:
+            reference_extra["step"] = step
+        elements.append(
+            _circle(
+                cx,
+                cy,
+                hole_radius * 1.8,
+                "score reference-coordinate",
+                extra=reference_extra,
+            )
+        )
     return elements
 
 
@@ -1547,6 +1904,12 @@ def _assembly_board_template(spec: FabricationSpec) -> SvgTemplate:
 def _stack_label(layer: dict[str, object]) -> str:
     role = str(layer.get("role", ""))
     label = str(layer.get("label", role))
+    if role == "carrier-hole":
+        return "Carrier hole"
+    if role == "gear-handle-hole":
+        return "Gear handle hole"
+    if role == "link-end-hole":
+        return "Link end hole"
     if role in {"spacer", "top-spacer"}:
         return label.replace(" spacer", "")
     if role == "moving-part":
@@ -1559,6 +1922,34 @@ def _stack_label(layer: dict[str, object]) -> str:
     return label
 
 
+def _coord_heading_for_step(step: dict[str, object]) -> str:
+    roles = set(_step_coord_roles(step))
+    if roles and roles <= {"board"}:
+        return "Board holes"
+    if "board" in roles:
+        return "Board/ref"
+    if "gear_handle_reference" in roles:
+        return "Gear/handle ref"
+    if "link_end_reference" in roles:
+        return "Link-end ref"
+    if "link_joint_reference" in roles:
+        return "Link-joint ref"
+    if "slider_reference" in roles:
+        return "Slider ref"
+    if "carrier_reference" in roles:
+        return "Carrier ref"
+    roles = {str(layer.get("role", "")) for layer in _step_stack_layers(step)}
+    if "gear-handle-hole" in roles and "board" not in roles:
+        return "Gear/handle ref"
+    if "link-end-hole" in roles and "board" not in roles:
+        return "Link-end ref"
+    if "carrier-hole" in roles and "board" not in roles:
+        return "Carrier ref"
+    if "carrier-hole" in roles:
+        return "Board/carrier refs"
+    return "Board holes"
+
+
 def _assembly_step_panel(recipe: dict[str, object], step: dict[str, object], y: float) -> list[str]:
     recipe_key = str(recipe["key"])
     mechanism_type = str(recipe["mechanism_type"])
@@ -1568,6 +1959,8 @@ def _assembly_step_panel(recipe: dict[str, object], step: dict[str, object], y: 
     instruction = str(step["instruction"])
     check = str(step["check"])
     coords = _step_coord_labels(step)
+    board_coords = _board_coord_labels(step)
+    reference_coords = _reference_coord_labels(step)
     part_ids = _step_part_ids(step)
     stack_layers = _step_stack_layers(step)
     ghost_parts = _step_ghost_parts(step)
@@ -1621,7 +2014,12 @@ def _assembly_step_panel(recipe: dict[str, object], step: dict[str, object], y: 
         [
             f'  <g id="layer-board-grid-step-{step_n}" data-step="{step_n}" data-recipe-key="{escape(recipe_key)}">',
             *_assembly_board_grid_elements(
-                x=board_x, y=board_y, size=board_size, highlighted=coords, step=step_n
+                x=board_x,
+                y=board_y,
+                size=board_size,
+                highlighted=board_coords,
+                references=reference_coords,
+                step=step_n,
             ),
             "  </g>",
             f'  <g id="layer-previous-step-ghost-step-{step_n}" data-step="{step_n}">',
@@ -1643,7 +2041,7 @@ def _assembly_step_panel(recipe: dict[str, object], step: dict[str, object], y: 
         f'  <g id="layer-new-part-highlight-step-{step_n}" data-step="{step_n}" '
         f'data-app-mechanism="{escape(mechanism_type)}">'
     )
-    for coord in coords:
+    for coord in board_coords:
         cx, cy = _coord_to_board_xy(coord, board_x, board_y, board_size)
         elements.append(
             _circle(
@@ -1659,6 +2057,38 @@ def _assembly_step_panel(recipe: dict[str, object], step: dict[str, object], y: 
                 },
             )
         )
+    for coord in reference_coords:
+        cx, cy = _coord_to_board_xy(coord, board_x, board_y, board_size)
+        elements.append(
+            _circle(
+                cx,
+                cy,
+                2.1,
+                "score reference-marker",
+                extra={
+                    "step": step_n,
+                    "recipe_key": recipe_key,
+                    "reference_coord": coord,
+                    "app_mechanism": mechanism_type,
+                },
+            )
+        )
+    elements.append("  </g>")
+
+    elements.append(
+        f'  <g id="layer-existing-parts-step-{step_n}" data-step="{step_n}" '
+        f'data-app-mechanism="{escape(mechanism_type)}">'
+    )
+    elements.extend(
+        _mini_part_overlay_elements(
+            part_ids,
+            coords,
+            board_x=board_x,
+            board_y=board_y,
+            board_size=board_size,
+            step=step_n,
+        )
+    )
     elements.append("  </g>")
 
     elements.extend(
@@ -1692,12 +2122,17 @@ def _assembly_step_panel(recipe: dict[str, object], step: dict[str, object], y: 
     elements.append("  </g>")
 
     coord_text = ", ".join(coords)
+    coord_heading = _coord_heading_for_step(step)
     part_text = " ".join(_part_label(part) for part in part_ids)
     elements.extend(
         [
             f'  <g id="layer-labels-step-{step_n}" data-step="{step_n}" data-board-coord="{escape(coord_text)}" data-part-key="{escape(part_text)}">',
             _text(
-                376.0, y + 31.0, f"Board holes: {coord_text}", class_name="small", anchor="start"
+                376.0,
+                y + 31.0,
+                f"{coord_heading}: {coord_text}",
+                class_name="small",
+                anchor="start",
             ),
             _text(376.0, y + 45.0, "Check", class_name="part-card-label", anchor="start"),
             _text(376.0, y + 53.0, check, class_name="small", anchor="start"),
@@ -1792,9 +2227,9 @@ def _recipe_part_ids(recipe: dict[str, object]) -> list[str]:
                 for part in _step_part_ids(step):
                     seen[part] = None
                 for layer in _step_stack_layers(step):
-                    part = layer.get("part")
-                    if isinstance(part, str):
-                        seen[part] = None
+                    layer_part = layer.get("part")
+                    if isinstance(layer_part, str):
+                        seen[layer_part] = None
     return list(seen)
 
 
@@ -1912,10 +2347,22 @@ the 15x15 hole board (15 rows x 15 columns = 225 board holes).
 ## How to use
 
 1. Open `board-15x15.svg` to identify the 225 row-letter/column-number holes.
-2. Open `index.html` for the print-first / place-next visual sequence.
-3. Pick one guide SVG.
-4. Follow one step card at a time: place the fastener, add spacers, add the part, then run the check.
-5. Keep paper fasteners loose enough for rotation or sliding before flattening the tabs.
+2. Export **Make Parts / Cut Sheets** first when you need to fabricate character or mechanism
+   components.
+3. Open `index.html` for the print-first / place-next visual sequence and stack order.
+4. Pick one guide SVG.
+5. Follow one step card at a time: place the fastener at the called-out hole, then add spacers
+   and parts in the exact `Stack` row order before running the check.
+6. Keep paper fasteners loose enough for rotation or sliding before flattening the tabs.
+
+## Character attachment
+
+- Cut character body components from the current character blueprint/cut sheet. There is no
+  separate Example Character fabrication template.
+- Use paper fasteners for pivot/drive holes and keep spacers between moving character parts,
+  linkage layers, and the board or bracket.
+- Align character drive holes to the mechanism output shown in the guide; the cut sheet makes
+  parts, while this guide decides board holes and per-step stack order.
 
 ## Guides
 
@@ -1953,25 +2400,44 @@ def _assembly_index_html(
     assembly_package: dict[str, object],
     manifest: dict[str, object],
 ) -> str:
-    recipes = [recipe for recipe in assembly_package.get("recipes", []) if isinstance(recipe, dict)]
+    raw_recipes = assembly_package.get("recipes", [])
+    recipes = (
+        [recipe for recipe in raw_recipes if isinstance(recipe, dict)]
+        if isinstance(raw_recipes, list)
+        else []
+    )
     part_paths = _manifest_part_paths(manifest)
     recipe_sections: list[str] = []
     for recipe in recipes:
         step_rows: list[str] = []
-        for step in recipe.get("steps", []):
+        raw_steps = recipe.get("steps", [])
+        steps = raw_steps if isinstance(raw_steps, list) else []
+        for step in steps:
             if not isinstance(step, dict):
                 continue
             coords = ", ".join(_step_coord_labels(step))
             parts = (
                 ", ".join(_part_label(part) for part in _step_part_ids(step)) or "Paper fastener"
             )
+            coord_heading = _coord_heading_for_step(step)
+            stack_labels = [
+                str(layer.get("label", "")).strip()
+                for layer in _step_stack_layers(step)
+                if str(layer.get("label", "")).strip()
+            ]
+            stack_row = (
+                f'<span class="stack">Stack: {html.escape(" → ".join(stack_labels))}</span>'
+                if stack_labels
+                else ""
+            )
             step_rows.append(
                 "<li>"
                 f"<strong>{html.escape(str(step.get('n', '')))}. "
                 f"{html.escape(str(step.get('title', '')))}</strong>"
-                f"<span>Board holes: {html.escape(coords)}</span>"
+                f"<span>{html.escape(coord_heading)}: {html.escape(coords)}</span>"
                 f"<span>Parts: {html.escape(parts)}</span>"
                 f"<span>{html.escape(str(step.get('instruction', '')))}</span>"
+                f"{stack_row}"
                 "</li>"
             )
         parts_cards: list[str] = []
@@ -2006,9 +2472,11 @@ def _assembly_index_html(
     body {{ font-family: Arial, Helvetica, sans-serif; margin: 24px; color: #111827; }}
     header {{ border-bottom: 3px solid #111827; margin-bottom: 24px; padding-bottom: 12px; }}
     h1 {{ margin: 0 0 8px; }}
-    .quick-start, .guide {{ border: 1px solid #d1d5db; border-radius: 14px; padding: 18px; margin: 18px 0; }}
+    .quick-start, .guide, .callout {{ border: 1px solid #d1d5db; border-radius: 14px; padding: 18px; margin: 18px 0; }}
+    .callout {{ border-color: #f97316; background: #fff7ed; }}
     .quick-start li, .steps li {{ margin: 12px 0; }}
     .steps span {{ display: block; margin-top: 4px; }}
+    .stack {{ color: #92400e; font-weight: 600; }}
     .parts-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }}
     .part-card {{ border: 2px solid var(--part-color); background: color-mix(in srgb, var(--part-color) 18%, white); border-radius: 12px; padding: 10px; text-decoration: none; color: inherit; display: flex; gap: 10px; align-items: center; }}
     .part-token {{ font-weight: 700; background: var(--part-color); border-radius: 999px; padding: 8px 10px; min-width: 44px; text-align: center; }}
@@ -2018,14 +2486,32 @@ def _assembly_index_html(
 <body>
   <header>
     <h1>Automataii board assembly</h1>
-    <p>15 x 15 means 225 board holes. Use the row letter and column number on the board map.</p>
+    <p>
+      15 x 15 means 225 board holes. This is the board-coordinate assembly guide,
+      not the cut sheet. Make the character/mechanism parts first, then use row
+      letters and column numbers on the board map.
+    </p>
   </header>
+  <section class="callout">
+    <h2>Character attachment rule</h2>
+    <p>
+      Use the current character body components from the Parts Blueprint/Cut Sheets.
+      Do not introduce a separate Example Character template. Attach each moving character
+      part to the mechanism output with a paper fastener, keep a spacer between moving layers
+      and the board/bracket, and flatten the fastener tabs only after the motion clears.
+    </p>
+    <p>
+      Follow each step's <b>Stack</b> row exactly. Typical moving stack:
+      board hole → paper fastener → spacer → character part or linkage →
+      spacer → fastener tabs.
+    </p>
+  </section>
   <section class="quick-start">
     <h2>Quick start</h2>
     <ol>
       <li>Print or fabricate the linked part templates.</li>
       <li>Open <a href="board-15x15.svg">board-15x15.svg</a> and find the called-out holes.</li>
-      <li>Put the paper fastener through the board, add spacers, add the part, then leave the tabs loose.</li>
+      <li>Put the paper fastener through the board, then follow that step's Stack row exactly before leaving the tabs loose.</li>
       <li>After each step, run the motion check before adding the next layer.</li>
     </ol>
   </section>
@@ -2053,7 +2539,7 @@ This directory contains fabrication-ready SVG masters for the physical Automatai
 ## Two supported workflows
 
 1. **Board assembly** — open `assembly/`, choose a guide SVG, and follow the board-coordinate step cards with the pre-fabricated kit parts.
-2. **Self-fabrication** — use the individual SVGs in `gears/`, `linkages/`, `cams/`, `followers/`, `brackets/`, and `spacers/` to make replacement or custom parts with a laser cutter, CNC router, 3D-print workflow, scroll saw, table saw plus drill jig, or similar shop process.
+2. **Self-fabrication** — use the individual SVGs in `gears/`, `ring_gears/`, `linkages/`, `cams/`, `followers/`, `brackets/`, and `spacers/` to make replacement or custom parts with a laser cutter, CNC router, 3D-print workflow, scroll saw, table saw plus drill jig, or similar shop process.
 
 For a repeatable workshop set, cut/print the {sheet_count} workshop sheets in `sheets/`,
 sort the parts, then use the matching `assembly/` guide.
@@ -2087,7 +2573,7 @@ These files are nominal geometry, not material-specific kerf compensation. Befor
 `kit/` and `fabrication/` are intentionally separate physical-asset packages:
 
 - `kit/` contains the existing educational/module-oriented MS4N activity sheets, prompt cards, checks, and broad classroom materials.
-- `fabrication/` is the nominal-millimetre manufacturing package for the constrained physical parts requested here: gears, linkage bars, cams, followers, brackets, spacers, and workshop cut sheets.
+- `fabrication/` is the nominal-millimetre manufacturing package for the constrained physical parts requested here: gears, planetary ring gears, linkage bars, cams, followers, brackets, spacers, and workshop cut sheets.
 - Shared physical assumptions should come from `automataii.shared.physical_kit`; do not hand-edit generated `fabrication/` SVGs without updating the generator and sync test.
 
 ## Contents
@@ -2095,6 +2581,7 @@ These files are nominal geometry, not material-specific kerf compensation. Befor
 - `manifest.json` — machine-readable inventory and dimensions.
 - `assembly/` — board-coordinate assembly guides, recipe data, and the 15x15 hole / 225-hole board map.
 - `gears/` — one SVG per gear preset; each gear includes a {_fmt(spec.hole_diameter_mm)} mm axle hole and {_fmt(spec.hole_diameter_mm)} mm linkage/bracket/crank/handle attachment holes.
+- `ring_gears/` — fixed internal ring gear for the planetary guide, with board-mount holes.
 - `linkages/` — one SVG per linkage length; holes are spaced on the board pitch.
 - `cams/` — one SVG per cam preset; each cam includes a {_fmt(spec.hole_diameter_mm)} mm axle hole and {_fmt(spec.hole_diameter_mm)} mm linkage/bracket/crank/handle attachment holes.
 - `followers/` — slotted cam follower parts with {_fmt(spec.hole_diameter_mm)} mm guide slots and {_fmt(spec.hole_diameter_mm)} mm linkage/output holes.
@@ -2178,6 +2665,7 @@ def write_fabrication_templates(
     spec = _fabrication_spec(grid_cell_cm, profile)
 
     gear_templates = [_gear_template(preset, spec) for preset in profile.gear_presets]
+    ring_gear_templates = [_ring_gear_template(profile.gear_presets[0], profile.gear_presets[1], spec)]
     linkage_templates = [_linkage_template(cells, spec) for cells in profile.linkage_length_cells]
     cam_templates = [_cam_template(preset, spec) for preset in profile.cam_presets]
     follower_templates = [_follower_template(preset, spec) for preset in profile.follower_presets]
@@ -2187,6 +2675,7 @@ def write_fabrication_templates(
 
     fabrication_svg_templates = [
         *gear_templates,
+        *ring_gear_templates,
         *linkage_templates,
         *cam_templates,
         *follower_templates,
@@ -2200,11 +2689,14 @@ def write_fabrication_templates(
         "grid_pitch_mm": _round_float(spec.pitch_mm),
         "grid_cell_cm": _round_float(spec.pitch_mm / 10.0),
         "hole_diameter_mm": spec.hole_diameter_mm,
+        "board_rows": profile.board_rows,
+        "board_columns": profile.board_columns,
         "generated_by": GENERATED_BY,
         "generated_at": REPRODUCIBLE_GENERATED_AT,
         "source_ssot": SOURCE_SSOT,
         "parts": {
             "gears": [template.metadata for template in gear_templates],
+            "ring_gears": [template.metadata for template in ring_gear_templates],
             "linkages": [template.metadata for template in linkage_templates],
             "cams": [template.metadata for template in cam_templates],
             "followers": [template.metadata for template in follower_templates],

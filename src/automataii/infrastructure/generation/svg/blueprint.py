@@ -36,6 +36,41 @@ def _safe_snapshot_data_uri(snapshot_data_uri: object) -> str | None:
     return escape_xml(value, quote=True)
 
 
+def _layout_item_name(item: object, fallback: str) -> str:
+    for attr_name in ("name", "label", "part_name"):
+        raw_value = getattr(item, attr_name, None)
+        if raw_value:
+            return _safe_svg_text(raw_value)
+    return _safe_svg_text(fallback)
+
+
+def _cut_sheet_handoff_panel(
+    *,
+    page_width_mm: float,
+    part_count: int,
+    mechanism_count: int,
+) -> str:
+    panel_width = page_width_mm - 40
+    return f'''
+  <g id="cut-sheet-handoff" transform="translate(20,120)">
+    <rect x="0" y="0" width="{panel_width}" height="90"
+          fill="#fff7ed" stroke="#ea580c" stroke-width="1.5" rx="6"/>
+    <text x="20" y="24" class="callout-header">Make Parts / Cut Sheets boundary</text>
+    <text x="20" y="44" class="callout-text">
+      Cut/drill only: this sheet is not the board assembly order.
+    </text>
+    <text x="20" y="61" class="callout-text">
+      Character body components: {part_count} | Mechanism parts: {mechanism_count} |
+      Drill 4mm holes when shown.
+    </text>
+    <text x="20" y="78" class="callout-text">
+      Paper fasteners are hardware, not cut parts; spacer/bracket stack order lives in the
+      Board Assembly Guide.
+    </text>
+  </g>
+'''
+
+
 def generate_single_large_blueprint(
     layout_items,
     page_width_mm,
@@ -130,6 +165,9 @@ def generate_single_large_blueprint(
       .parameter-text {{ font-family: Arial, sans-serif; font-size: 8px; fill: #222; }}
       .parameter-header {{ font-family: Arial, sans-serif; font-size: 9px; font-weight: bold; fill: #333; }}
       .unit-info {{ font-family: Arial, sans-serif; font-size: 6px; fill: #888; font-style: italic; }}
+      .callout-header {{ font-family: Arial, sans-serif; font-size: 13px; font-weight: bold; fill: #9a3412; }}
+      .callout-text {{ font-family: Arial, sans-serif; font-size: 10px; fill: #431407; }}
+      .part-guidance {{ font-family: Arial, sans-serif; font-size: 8px; fill: #374151; }}
     </style>
 {chr(10).join(clip_definitions) if clip_definitions else ""}
   </defs>
@@ -155,11 +193,6 @@ def generate_single_large_blueprint(
 '''
     svg_parts.append(svg_header)
 
-    # Main content area with generous spacing
-    content_y = 130  # Start below title block (increased for unit info)
-    margin_x = 50
-    spacing = 40  # Very generous spacing between items
-
     # Separate parts and mechanisms
     part_items = [item for item in layout_items if getattr(item, "item_type", None) == "part"]
     mechanism_items = [
@@ -167,6 +200,18 @@ def generate_single_large_blueprint(
     ]
 
     logger.info(f"Large blueprint: {len(part_items)} parts, {len(mechanism_items)} mechanisms")
+    svg_parts.append(
+        _cut_sheet_handoff_panel(
+            page_width_mm=page_width_mm,
+            part_count=len(part_items),
+            mechanism_count=len(mechanism_items),
+        )
+    )
+
+    # Main content area with generous spacing
+    content_y: float = 240.0
+    margin_x = 50
+    spacing = 40  # Very generous spacing between items
 
     # Optional snapshot section at top-right
     if snapshot_data_uri:
@@ -186,16 +231,24 @@ def generate_single_large_blueprint(
     # Add parts section
     if part_items:
         svg_parts.append(f'<g id="parts-section" transform="translate({margin_x},{content_y})">')
-        svg_parts.append('<text x="0" y="0" class="section-title">Character Parts</text>')
-        material_info = "Cut on RED lines | Material: 3mm Plywood/Acrylic"
+        svg_parts.append(
+            '<text x="0" y="0" class="section-title">Character body component cut sheets</text>'
+        )
+        material_info = (
+            "Cut RED outlines | Drill BLUE 4mm pivot/drive holes when shown | "
+            "Board coordinates are in Assembly Guide"
+        )
         if unit_system == "imperial":
-            material_info = 'Cut on RED lines | Material: 1/8" Plywood/Acrylic'
+            material_info = (
+                'Cut RED outlines | Drill BLUE 4mm pivot/drive holes when shown | '
+                'Use 1/8" sheet stock when self-fabricating'
+            )
         svg_parts.append(f'<text x="0" y="25" class="manufacturing-note">{material_info}</text>')
 
         # Arrange parts in a grid with generous spacing
-        parts_y = 40
-        parts_x = 0
-        max_row_height = 0
+        parts_y: float = 40.0
+        parts_x: float = 0.0
+        max_row_height: float = 0.0
         row_width = page_width_mm - (2 * margin_x)
 
         for item in part_items:
@@ -204,7 +257,7 @@ def generate_single_large_blueprint(
             item_height = _positive_dimension(getattr(bounds, "height", 0.0), 1.0)
             # Check if we need to start a new row
             if parts_x + item_width + spacing > row_width:
-                parts_x = 0
+                parts_x = 0.0
                 parts_y += max_row_height + spacing
                 max_row_height = 0
 
@@ -219,11 +272,18 @@ def generate_single_large_blueprint(
 
             svg_parts.append(f'<g transform="translate({parts_x},{parts_y})">')
             svg_parts.append(clean_svg_content)
+            part_name = _layout_item_name(item, "Character component")
+            note_y = item_height + 12
+            svg_parts.append(f'<text x="0" y="{note_y}" class="part-guidance">{part_name}</text>')
+            svg_parts.append(
+                f'<text x="0" y="{note_y + 11}" class="part-guidance">'
+                "Fastener/spacer location is assigned in the Assembly Guide.</text>"
+            )
             svg_parts.append("</g>")
 
             # Update position for next item
             parts_x += item_width + spacing
-            max_row_height = max(max_row_height, item_height)
+            max_row_height = max(max_row_height, item_height + 28)
 
         content_y += parts_y + max_row_height + 80
         svg_parts.append("</g>")
@@ -235,13 +295,15 @@ def generate_single_large_blueprint(
         )
         svg_parts.append('<text x="0" y="0" class="section-title">Mechanisms</text>')
         svg_parts.append(
-            '<text x="0" y="25" class="manufacturing-note">Technical drawings with manufacturing specifications</text>'
+            '<text x="0" y="25" class="manufacturing-note">'
+            "Printable mechanism parts; use Board Assembly Guide for hole coordinates, stack order, "
+            "spacers, brackets, and paper fasteners.</text>"
         )
 
         # Arrange mechanisms in a grid with extra generous spacing
-        mech_y = 50
-        mech_x = 0
-        max_row_height = 0
+        mech_y: float = 50.0
+        mech_x: float = 0.0
+        max_row_height = 0.0
         mech_spacing = 60  # Extra space for mechanisms
         row_width = page_width_mm - (2 * margin_x)  # Define row_width for mechanisms section
 
@@ -251,7 +313,7 @@ def generate_single_large_blueprint(
             item_height = _positive_dimension(getattr(bounds, "height", 0.0), 1.0)
             # Check if we need to start a new row
             if mech_x + item_width + mech_spacing > row_width:
-                mech_x = 0
+                mech_x = 0.0
                 mech_y += max_row_height + mech_spacing
                 max_row_height = 0
 
@@ -280,7 +342,7 @@ def generate_single_large_blueprint(
     <line x1="20" y1="{footer_y}" x2="{page_width_mm - 20}" y2="{footer_y}"
           stroke="black" stroke-width="1"/>
     <text x="40" y="{footer_y + 20}" class="manufacturing-note">
-      Manufacturing Blueprint ({get_unit_label()} Units) | All content on single page | {len(layout_items)} items total
+      Make Parts / Cut Sheets ({get_unit_label()} Units) | Cut/drill only | {len(layout_items)} items total
     </text>
     <text x="{page_width_mm - 40}" y="{footer_y + 20}" class="manufacturing-note" text-anchor="end">
       MotionSmith Manufacturing System

@@ -296,6 +296,52 @@ def build_mechanism_configs(
             ),
             extra_defaults={"input_angle": 30.0, "gear_linkage_enabled": 1.0},
         ),
+        "planetary_gear": MechanismConfiguration(
+            mechanism_type="planetary_gear",
+            parameter_specs=(
+                ParameterSpec(
+                    "sun_teeth",
+                    "Sun Gear Teeth",
+                    min_gear_teeth,
+                    max_gear_teeth,
+                    _at(profile.gear_presets, 0).teeth,
+                    "int",
+                    "teeth",
+                    step=1.0,
+                ),
+                ParameterSpec(
+                    "planet_teeth",
+                    "Planet Gear Teeth",
+                    min_gear_teeth,
+                    max_gear_teeth,
+                    _at(profile.gear_presets, 1).teeth,
+                    "int",
+                    "teeth",
+                    step=1.0,
+                ),
+                ParameterSpec(
+                    "planet_count",
+                    "Planet Count",
+                    1,
+                    4,
+                    1,
+                    "int",
+                    "gears",
+                    step=1.0,
+                ),
+                ParameterSpec(
+                    "carrier_arm_length",
+                    "Carrier Handle Length (mm)",
+                    min_linkage_mm,
+                    max_linkage_mm,
+                    _at(linkage_lengths_mm, 0),
+                    "float",
+                    "mm",
+                    step=1.0,
+                ),
+            ),
+            extra_defaults={"input_angle": 30.0},
+        ),
     }
 
 
@@ -407,6 +453,21 @@ def build_fallback_items(
             ),
             mechanism_type="gear_linkage",
         ),
+        MechanismItem(
+            category_key="__fallback__",
+            mechanism_key="planetary_gear",
+            display_name="Planetary Gear",
+            entry=_build_entry_from_config(
+                key="planetary_gear",
+                display_name="Planetary Gear",
+                description=(
+                    "Sun-and-planet gear set with a carrier handle for compact orbital motion."
+                ),
+                mech_type="planetary_gear",
+                config=configs["planetary_gear"],
+            ),
+            mechanism_type="planetary_gear",
+        ),
     )
 
 
@@ -426,7 +487,13 @@ class MechanismFoundryController:
         self._mechanisms: list[MechanismItem] = []
         self._load_catalog_items()
         self._ensure_fallback_items()
-        order = {"four_bar": 0, "cam_follower": 1, "gear_train": 2, "gear_linkage": 3}
+        order = {
+            "four_bar": 0,
+            "cam_follower": 1,
+            "gear_train": 2,
+            "gear_linkage": 3,
+            "planetary_gear": 4,
+        }
         self._mechanisms.sort(
             key=lambda item: (order.get(item.mechanism_type, 99), item.display_name)
         )

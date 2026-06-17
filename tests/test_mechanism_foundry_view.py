@@ -365,10 +365,16 @@ def test_foundry_selector_exposes_physical_kit_mechanisms(qapp):
         view.mechanism_selector.itemData(i) for i in range(view.mechanism_selector.count())
     }
 
-    assert visible_types == {"four_bar", "cam_follower", "gear_train", "gear_linkage"}
+    assert visible_types == {
+        "four_bar",
+        "cam_follower",
+        "gear_train",
+        "gear_linkage",
+        "planetary_gear",
+    }
     assert view.mechanism_selector.findData("gear_train") >= 0
     assert view.mechanism_selector.findData("gear_linkage") >= 0
-    assert view.mechanism_selector.findData("planetary_gear") < 0
+    assert view.mechanism_selector.findData("planetary_gear") >= 0
     assert view.mechanism_selector.findData("slider_crank") < 0
 
 
@@ -387,6 +393,52 @@ def test_foundry_gear_linkage_renders_linkage_arm(qapp):
     assert view._last_rendered_state is not None
     assert "linkage_pin" in view._last_rendered_state.positions
     assert "gear_linkage_arm" in view.visual_items_cache
+
+
+def test_foundry_planetary_gear_renders_ring_and_planets(qapp):
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+
+    view = MechanismFoundryView()
+    idx = view.mechanism_selector.findData("planetary_gear")
+    assert idx >= 0
+
+    view.mechanism_selector.setCurrentIndex(idx)
+    view._on_mechanism_changed(idx)
+    view._render_mechanism()
+
+    assert view._current_controller_mechanism_type() == "planetary_gear"
+    assert view._last_rendered_state is not None
+    assert "planet_center" in view._last_rendered_state.positions
+    assert "planetary_ring" in view.visual_items_cache
+    assert "planetary_sun_body" in view.visual_items_cache
+    assert "planetary_planet_1_body" in view.visual_items_cache
+
+
+def test_foundry_planetary_gear_removes_stale_planet_cache_when_count_shrinks(qapp):
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+
+    view = MechanismFoundryView()
+    idx = view.mechanism_selector.findData("planetary_gear")
+    assert idx >= 0
+
+    view.mechanism_selector.setCurrentIndex(idx)
+    view._on_mechanism_changed(idx)
+    view.current_parameters["planet_count"] = 4
+    view._state_cache_valid = False
+    view._render_mechanism()
+
+    assert "planetary_planet_4_body" in view.visual_items_cache
+    assert "planetary_carrier_4" in view.visual_items_cache
+
+    view.current_parameters["planet_count"] = 1
+    view._state_cache_valid = False
+    view._render_mechanism()
+
+    assert "planetary_planet_1_body" in view.visual_items_cache
+    for index in (2, 3, 4):
+        assert f"planetary_planet_{index}_body" not in view.visual_items_cache
+        assert f"planetary_carrier_{index}" not in view.visual_items_cache
+        assert f"planetary_planet_{index}_hole_0" not in view.visual_items_cache
 
 
 def test_foundry_view_type_aliases_ignore_case_and_whitespace(qapp):
@@ -425,7 +477,7 @@ def test_set_synced_mechanism_normalizes_case_and_whitespace(qapp):
 
     assert view.synced_mechanism_id == "sync_gear"
     assert view.current_mechanism is not None
-    assert view.current_mechanism.mechanism_type == "gear_train"
+    assert view.current_mechanism.mechanism_type == "planetary_gear"
 
 
 def test_fourbar_preview_renders_coupler_triangle_and_point(qapp):

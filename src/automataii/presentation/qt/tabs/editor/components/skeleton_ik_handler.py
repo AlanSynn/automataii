@@ -92,6 +92,24 @@ class SkeletonIKHandler(QObject):
         self._update_part_list_styles = update_part_list_styles
         self._update_active_part_visuals = update_active_part_visuals
 
+    def _show_status_message(self, message: str) -> None:
+        """Best-effort status bar reporting for Qt slot safety."""
+        main_window = self._get_main_window()
+        if not main_window or not hasattr(main_window, "statusBar"):
+            logging.info("Status: %s", message)
+            return
+
+        try:
+            status_bar = main_window.statusBar()
+        except Exception:
+            logging.debug("Status bar lookup failed", exc_info=True)
+            status_bar = None
+
+        if status_bar and hasattr(status_bar, "showMessage"):
+            status_bar.showMessage(message)
+        else:
+            logging.info("Status: %s", message)
+
     @property
     def initial_skeleton_cache(self) -> dict | None:
         """Get the initial skeleton data cache."""
@@ -358,11 +376,9 @@ class SkeletonIKHandler(QObject):
         logging.info(f"SkeletonIKHandler: Joint defined: {joint_data}")
         self._joints.append(joint_data)
 
-        main_window = self._get_main_window()
-        if main_window:
-            main_window.statusBar().showMessage(
-                f"Joint defined between {joint_data['part1_name']} and {joint_data['part2_name']}"
-            )
+        part1 = joint_data.get("part1_name", "unknown part")
+        part2 = joint_data.get("part2_name", "unknown part")
+        self._show_status_message(f"Joint defined between {part1} and {part2}")
 
         self._update_button_states()
         self.joint_defined.emit(joint_data)

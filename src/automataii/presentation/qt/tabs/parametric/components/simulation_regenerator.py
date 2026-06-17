@@ -292,7 +292,8 @@ class SimulationRegenerator:
         try:
             r_sun = params.get("r_sun", 20.0)
             r_planet = params.get("r_planet", 12.0)
-            num_planets = params.get("num_planets", 3)
+            num_planets = int(params.get("planet_count", params.get("num_planets", 1)))
+            num_planets = min(max(num_planets, 1), 4)
             center = np.array(params.get("center", [0, 0]), dtype=float)
 
             planet_orbit_r = r_sun + r_planet

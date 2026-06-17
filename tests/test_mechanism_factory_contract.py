@@ -34,10 +34,17 @@ EXPECTED_FOUNDRY_TO_DESIGN_TYPES = {
     "cam_follower": "cam",
     "gear_train": "gear",
     "gear_linkage": "gear",
+    "planetary_gear": "planetary_gear",
     "slider_crank": "4_bar_linkage",
 }
 
-VISIBLE_FOUNDRY_TYPES = {"four_bar", "cam_follower", "gear_train", "gear_linkage"}
+VISIBLE_FOUNDRY_TYPES = {
+    "four_bar",
+    "cam_follower",
+    "gear_train",
+    "gear_linkage",
+    "planetary_gear",
+}
 
 RENDERABLE_DESIGN_TYPES = {"4_bar_linkage", "cam", "gear", "planetary_gear"}
 
@@ -85,6 +92,9 @@ def test_foundry_factory_creates_renderable_design_layer(
         assert "cam_position" in layer_data
     elif foundry_type == "gear_train":
         assert {"gear1_center", "gear2_center"}.issubset(layer_data["key_points"])
+    elif foundry_type == "planetary_gear":
+        assert layer_data["type"] == "planetary_gear"
+        assert {"sun_teeth", "planet_teeth", "r_sun", "r_planet"}.issubset(layer_data["params"])
     elif foundry_type == "slider_crank":
         assert layer_data["approximated_as"] == "4_bar_linkage"
         assert layer_data["params"]["l1"] > 0.0
@@ -107,6 +117,7 @@ def test_controller_exposed_types_have_factory_contract_coverage() -> None:
         ("cam_follower", "cam_follower"),
         ("gear", "gear_train"),
         ("gear_train", "gear_train"),
+        ("planetary_gear", "planetary_gear"),
         ("slider_crank", "slider_crank"),
         ("slider-crank", "slider_crank"),
         ("slidercrank", "slider_crank"),
@@ -142,9 +153,7 @@ def test_legacy_transfer_spec_accepts_foundry_export_contract(foundry_type: str)
     assert spec_validate_export_type(foundry_type)
 
 
-@pytest.mark.parametrize(
-    "unsupported_type", ["six_bar_linkage", "planetary_gear", "unknown_custom"]
-)
+@pytest.mark.parametrize("unsupported_type", ["six_bar_linkage", "unknown_custom"])
 def test_foundry_factory_rejects_unsupported_types_without_4bar_fallback(
     unsupported_type: str,
 ) -> None:
@@ -301,7 +310,7 @@ def test_catalog_unsupported_mechanisms_are_hidden_from_foundry_controller() -> 
     """Catalog entries without Design support should be hidden, not half-importable."""
     exposed_types = set(_controller_items_by_type())
     assert "six_bar_linkage" not in exposed_types
-    assert "planetary_gear" not in exposed_types
+    assert "planetary_gear" in exposed_types
 
 
 @pytest.mark.parametrize(

@@ -16,7 +16,7 @@ on:
         default: false
         type: boolean
       ota_smoke_passed:
-        description: 'Also publish MotionSmith Pages OTA payload after matching old-to-new Sparkle OTA smoke evidence'
+        description: 'manual attestation: also publish MotionSmith Pages OTA payload after matching old-to-new Sparkle OTA smoke evidence'
         required: true
         default: false
         type: boolean

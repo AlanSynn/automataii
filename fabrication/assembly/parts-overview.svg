@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" version="1.1"
-     width="560mm" height="124mm"
-     viewBox="0 0 560 124"
+     width="560mm" height="154mm"
+     viewBox="0 0 560 154"
      data-profile-key="motionsmith-ms4n"
      data-grid-pitch-mm="20"
      data-hole-diameter-mm="4">
@@ -59,8 +59,20 @@
   <circle cx="24" cy="101" r="7" class="score part-token" data-part-key="linkages:linkage-4-cell" data-part-index="9"/>
   <text x="37" y="99.5" class="part-card-label" text-anchor="start">L4</text>
   <text x="37" y="106" class="tiny" text-anchor="start">linkages:linkage-4-cell</text>
-  <rect x="146" y="90" width="126" height="22" class="score part-card" style="fill:#a78bfa;fill-opacity:0.2;stroke:#a78bfa;stroke-width:0.6" data-part-key="brackets:l-3-hole" data-part-index="10"/>
-  <circle cx="158" cy="101" r="7" class="score part-token" data-part-key="brackets:l-3-hole" data-part-index="10"/>
-  <text x="171" y="99.5" class="part-card-label" text-anchor="start">L 3 Hole</text>
-  <text x="171" y="106" class="tiny" text-anchor="start">brackets:l-3-hole</text>
+  <rect x="146" y="90" width="126" height="22" class="score part-card" style="fill:#f59e0b;fill-opacity:0.2;stroke:#f59e0b;stroke-width:0.6" data-part-key="ring_gears:ring-g12-g14" data-part-index="10"/>
+  <circle cx="158" cy="101" r="7" class="score part-token" data-part-key="ring_gears:ring-g12-g14" data-part-index="10"/>
+  <text x="171" y="99.5" class="part-card-label" text-anchor="start">G12/G14 Ring</text>
+  <text x="171" y="106" class="tiny" text-anchor="start">ring_gears:ring-g12-g14</text>
+  <rect x="280" y="90" width="126" height="22" class="score part-card" style="fill:#fbbf24;fill-opacity:0.2;stroke:#fbbf24;stroke-width:0.6" data-part-key="gears:g14" data-part-index="11"/>
+  <circle cx="292" cy="101" r="7" class="score part-token" data-part-key="gears:g14" data-part-index="11"/>
+  <text x="305" y="99.5" class="part-card-label" text-anchor="start">G14</text>
+  <text x="305" y="106" class="tiny" text-anchor="start">gears:g14</text>
+  <rect x="414" y="90" width="126" height="22" class="score part-card" style="fill:#60a5fa;fill-opacity:0.2;stroke:#60a5fa;stroke-width:0.6" data-part-key="linkages:linkage-6-cell" data-part-index="12"/>
+  <circle cx="426" cy="101" r="7" class="score part-token" data-part-key="linkages:linkage-6-cell" data-part-index="12"/>
+  <text x="439" y="99.5" class="part-card-label" text-anchor="start">L6</text>
+  <text x="439" y="106" class="tiny" text-anchor="start">linkages:linkage-6-cell</text>
+  <rect x="12" y="120" width="126" height="22" class="score part-card" style="fill:#a78bfa;fill-opacity:0.2;stroke:#a78bfa;stroke-width:0.6" data-part-key="brackets:3-hole-straight" data-part-index="13"/>
+  <circle cx="24" cy="131" r="7" class="score part-token" data-part-key="brackets:3-hole-straight" data-part-index="13"/>
+  <text x="37" y="129.5" class="part-card-label" text-anchor="start">3 Hole Straight</text>
+  <text x="37" y="136" class="tiny" text-anchor="start">brackets:3-hole-straight</text>
 </svg>

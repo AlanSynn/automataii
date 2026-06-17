@@ -232,3 +232,40 @@ def test_gear_svg_generator_uses_active_profile_radius_pitch_label(monkeypatch) 
     )
 
     assert "Radius pitch: 2.0mm/tooth" in svg
+
+
+def test_planetary_blueprint_accepts_float_planet_count() -> None:
+    from automataii.presentation.qt.mechanisms.blueprint.planetary_gear_blueprint import (
+        PlanetaryGearBlueprintGenerator,
+    )
+
+    generator = PlanetaryGearBlueprintGenerator()
+    svg = generator.generate_blueprint(
+        {
+            "params": {
+                "r_sun": 24.0,
+                "r_planet": 18.0,
+                "r_carrier": 42.0,
+                "planet_count": 3.0,
+            }
+        }
+    )
+
+    assert "Planet Gear" in svg
+    assert ">3<" in svg
+
+
+def test_planetary_svg_generator_reads_nested_planet_count() -> None:
+    from automataii.domain.generation.layout import ScaledBounds
+    from automataii.infrastructure.generation.svg.generators.gear import GearSVGGenerator
+
+    svg = GearSVGGenerator().generate_planetary_gear_svg(
+        {
+            "params": {"planet_count": 3.0, "sun_teeth": 12, "planet_teeth": 14},
+            "real_world_params": {"r_sun_mm": 18.0, "r_planet_mm": 21.0},
+        },
+        ScaledBounds(0.0, 0.0, 240.0, 180.0),
+    )
+
+    assert ">P3<" in svg
+    assert ">P4<" not in svg

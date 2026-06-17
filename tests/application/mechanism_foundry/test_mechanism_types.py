@@ -20,7 +20,7 @@ def test_canonical_mechanism_type_normalizes_foundry_aliases():
     assert canonical_mechanism_type("4_bar_linkage") == "four_bar"
     assert canonical_mechanism_type(" CAM ") == "cam_follower"
     assert canonical_mechanism_type("gear") == "gear_train"
-    assert canonical_mechanism_type("planetary_gear") == "gear_train"
+    assert canonical_mechanism_type("planetary_gear") == "planetary_gear"
     assert canonical_mechanism_type("slider-crank") == "slider_crank"
 
 
@@ -69,4 +69,6 @@ def test_foundry_configs_tolerate_smaller_explicit_profile_shapes():
     assert configs["four_bar"].initial_parameters()["input_link"] == 30.0
     assert configs["gear_train"].initial_parameters()["gear1_teeth"] == 10
     assert configs["gear_train"].initial_parameters()["gear2_teeth"] == 14
+    assert configs["planetary_gear"].initial_parameters()["sun_teeth"] == 10
+    assert configs["planetary_gear"].initial_parameters()["planet_teeth"] == 14
     assert configs["cam_follower"].initial_parameters()["cam_radius"] == 30.0

@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import math
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from PyQt6.QtCore import QObject, QPointF, Qt, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QColor, QPainterPath, QPen
@@ -131,6 +131,41 @@ class MotionPathManager(QObject):
         self._has_motion_path = has_motion_path
         self._emit_path_data = emit_path_data
 
+    def _show_status_message(self, message: str) -> None:
+        """Best-effort status message that cannot crash Qt signal handlers.
+
+        Editor actions are usually invoked from Qt slots.  An uncaught Python
+        exception in a PyQt slot can abort the whole process, so status-bar
+        access must tolerate partially constructed windows and teardown.
+        """
+        main_window = self._get_main_window()
+        if not main_window or not hasattr(main_window, "statusBar"):
+            logging.info("Status: %s", message)
+            return
+
+        try:
+            status_bar = main_window.statusBar()
+        except Exception:
+            logging.debug("Status bar lookup failed", exc_info=True)
+            status_bar = None
+
+        if status_bar and hasattr(status_bar, "showMessage"):
+            status_bar.showMessage(message)
+        else:
+            logging.info("Status: %s", message)
+
+    @staticmethod
+    def _parts_data_from_project_manager(project_data_manager: Any) -> Any:
+        """Return project parts from either the SSOT manager API or lightweight test doubles."""
+        get_current_parts_data = getattr(project_data_manager, "get_current_parts_data", None)
+        if callable(get_current_parts_data):
+            try:
+                return get_current_parts_data()
+            except Exception:
+                logging.debug("Project parts lookup failed", exc_info=True)
+                return None
+        return getattr(project_data_manager, "parts", None)
+
     @property
     def corrected_paths(self) -> dict[str, QPainterPath]:
         """Get the corrected paths cache."""
@@ -174,18 +209,21 @@ class MotionPathManager(QObject):
 
         # Clear from project data manager
         if main_window and hasattr(main_window, "project_data_manager"):
-            parts_data = main_window.project_data_manager.get_current_parts_data()
+            parts_data = self._parts_data_from_project_manager(main_window.project_data_manager)
             if parts_data and part_name in parts_data:
                 parts_data[part_name].motion_path_data = None
                 logging.info(f"🔄 MotionPathManager: Cleared motion_path_data for '{part_name}'")
 
-        # Set drawing mode
-        self._editor_view.set_mode("define_motion_path")
         editor_items = self._get_editor_items()
         if part_name in editor_items:
             target_item = editor_items[part_name]
             is_closed = self._closed_path_radio.isChecked() if self._closed_path_radio else True
             self._editor_view.start_define_motion_path(target_item, is_closed=is_closed)
+        else:
+            # Keep the view mode consistent even if the selected list item is
+            # stale or its scene item is not available yet.  This path should
+            # be rare, but it must not crash the toggle slot.
+            self._editor_view.set_mode("define_motion_path")
 
         if self._define_btn:
             self._define_btn.setText("■ Stop Drawing")
@@ -304,9 +342,7 @@ class MotionPathManager(QObject):
         self.vertex_editing_changed.emit(False)
         self._update_button_states()
 
-        main_window = self._get_main_window()
-        if main_window:
-            main_window.statusBar().showMessage(f"Path vertices updated for part: {part_name}")
+        self._show_status_message(f"Path vertices updated for part: {part_name}")
 
         logging.info(f"Completed vertex editing for '{part_name}'")
 
@@ -359,9 +395,7 @@ class MotionPathManager(QObject):
         if hasattr(self._editor_view, "clear_corrected_overlay_for"):
             self._editor_view.clear_corrected_overlay_for(part_name)
 
-        main_window = self._get_main_window()
-        if main_window:
-            main_window.statusBar().showMessage(f"Motion path cleared for part: {part_name}")
+        self._show_status_message(f"Motion path cleared for part: {part_name}")
 
         self._update_button_states()
         self._editor_view.viewport().update()
@@ -406,7 +440,7 @@ class MotionPathManager(QObject):
         # Update project data manager
         main_window = self._get_main_window()
         if main_window and hasattr(main_window, "project_data_manager"):
-            current_parts_info = main_window.project_data_manager.parts
+            current_parts_info = getattr(main_window.project_data_manager, "parts", {})
             if part_name in current_parts_info:
                 current_parts_info[part_name].motion_path = motion_qpath
 
@@ -431,11 +465,15 @@ class MotionPathManager(QObject):
         self.motion_path_updated.emit(part_name, motion_qpath)
         self._emit_path_data()
 
-        if main_window:
-            main_window.statusBar().showMessage(f"Motion path completed for part: {part_name}")
+        self._show_status_message(f"Motion path completed for part: {part_name}")
 
         self._update_button_states()
         logging.info(f"Completed spline motion path for part: {part_name}")
+
+        # Reset the Start/Stop Drawing button after successful completion without
+        # routing through a false cancellation signal that could clear vertex
+        # handles or re-enter drawing toggles.
+        self.handle_drawing_cancelled()
 
         # Automatically show vertex handles for the completed path
         is_closed = self._closed_path_radio.isChecked() if self._closed_path_radio else True
@@ -748,7 +786,7 @@ class MotionPathManager(QObject):
             # Get standardized joint IDs
             def std_id_of(abs_name: str) -> str:
                 try:
-                    return ik._get_standardized_joint_id(abs_name)
+                    return str(ik._get_standardized_joint_id(abs_name))
                 except Exception:
                     return abs_name
 
@@ -842,7 +880,7 @@ class MotionPathManager(QObject):
         if part_name in editor_items:
             part_item = editor_items[part_name]
             if hasattr(part_item, "original_path_points") and part_item.original_path_points:
-                return part_item.original_path_points
+                return cast("list[QPointF]", part_item.original_path_points)
 
             if hasattr(part_item, "motion_path") and part_item.motion_path:
                 return self._extract_points_from_path(part_item.motion_path)
@@ -944,7 +982,7 @@ class MotionPathManager(QObject):
         # Update project data
         main_window = self._get_main_window()
         if main_window and hasattr(main_window, "project_data_manager"):
-            current_parts = main_window.project_data_manager.get_current_parts_data()
+            current_parts = self._parts_data_from_project_manager(main_window.project_data_manager)
             if current_parts and part_name in current_parts:
                 current_parts[part_name].motion_path = new_path
 

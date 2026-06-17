@@ -13,9 +13,11 @@ from scripts.generate_fabrication_templates import write_fabrication_templates
 import automataii.application.fabrication.assembly_export as assembly_export
 from automataii.application.fabrication import FabricationAssemblyGuideExporter
 from automataii.application.managers.blueprint_manager import BlueprintExportManager
+from automataii.application.mechanism_foundry.controller import build_mechanism_configs
 from automataii.application.mechanism_foundry.mechanism_types import (
     VISIBLE_FOUNDRY_MECHANISM_TYPES,
 )
+from automataii.application.mechanism_transfer.contract import SUPPORTED_EXPORT_TYPES
 from automataii.presentation.qt.blueprint.exporter import BlueprintExporter
 from automataii.shared.fabrication_assembly import (
     ASSEMBLY_SCHEMA_VERSION,
@@ -31,6 +33,8 @@ EXPECTED_RECIPE_KEYS = {
     "cam-follower-basic",
     "four-bar-basic",
     "gear-linkage-crank",
+    "planetary-gear-basic",
+    "slider-crank-basic",
 }
 REQUIRED_LAYER_IDS = {
     "layer-board-grid",
@@ -92,6 +96,8 @@ def test_assembly_recipe_package_schema_references_and_bidirectionality(tmp_path
 
     validate_assembly_package(package, manifest)
     assert package["schema_version"] == ASSEMBLY_SCHEMA_VERSION
+    assert manifest["board_rows"] == 15
+    assert manifest["board_columns"] == 15
     assert package["board"] == {
         "columns": 15,
         "column_labels": [str(column) for column in BOARD_COLUMNS],
@@ -106,18 +112,23 @@ def test_assembly_recipe_package_schema_references_and_bidirectionality(tmp_path
     assert "linkages:linkage-2-cell" in part_index
     recipes = cast(list[dict[str, Any]], package["recipes"])
     assert {recipe["key"] for recipe in recipes} == EXPECTED_RECIPE_KEYS
+    recipe_types = {recipe["mechanism_type"] for recipe in recipes}
+    assert SUPPORTED_EXPORT_TYPES <= recipe_types
+    assert VISIBLE_FOUNDRY_MECHANISM_TYPES <= recipe_types
 
     for recipe in recipes:
-        assert recipe["mechanism_type"] in VISIBLE_FOUNDRY_MECHANISM_TYPES
-        assert recipe["app_mapping"]["mechanism_type"] in VISIBLE_FOUNDRY_MECHANISM_TYPES
+        assert recipe["mechanism_type"] in SUPPORTED_EXPORT_TYPES
+        assert recipe["app_mapping"]["mechanism_type"] in SUPPORTED_EXPORT_TYPES
         assert (tmp_path / recipe["guide_svg"]).is_file()
         steps = cast(list[dict[str, Any]], recipe["steps"])
         assert [step["n"] for step in steps] == list(range(1, len(steps) + 1))
         for step in steps:
-            assert step["app_mapping"]["mechanism_type"] in VISIBLE_FOUNDRY_MECHANISM_TYPES
+            assert step["app_mapping"]["mechanism_type"] in SUPPORTED_EXPORT_TYPES
             assert step["app_mapping"]["mechanism_type"] == recipe["mechanism_type"]
             coords = cast(list[str], step["coords"])
+            coord_roles = cast(list[str], step["coord_roles"])
             assert coords
+            assert len(coord_roles) == len(coords)
             for coord in coords:
                 assert coord[0] in BOARD_ROWS
                 assert int(coord[1:]) in BOARD_COLUMNS
@@ -141,8 +152,96 @@ def test_assembly_recipe_package_schema_references_and_bidirectionality(tmp_path
     gear_recipe = next(recipe for recipe in recipes if recipe["key"] == "gear-train-basic")
     compat = gear_recipe["compatibility"][0]
     assert compat["compatible"] is True
+    assert compat["first_coord_role"] == "board_axle"
+    assert compat["second_coord_role"] == "board_axle"
     assert 1.0 <= float(compat["board_distance_cells"]) <= 3.0
     assert abs(float(compat["error_mm"])) <= float(compat["tolerance_mm"])
+
+    four_bar_recipe = next(recipe for recipe in recipes if recipe["key"] == "four-bar-basic")
+    assert (
+        sum(
+            int(part["count"])
+            for part in cast(list[dict[str, Any]], four_bar_recipe["parts"])
+            if part["part"] == "linkages:linkage-2-cell"
+        )
+        == 2
+    )
+
+    planetary_recipe = next(recipe for recipe in recipes if recipe["key"] == "planetary-gear-basic")
+    planetary_defaults = build_mechanism_configs()["planetary_gear"].initial_parameters()
+    assert planetary_defaults["planet_count"] == 1
+    assert (
+        sum(
+            int(part["count"])
+            for part in cast(list[dict[str, Any]], planetary_recipe["parts"])
+            if part["part"] == "gears:g14"
+        )
+        == planetary_defaults["planet_count"]
+    )
+    assert planetary_recipe["app_mapping"]["mechanism_type"] == "planetary_gear"
+    assert any(
+        part["part"] == "ring_gears:ring-g12-g14"
+        for part in cast(list[dict[str, Any]], planetary_recipe["parts"])
+    )
+    assert planetary_recipe["compatibility"][0]["compatible"] is True
+    assert planetary_recipe["compatibility"][0]["second_coord_role"] == "carrier_reference"
+    planet_step = next(
+        step
+        for step in cast(list[dict[str, Any]], planetary_recipe["steps"])
+        if step["app_mapping"]["component_role"] == "planet-gear"
+    )
+    planet_step_roles = {
+        str(layer["role"]) for layer in cast(list[dict[str, Any]], planet_step["stack"])
+    }
+    assert "carrier-hole" in planet_step_roles
+    assert "board" not in planet_step_roles
+    assert "not the board" in str(planet_step["instruction"])
+    assert planet_step["coord_roles"] == ["carrier_reference"]
+    ring_step = next(
+        step
+        for step in cast(list[dict[str, Any]], planetary_recipe["steps"])
+        if step["app_mapping"]["component_role"] == "ring-gear"
+    )
+    assert ring_step["coord_roles"] == ["board", "board", "board", "board"]
+    assert any(
+        layer["role"] == "fixed-part" and layer["part"] == "ring_gears:ring-g12-g14"
+        for layer in cast(list[dict[str, Any]], ring_step["stack"])
+    )
+
+    gear_linkage_recipe = next(recipe for recipe in recipes if recipe["key"] == "gear-linkage-crank")
+    output_link_step = next(
+        step
+        for step in cast(list[dict[str, Any]], gear_linkage_recipe["steps"])
+        if step["app_mapping"]["component_role"] == "output-link"
+    )
+    output_link_roles = {
+        str(layer["role"]) for layer in cast(list[dict[str, Any]], output_link_step["stack"])
+    }
+    assert "gear-handle-hole" in output_link_roles
+    assert "board" not in output_link_roles
+    assert "not the board" in str(output_link_step["instruction"])
+    output_connector_step = next(
+        step
+        for step in cast(list[dict[str, Any]], gear_linkage_recipe["steps"])
+        if step["app_mapping"]["component_role"] == "output-connector"
+    )
+    output_connector_roles = {
+        str(layer["role"]) for layer in cast(list[dict[str, Any]], output_connector_step["stack"])
+    }
+    assert "link-end-hole" in output_connector_roles
+    assert "board" not in output_connector_roles
+
+    slider_recipe = next(recipe for recipe in recipes if recipe["key"] == "slider-crank-basic")
+    assert slider_recipe["mechanism_type"] == "slider_crank"
+    slider_block_step = next(
+        step
+        for step in cast(list[dict[str, Any]], slider_recipe["steps"])
+        if step["app_mapping"]["component_role"] == "slider-block"
+    )
+    assert slider_block_step["coord_roles"] == ["slider_reference"]
+    assert "board" not in {
+        str(layer["role"]) for layer in cast(list[dict[str, Any]], slider_block_step["stack"])
+    }
 
 
 def test_assembly_svg_cards_have_testable_layers_and_non_overlapping_layout(
@@ -194,6 +293,38 @@ def test_assembly_svg_cards_have_testable_layers_and_non_overlapping_layout(
         assert "Imperial" not in visible_text
         assert "inch" not in visible_text.lower()
         assert "mm" not in visible_text.lower()
+        if recipe["key"] == "planetary-gear-basic":
+            assert "Carrier ref" in visible_text
+            assert "Carrier hole" in visible_text
+            assert "R40" in visible_text
+        if recipe["key"] == "gear-linkage-crank":
+            assert "Gear/handle ref" in visible_text
+            assert "Gear handle hole" in visible_text
+            assert "Link-end ref" in visible_text
+        if recipe["key"] == "slider-crank-basic":
+            assert "Slider ref" in visible_text
+            assert "Link-joint ref" in visible_text
+
+        active_holes_by_step: dict[str, set[str]] = {}
+        new_highlights_by_step: dict[str, set[str]] = {}
+        reference_markers_by_step: dict[str, set[str]] = {}
+        for element in root.iter(f"{SVG_NS}circle"):
+            step = element.attrib.get("data-step")
+            if not step:
+                continue
+            classes = set(element.attrib.get("class", "").split())
+            if "active-board-hole" in classes and "data-board-coord" in element.attrib:
+                active_holes_by_step.setdefault(step, set()).add(element.attrib["data-board-coord"])
+            if "new-part-highlight" in classes and "data-board-coord" in element.attrib:
+                new_highlights_by_step.setdefault(step, set()).add(element.attrib["data-board-coord"])
+            if "reference-marker" in classes and "data-reference-coord" in element.attrib:
+                reference_markers_by_step.setdefault(step, set()).add(
+                    element.attrib["data-reference-coord"]
+                )
+        if recipe["key"] == "planetary-gear-basic":
+            assert "H10" not in active_holes_by_step.get("5", set())
+            assert "H10" not in new_highlights_by_step.get("5", set())
+            assert "H10" in reference_markers_by_step.get("5", set())
 
         by_step: dict[int, list[tuple[str, float, float, float, float]]] = {}
         for step, zone, x, y, width, height in _layout_boxes(root):
@@ -220,6 +351,7 @@ def test_application_exporter_lists_and_copies_board_guides(tmp_path: Path) -> N
     write_fabrication_templates(tmp_path)
     for mechanism_type in VISIBLE_FOUNDRY_MECHANISM_TYPES:
         assert exporter.find_guides_for_mechanism(mechanism_type), mechanism_type
+    assert exporter.find_guides_for_mechanism("slider_crank")[0].key == "slider-crank-basic"
     assert exporter.find_guides_for_mechanism("gear+linkage")[0].key == "gear-linkage-crank"
     resolved = exporter.resolve_app_state_to_guide(
         "gear+linkage",
@@ -299,9 +431,66 @@ def test_fabrication_export_surface_splits_board_guide_from_cut_sheets() -> None
 
     assert "Board Assembly Guide" in blueprint_source
     assert "Make Parts / Cut Sheets" in blueprint_source
+    assert "character + mechanism parts + hardware list" in blueprint_source
+    assert "15x15 coordinates + fastener/spacer stack" in blueprint_source
     assert "FabricationAssemblyGuideExporter" in blueprint_source
+    assert "Export Make Parts / Cut Sheets" in manager_source
+    assert "cut-sheets.pdf" in manager_source
     assert "PDF Files (*.pdf);;SVG Files (*.svg);;All Files (*)" in manager_source
     assert "SVG Files (*.svg);;PDF Files (*.pdf);;All Files (*)" in manager_source
+
+
+def test_assembly_export_html_and_readme_explain_character_attachment(tmp_path: Path) -> None:
+    exporter = FabricationAssemblyGuideExporter(tmp_path)
+    html = exporter._export_index_html(
+        {
+            "recipes": [
+                {
+                    "title": "Four-bar",
+                    "guide_svg": "03-four-bar-basic.svg",
+                    "steps": [
+                        {
+                            "n": 1,
+                            "title": "Pin character arm",
+                            "coords": ["H6"],
+                            "coord_roles": ["board"],
+                            "instruction": "Place the output linkage.",
+                            "stack": [
+                                {"label": "fastener head", "order": 1, "role": "paper-fastener"},
+                                {"label": "character arm", "order": 2, "role": "moving-part"},
+                                {"label": "spacer", "order": 3, "role": "spacer"},
+                                {"label": "board", "order": 4, "role": "board"},
+                            ],
+                        },
+                        {
+                            "n": 2,
+                            "title": "Attach carrier-only joint",
+                            "coords": ["H10"],
+                            "coord_roles": ["carrier_reference"],
+                            "instruction": "Attach to the moving carrier hole, not the board.",
+                            "stack": [
+                                {"label": "carrier hole", "order": 1, "role": "carrier-hole"},
+                                {"label": "paper fastener", "order": 2, "role": "paper-fastener"},
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+    )
+    readme = exporter._export_readme(())
+
+    assert "not the cut sheet" in html
+    assert "Character attachment rule" in html
+    assert "Do not introduce a separate Example Character template" in html
+    assert "board hole → paper fastener → spacer → character part or linkage →" in html
+    assert "Stack: fastener head → character arm → spacer → board" in html
+    assert "Board holes: H6" in html
+    assert "Carrier ref: H10" in html
+    assert "Board holes: H10" not in html
+    assert "Make Parts / Cut Sheets" in readme
+    assert "There is no" in readme
+    assert "per-step stack order" in readme
 
 
 def test_committed_assembly_package_exists_and_matches_generator(tmp_path: Path) -> None:

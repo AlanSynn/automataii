@@ -106,14 +106,14 @@ def test_save_dialog_defaults_to_pdf_and_allows_svg(fresh_manager, monkeypatch):
 
     monkeypatch.setattr(QFileDialog, "getSaveFileName", fake_get_save_file_name)
 
-    assert fresh_manager._get_save_file_path(None) == "blueprint.pdf"  # type: ignore[attr-defined]
-    assert fresh_manager._get_save_file_path(None, output_format="svg") == "blueprint.svg"  # type: ignore[attr-defined]
+    assert fresh_manager._get_save_file_path(None) == "cut-sheets.pdf"  # type: ignore[attr-defined]
+    assert fresh_manager._get_save_file_path(None, output_format="svg") == "cut-sheets.svg"  # type: ignore[attr-defined]
 
     assert captured[0] == (
-        "blueprint.pdf",
+        "cut-sheets.pdf",
         "PDF Files (*.pdf);;SVG Files (*.svg);;All Files (*)",
     )
     assert captured[1] == (
-        "blueprint.svg",
+        "cut-sheets.svg",
         "SVG Files (*.svg);;PDF Files (*.pdf);;All Files (*)",
     )

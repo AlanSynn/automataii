@@ -9,11 +9,26 @@ Classes:
 """
 
 import math
-from typing import Any
+from typing import Any, SupportsFloat, SupportsIndex, cast
 
 from .generator import BlueprintGenerator
 
 __all__ = ["PlanetaryGearBlueprintGenerator"]
+
+
+def _finite_float(value: object, default: float) -> float:
+    try:
+        result = float(cast(str | bytes | bytearray | SupportsFloat | SupportsIndex, value))
+    except (TypeError, ValueError):
+        return default
+    if not math.isfinite(result):
+        return default
+    return result
+
+
+def _planet_count(params: dict[str, Any]) -> int:
+    raw_value = params.get("planet_count", params.get("num_planets", 1))
+    return min(max(int(round(_finite_float(raw_value, 1.0))), 1), 4)
 
 
 class PlanetaryGearBlueprintGenerator(BlueprintGenerator):
@@ -24,11 +39,11 @@ class PlanetaryGearBlueprintGenerator(BlueprintGenerator):
     including sun gear, planet gears, ring gear, and carrier assembly.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize planetary gear blueprint generator."""
         super().__init__("planetary_gear")
 
-    def _generate_front_view(self, mechanism_data: dict[str, Any]):
+    def _generate_front_view(self, mechanism_data: dict[str, Any]) -> None:
         """Generate front view of planetary gear system."""
         viewport = self.viewports["front"]
         params = mechanism_data.get("params", {})
@@ -37,7 +52,7 @@ class PlanetaryGearBlueprintGenerator(BlueprintGenerator):
         r_sun = params.get("r_sun", 30) * viewport.scale
         r_planet = params.get("r_planet", 20) * viewport.scale
         r_carrier = params.get("r_carrier", r_sun + r_planet) * viewport.scale
-        num_planets = params.get("num_planets", 3)
+        num_planets = _planet_count(params)
         module = params.get("module", 2)
         pressure_angle = params.get("pressure_angle", 20)
 
@@ -108,7 +123,7 @@ class PlanetaryGearBlueprintGenerator(BlueprintGenerator):
                   text-anchor="middle">FRONT VIEW</text>
         ''')
 
-    def _generate_top_view(self, mechanism_data: dict[str, Any]):
+    def _generate_top_view(self, mechanism_data: dict[str, Any]) -> None:
         """Generate top view showing thickness and stack arrangement."""
         viewport = self.viewports["top"]
         params = mechanism_data.get("params", {})
@@ -170,7 +185,7 @@ class PlanetaryGearBlueprintGenerator(BlueprintGenerator):
                   text-anchor="middle">TOP VIEW - ASSEMBLY STACK</text>
         ''')
 
-    def _generate_side_view(self, mechanism_data: dict[str, Any]):
+    def _generate_side_view(self, mechanism_data: dict[str, Any]) -> None:
         """Generate side view showing shaft arrangements."""
         viewport = self.viewports["side"]
         params = mechanism_data.get("params", {})
@@ -232,7 +247,7 @@ class PlanetaryGearBlueprintGenerator(BlueprintGenerator):
                   text-anchor="middle">SIDE VIEW - SHAFT ARRANGEMENT</text>
         ''')
 
-    def _generate_isometric_view(self, mechanism_data: dict[str, Any]):
+    def _generate_isometric_view(self, mechanism_data: dict[str, Any]) -> None:
         """Generate exploded isometric view."""
         viewport = self.viewports["isometric"]
         mechanism_data.get("params", {})
@@ -313,7 +328,7 @@ class PlanetaryGearBlueprintGenerator(BlueprintGenerator):
         module: float,
         pressure_angle: float,
         internal: bool = False,
-    ):
+    ) -> None:
         """
         Add gear teeth to the blueprint.
 
@@ -442,7 +457,7 @@ class PlanetaryGearBlueprintGenerator(BlueprintGenerator):
                     stroke-dasharray="3,3" opacity="0.5"/>
         ''')
 
-    def _add_dimensions(self, mechanism_data: dict[str, Any]):
+    def _add_dimensions(self, mechanism_data: dict[str, Any]) -> None:
         """Add dimensional annotations."""
         params = mechanism_data.get("params", {})
         viewport = self.viewports["front"]
@@ -488,7 +503,7 @@ class PlanetaryGearBlueprintGenerator(BlueprintGenerator):
             offset=10,
         )
 
-    def _add_tolerances(self, mechanism_data: dict[str, Any]):
+    def _add_tolerances(self, mechanism_data: dict[str, Any]) -> None:
         """Add tolerance specifications."""
         tolerance_text = [
             "TOLERANCES (Unless Otherwise Specified):",
@@ -510,10 +525,10 @@ class PlanetaryGearBlueprintGenerator(BlueprintGenerator):
             ''')
             y_offset += 12
 
-    def _add_part_list(self, mechanism_data: dict[str, Any]):
+    def _add_part_list(self, mechanism_data: dict[str, Any]) -> None:
         """Add bill of materials."""
         params = mechanism_data.get("params", {})
-        num_planets = params.get("num_planets", 3)
+        num_planets = _planet_count(params)
 
         parts = [
             {
@@ -615,7 +630,7 @@ class PlanetaryGearBlueprintGenerator(BlueprintGenerator):
             ''')
             table_y += 18
 
-    def _add_assembly_notes(self, mechanism_data: dict[str, Any]):
+    def _add_assembly_notes(self, mechanism_data: dict[str, Any]) -> None:
         """Add assembly instructions."""
         params = mechanism_data.get("params", {})
         gear_ratio = self._calculate_gear_ratio(params)
@@ -669,4 +684,4 @@ class PlanetaryGearBlueprintGenerator(BlueprintGenerator):
         # Planetary gear ratio (carrier output, ring fixed)
         gear_ratio = 1 + (ring_teeth / sun_teeth)
 
-        return gear_ratio
+        return float(gear_ratio)

@@ -192,6 +192,20 @@ class MechanismTransferService:
                 "input_torque",
                 "input_angle",
             },
+            "gear_linkage": {
+                "gear1_teeth",
+                "gear2_teeth",
+                "linkage_pin_radius",
+                "linkage_arm_length",
+                "input_angle",
+            },
+            "planetary_gear": {
+                "sun_teeth",
+                "planet_teeth",
+                "planet_count",
+                "carrier_arm_length",
+                "input_angle",
+            },
             "slider_crank": {
                 "crank_length",
                 "rod_length",

@@ -309,6 +309,8 @@
   <g id="layer-new-part-highlight-step-1" data-step="1" data-app-mechanism="gear_train">
   <circle cx="179.286" cy="99" r="2.3" class="score new-part-highlight" data-step="1" data-recipe-key="gear-train-basic" data-board-coord="H6" data-app-mechanism="gear_train"/>
   </g>
+  <g id="layer-existing-parts-step-1" data-step="1" data-app-mechanism="gear_train">
+  </g>
   <g id="layer-stack-diagram-step-1" data-step="1">
   <text x="266" y="57" class="small" text-anchor="start">Fastener stack</text>
   <rect x="268" y="60.5" width="34" height="5" class="score stack-layer" data-step="1" data-stack-layer="1" data-stack-role="board" data-part-key=""/>
@@ -612,6 +614,16 @@
   </g>
   <g id="layer-new-part-highlight-step-2" data-step="2" data-app-mechanism="gear_train">
   <circle cx="179.286" cy="221" r="2.3" class="score new-part-highlight" data-step="2" data-recipe-key="gear-train-basic" data-board-coord="H6" data-app-mechanism="gear_train"/>
+  </g>
+  <g id="layer-existing-parts-step-2" data-step="2" data-app-mechanism="gear_train">
+  <circle cx="179.286" cy="221" r="2.9" class="score board-part spacer-part" data-step="2" data-part-key="spacers:s8" data-part-index="1"/>
+  <circle cx="179.286" cy="221" r="1.1" class="drill board-part-hole" data-step="2" data-part-key="spacers:s8" data-part-index="1"/>
+  <path d="M 183.808 221.19 L 184.746 221.806 L 184.57 222.595 L 183.401 222.884 L 183.107 223.425 L 183.612 224.429 L 183.064 225.024 L 181.908 224.69 L 181.383 225.011 L 181.318 226.132 L 180.546 226.374 L 179.712 225.506 L 179.096 225.522 L 178.479 226.461 L 177.69 226.284 L 177.401 225.116 L 176.86 224.822 L 175.857 225.326 L 175.262 224.779 L 175.596 223.622 L 175.274 223.097 L 174.153 223.032 L 173.912 222.26 L 174.779 221.426 L 174.763 220.81 L 173.825 220.194 L 174.001 219.405 L 175.17 219.116 L 175.464 218.575 L 174.96 217.571 L 175.507 216.976 L 176.664 217.31 L 177.189 216.989 L 177.254 215.868 L 178.025 215.626 L 178.86 216.494 L 179.475 216.478 L 180.092 215.539 L 180.881 215.716 L 181.17 216.884 L 181.711 217.178 L 182.714 216.674 L 183.31 217.221 L 182.975 218.378 L 183.297 218.903 L 184.418 218.968 L 184.66 219.74 L 183.792 220.574 Z" class="score board-part gear-part" style="fill:#fbbf24;fill-opacity:0.48;stroke:#5c4033;stroke-width:0.55;stroke-linejoin:round" data-step="2" data-part-key="gears:g12" data-part-index="2"/>
+  <circle cx="179.286" cy="221" r="1.35" class="drill board-part-hole" data-step="2" data-part-key="gears:g12" data-part-index="2"/>
+  <circle cx="182.156" cy="221" r="0.9" class="drill board-part-hole gear-attachment-hole" data-step="2" data-part-key="gears:g12" data-part-index="2" data-hole-index="0"/>
+  <circle cx="179.286" cy="223.87" r="0.9" class="drill board-part-hole gear-attachment-hole" data-step="2" data-part-key="gears:g12" data-part-index="2" data-hole-index="1"/>
+  <circle cx="176.415" cy="221" r="0.9" class="drill board-part-hole gear-attachment-hole" data-step="2" data-part-key="gears:g12" data-part-index="2" data-hole-index="2"/>
+  <circle cx="179.286" cy="218.13" r="0.9" class="drill board-part-hole gear-attachment-hole" data-step="2" data-part-key="gears:g12" data-part-index="2" data-hole-index="3"/>
   </g>
   <g id="layer-stack-diagram-step-2" data-step="2">
   <text x="266" y="179" class="small" text-anchor="start">Fastener stack</text>
@@ -922,6 +934,16 @@
   </g>
   <g id="layer-new-part-highlight-step-3" data-step="3" data-app-mechanism="gear_train">
   <circle cx="191" cy="348.857" r="2.3" class="score new-part-highlight" data-step="3" data-recipe-key="gear-train-basic" data-board-coord="I8" data-app-mechanism="gear_train"/>
+  </g>
+  <g id="layer-existing-parts-step-3" data-step="3" data-app-mechanism="gear_train">
+  <circle cx="191" cy="348.857" r="2.9" class="score board-part spacer-part" data-step="3" data-part-key="spacers:s8" data-part-index="1"/>
+  <circle cx="191" cy="348.857" r="1.1" class="drill board-part-hole" data-step="3" data-part-key="spacers:s8" data-part-index="1"/>
+  <path d="M 197.032 349.047 L 198.316 349.665 L 198.183 350.463 L 196.725 350.767 L 196.501 351.341 L 197.45 352.403 L 197.022 353.089 L 195.558 352.813 L 195.131 353.257 L 195.602 354.601 L 194.944 355.071 L 193.698 354.256 L 193.133 354.503 L 193.053 355.925 L 192.265 356.108 L 191.426 354.877 L 190.81 354.889 L 190.192 356.173 L 189.394 356.04 L 189.09 354.582 L 188.516 354.358 L 187.454 355.307 L 186.768 354.879 L 187.045 353.415 L 186.601 352.989 L 185.256 353.459 L 184.786 352.801 L 185.601 351.555 L 185.354 350.99 L 183.932 350.911 L 183.75 350.123 L 184.98 349.283 L 184.968 348.668 L 183.684 348.049 L 183.817 347.252 L 185.275 346.947 L 185.499 346.374 L 184.55 345.311 L 184.978 344.625 L 186.442 344.902 L 186.869 344.458 L 186.398 343.113 L 187.056 342.643 L 188.302 343.458 L 188.867 343.212 L 188.947 341.789 L 189.735 341.607 L 190.574 342.837 L 191.19 342.825 L 191.808 341.542 L 192.606 341.674 L 192.91 343.132 L 193.484 343.357 L 194.546 342.408 L 195.232 342.836 L 194.955 344.299 L 195.399 344.726 L 196.744 344.255 L 197.214 344.913 L 196.399 346.16 L 196.646 346.724 L 198.068 346.804 L 198.25 347.592 L 197.02 348.431 Z" class="score board-part gear-part" style="fill:#fbbf24;fill-opacity:0.48;stroke:#5c4033;stroke-width:0.55;stroke-linejoin:round" data-step="3" data-part-key="gears:g16" data-part-index="2"/>
+  <circle cx="191" cy="348.857" r="1.35" class="drill board-part-hole" data-step="3" data-part-key="gears:g16" data-part-index="2"/>
+  <circle cx="194.827" cy="348.857" r="0.9" class="drill board-part-hole gear-attachment-hole" data-step="3" data-part-key="gears:g16" data-part-index="2" data-hole-index="0"/>
+  <circle cx="191" cy="352.684" r="0.9" class="drill board-part-hole gear-attachment-hole" data-step="3" data-part-key="gears:g16" data-part-index="2" data-hole-index="1"/>
+  <circle cx="187.173" cy="348.857" r="0.9" class="drill board-part-hole gear-attachment-hole" data-step="3" data-part-key="gears:g16" data-part-index="2" data-hole-index="2"/>
+  <circle cx="191" cy="345.03" r="0.9" class="drill board-part-hole gear-attachment-hole" data-step="3" data-part-key="gears:g16" data-part-index="2" data-hole-index="3"/>
   </g>
   <g id="layer-stack-diagram-step-3" data-step="3">
   <text x="266" y="301" class="small" text-anchor="start">Fastener stack</text>
@@ -1234,6 +1256,20 @@
   <g id="layer-new-part-highlight-step-4" data-step="4" data-app-mechanism="gear_train">
   <circle cx="179.286" cy="465" r="2.3" class="score new-part-highlight" data-step="4" data-recipe-key="gear-train-basic" data-board-coord="H6" data-app-mechanism="gear_train"/>
   <circle cx="191" cy="470.857" r="2.3" class="score new-part-highlight" data-step="4" data-recipe-key="gear-train-basic" data-board-coord="I8" data-app-mechanism="gear_train"/>
+  </g>
+  <g id="layer-existing-parts-step-4" data-step="4" data-app-mechanism="gear_train">
+  <path d="M 183.808 465.19 L 184.746 465.806 L 184.57 466.595 L 183.401 466.884 L 183.107 467.425 L 183.612 468.429 L 183.064 469.024 L 181.908 468.69 L 181.383 469.011 L 181.318 470.132 L 180.546 470.374 L 179.712 469.506 L 179.096 469.522 L 178.479 470.461 L 177.69 470.284 L 177.401 469.116 L 176.86 468.822 L 175.857 469.326 L 175.262 468.779 L 175.596 467.622 L 175.274 467.097 L 174.153 467.032 L 173.912 466.26 L 174.779 465.426 L 174.763 464.81 L 173.825 464.194 L 174.001 463.405 L 175.17 463.116 L 175.464 462.575 L 174.96 461.571 L 175.507 460.976 L 176.664 461.31 L 177.189 460.989 L 177.254 459.868 L 178.025 459.626 L 178.86 460.494 L 179.475 460.478 L 180.092 459.539 L 180.881 459.716 L 181.17 460.884 L 181.711 461.178 L 182.714 460.674 L 183.31 461.221 L 182.975 462.378 L 183.297 462.903 L 184.418 462.968 L 184.66 463.74 L 183.792 464.574 Z" class="score board-part gear-part" style="fill:#fbbf24;fill-opacity:0.48;stroke:#5c4033;stroke-width:0.55;stroke-linejoin:round" data-step="4" data-part-key="gears:g12" data-part-index="1"/>
+  <circle cx="179.286" cy="465" r="1.35" class="drill board-part-hole" data-step="4" data-part-key="gears:g12" data-part-index="1"/>
+  <circle cx="182.156" cy="465" r="0.9" class="drill board-part-hole gear-attachment-hole" data-step="4" data-part-key="gears:g12" data-part-index="1" data-hole-index="0"/>
+  <circle cx="179.286" cy="467.87" r="0.9" class="drill board-part-hole gear-attachment-hole" data-step="4" data-part-key="gears:g12" data-part-index="1" data-hole-index="1"/>
+  <circle cx="176.415" cy="465" r="0.9" class="drill board-part-hole gear-attachment-hole" data-step="4" data-part-key="gears:g12" data-part-index="1" data-hole-index="2"/>
+  <circle cx="179.286" cy="462.13" r="0.9" class="drill board-part-hole gear-attachment-hole" data-step="4" data-part-key="gears:g12" data-part-index="1" data-hole-index="3"/>
+  <path d="M 197.032 471.047 L 198.316 471.665 L 198.183 472.463 L 196.725 472.767 L 196.501 473.341 L 197.45 474.403 L 197.022 475.089 L 195.558 474.813 L 195.131 475.257 L 195.602 476.601 L 194.944 477.071 L 193.698 476.256 L 193.133 476.503 L 193.053 477.925 L 192.265 478.108 L 191.426 476.877 L 190.81 476.889 L 190.192 478.173 L 189.394 478.04 L 189.09 476.582 L 188.516 476.358 L 187.454 477.307 L 186.768 476.879 L 187.045 475.415 L 186.601 474.989 L 185.256 475.459 L 184.786 474.801 L 185.601 473.555 L 185.354 472.99 L 183.932 472.911 L 183.75 472.123 L 184.98 471.283 L 184.968 470.668 L 183.684 470.049 L 183.817 469.252 L 185.275 468.947 L 185.499 468.374 L 184.55 467.311 L 184.978 466.625 L 186.442 466.902 L 186.869 466.458 L 186.398 465.113 L 187.056 464.643 L 188.302 465.458 L 188.867 465.212 L 188.947 463.789 L 189.735 463.607 L 190.574 464.837 L 191.19 464.825 L 191.808 463.542 L 192.606 463.674 L 192.91 465.132 L 193.484 465.357 L 194.546 464.408 L 195.232 464.836 L 194.955 466.299 L 195.399 466.726 L 196.744 466.255 L 197.214 466.913 L 196.399 468.16 L 196.646 468.724 L 198.068 468.804 L 198.25 469.592 L 197.02 470.431 Z" class="score board-part gear-part" style="fill:#fbbf24;fill-opacity:0.48;stroke:#5c4033;stroke-width:0.55;stroke-linejoin:round" data-step="4" data-part-key="gears:g16" data-part-index="2"/>
+  <circle cx="191" cy="470.857" r="1.35" class="drill board-part-hole" data-step="4" data-part-key="gears:g16" data-part-index="2"/>
+  <circle cx="194.827" cy="470.857" r="0.9" class="drill board-part-hole gear-attachment-hole" data-step="4" data-part-key="gears:g16" data-part-index="2" data-hole-index="0"/>
+  <circle cx="191" cy="474.684" r="0.9" class="drill board-part-hole gear-attachment-hole" data-step="4" data-part-key="gears:g16" data-part-index="2" data-hole-index="1"/>
+  <circle cx="187.173" cy="470.857" r="0.9" class="drill board-part-hole gear-attachment-hole" data-step="4" data-part-key="gears:g16" data-part-index="2" data-hole-index="2"/>
+  <circle cx="191" cy="467.03" r="0.9" class="drill board-part-hole gear-attachment-hole" data-step="4" data-part-key="gears:g16" data-part-index="2" data-hole-index="3"/>
   </g>
   <g id="layer-stack-diagram-step-4" data-step="4">
   <text x="266" y="423" class="small" text-anchor="start">Fastener stack</text>
