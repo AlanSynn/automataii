@@ -62,8 +62,7 @@ macOS signing/notarization secrets.
 ## Local signed Windows build
 
 Windows releases are built on Windows because PyInstaller is not a cross-compiler. The release
-artifact is a zip containing the PyInstaller one-folder app, `install.ps1`, `uninstall.ps1`,
-and the signed `MotionSmith.exe`:
+artifact is a zip with signed `MotionSmith.exe` at the zip root:
 
 ```powershell
 $env:WINDOWS_CERT_PASSWORD = "..."
@@ -85,35 +84,22 @@ For GitHub Actions, store `WINDOWS_CERT_PFX` as base64 PFX content and
 either secret is missing, so unsigned Windows artifacts are not published by accident. Production
 builds also run SignTool trust-chain verification. The Windows job expands the signed zip and runs
 `MotionSmith.exe --scenario blueprint-export` on the Windows runner before uploading the artifact.
-After upload, a separate Windows runner downloads the `windows-release` artifact, runs
-`install.ps1` into `%LOCALAPPDATA%\MotionSmithResearchSmoke`, launches the installed executable
-with `MotionSmith.exe --scenario blueprint-export`, verifies the manifest, and runs
-`uninstall.ps1`. This proves the same zip can be installed and run away from the build machine.
+After upload, a separate Windows runner downloads the `windows-release` artifact, extracts it,
+runs the root `MotionSmith.exe --scenario blueprint-export`, and verifies the manifest. This proves
+the same zip runs away from the build machine without a separate installer.
 The bundled WinSparkle download is SHA256-verified before its DLL is staged and signed.
 
-## Windows user installation from the release zip
+## Windows user run path
 
 For nearby users or research participants:
 
 1. Download `MotionSmith-windows.zip` from the GitHub Actions artifact or Release.
 2. Extract the zip.
-3. Open PowerShell in the extracted folder and run:
+3. Double-click `MotionSmith.exe`.
 
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File .\install.ps1
-   ```
-
-4. Launch MotionSmith from the Start Menu shortcut.
-
-To remove it:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\uninstall.ps1
-```
-
-The installer is user-scoped and does not require administrator permission. The default install
-location is `%LOCALAPPDATA%\MotionSmith`. Self-signed research/test certificates can still trigger
-Windows SmartScreen; use a CA-issued `WINDOWS_CERT_PFX` for a smoother trusted public release.
+Do not run `MotionSmith.exe` from inside the zipped folder; extract the zip first. Self-signed
+research/test certificates can still trigger Windows SmartScreen; use a CA-issued
+`WINDOWS_CERT_PFX` for a smoother trusted public release.
 
 ## Local signed/notarized macOS build
 

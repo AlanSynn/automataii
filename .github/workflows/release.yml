@@ -267,7 +267,7 @@ jobs:
           $scenarioDir = Join-Path $env:RUNNER_TEMP "motionsmith-scenario"
           Remove-Item -Recurse -Force $extractDir, $scenarioDir -ErrorAction SilentlyContinue
           Expand-Archive -Path "dist/MotionSmith-windows.zip" -DestinationPath $extractDir -Force
-          $exe = Join-Path $extractDir "MotionSmith\MotionSmith.exe"
+          $exe = Join-Path $extractDir "MotionSmith.exe"
           if (-not (Test-Path $exe)) { Write-Error "Missing extracted Windows executable: $exe"; exit 1 }
           $process = Start-Process -FilePath $exe -ArgumentList @("--scenario", "blueprint-export", "--scenario-output", $scenarioDir) -PassThru
           if (-not $process.WaitForExit(120000)) {
@@ -294,7 +294,7 @@ jobs:
           name: windows-release
           path: dist/MotionSmith-windows.zip
 
-  smoke-windows-install:
+  smoke-windows-portable:
     needs: build-windows
     runs-on: windows-latest
     steps:
@@ -304,43 +304,31 @@ jobs:
           name: windows-release
           path: windows-release
 
-      - name: Smoke installed Windows executable
+      - name: Smoke downloaded Windows executable
         env:
           CI: "true"
         run: |
           $zip = Join-Path "windows-release" "MotionSmith-windows.zip"
-          $extractDir = Join-Path $env:RUNNER_TEMP "motionsmith-install-media"
-          $installDir = Join-Path $env:LOCALAPPDATA "MotionSmithResearchSmoke"
-          $scenarioDir = Join-Path $env:RUNNER_TEMP "motionsmith-installed-scenario"
-          Remove-Item -Recurse -Force $extractDir, $installDir, $scenarioDir -ErrorAction SilentlyContinue
+          $extractDir = Join-Path $env:RUNNER_TEMP "motionsmith-portable"
+          $scenarioDir = Join-Path $env:RUNNER_TEMP "motionsmith-portable-scenario"
+          Remove-Item -Recurse -Force $extractDir, $scenarioDir -ErrorAction SilentlyContinue
 
           Expand-Archive -Path $zip -DestinationPath $extractDir -Force
-          $installScript = Join-Path $extractDir "install.ps1"
-          $uninstallScript = Join-Path $extractDir "uninstall.ps1"
-          if (-not (Test-Path $installScript)) { Write-Error "Missing install script: $installScript"; exit 1 }
-          if (-not (Test-Path $uninstallScript)) { Write-Error "Missing uninstall script: $uninstallScript"; exit 1 }
-
-          powershell -NoProfile -ExecutionPolicy Bypass -File $installScript -InstallDir $installDir -NoDesktopShortcut
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-          $exe = Join-Path $installDir "MotionSmith.exe"
-          if (-not (Test-Path $exe)) { Write-Error "Missing installed Windows executable: $exe"; exit 1 }
+          $exe = Join-Path $extractDir "MotionSmith.exe"
+          if (-not (Test-Path $exe)) { Write-Error "Missing downloaded Windows executable: $exe"; exit 1 }
           $process = Start-Process -FilePath $exe -ArgumentList @("--scenario", "blueprint-export", "--scenario-output", $scenarioDir) -PassThru
           if (-not $process.WaitForExit(120000)) {
             Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-            Write-Error "Installed Windows executable smoke timed out."
+            Write-Error "Downloaded Windows executable smoke timed out."
             exit 1
           }
           if ($process.ExitCode -ne 0) { exit $process.ExitCode }
           $manifest = Join-Path $scenarioDir "foundry_blueprint_manifest.json"
-          if (-not (Test-Path $manifest)) { Write-Error "Installed Windows smoke manifest missing: $manifest"; exit 1 }
-
-          powershell -NoProfile -ExecutionPolicy Bypass -File $uninstallScript -InstallDir $installDir
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Write-Host "Windows install smoke passed with manifest: $manifest"
+          if (-not (Test-Path $manifest)) { Write-Error "Downloaded Windows smoke manifest missing: $manifest"; exit 1 }
+          Write-Host "Windows portable exe smoke passed with manifest: $manifest"
 
   create-release:
-    needs: [build-macos, build-linux, build-windows, smoke-windows-install]
+    needs: [build-macos, build-linux, build-windows, smoke-windows-portable]
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_external }}
     permissions:
