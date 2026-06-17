@@ -204,6 +204,7 @@ def test_windows_build_regression_files_are_release_ready() -> None:
         "WINDOWS_ALLOW_TEST_CERTIFICATE",
         "WINDOWS_TEST_CERTIFICATE_MODE",
         "WINDOWS_CERT_PASSWORD=$env:WINDOWS_CERT_PASSWORD",
+        "Loaded GitHub-secret Windows signing certificate payload",
         "Public, test-only PFX",
         "Loaded public Windows test signing certificate payload",
         "python -u scripts/build_windows.py",
@@ -220,8 +221,8 @@ def test_windows_build_regression_files_are_release_ready() -> None:
         "dist/MotionSmith-windows.zip",
     ):
         assert required in workflow
-    assert workflow.index('if ($env:WINDOWS_ALLOW_TEST_CERTIFICATE -eq "1")') < workflow.index(
-        "elseif ($env:WINDOWS_CERT_PFX -and $env:WINDOWS_CERT_PASSWORD)"
+    assert workflow.index("if ($env:WINDOWS_CERT_PFX -and $env:WINDOWS_CERT_PASSWORD)") < (
+        workflow.index('elseif ($env:WINDOWS_ALLOW_TEST_CERTIFICATE -eq "1")')
     )
     assert "path: dist/*.exe" not in workflow
 
@@ -235,6 +236,7 @@ def test_windows_build_regression_files_are_release_ready() -> None:
         "PyInstaller is not a cross-compiler",
         "trusted public release",
         "Authenticode signature is present",
+        "GitHub-secret Windows certificate is present",
         "trust-chain verification",
         "WinSparkle download is SHA256-verified",
     ):

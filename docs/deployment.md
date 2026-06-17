@@ -51,9 +51,10 @@ Required only for `.github/workflows/release.yml` full build:
 - `SPARKLE_PUBLIC_ED_KEY`
 - `SPARKLE_PRIVATE_ED_KEY` if publishing OTA in the same workflow
 
-Manual `workflow_dispatch` runs with `publish_external=false` can fall back to a public,
+Manual `workflow_dispatch` runs with `publish_external=false` use `WINDOWS_CERT_PFX` when a
+GitHub-secret Windows certificate is present. If it is missing, they can fall back to a public,
 test-only self-signed Windows certificate. That proves the Windows build/sign/run path on
-`windows-latest` and checks the Authenticode signature is present, but it is not a trusted public release signature.
+`windows-latest` and checks the Authenticode signature is present, but a self-signed certificate is not a trusted public release signature.
 Those non-publishing smoke runs skip the signed macOS DMG job so Windows evidence can be collected
 without Apple signing secrets. Tagged releases and `publish_external=true` runs still require the
 macOS signing/notarization secrets.

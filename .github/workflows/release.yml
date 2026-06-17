@@ -211,7 +211,16 @@ jobs:
           WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
           WINDOWS_ALLOW_TEST_CERTIFICATE: ${{ github.event_name == 'workflow_dispatch' && !inputs.publish_external && '1' || '' }}
         run: |
-          if ($env:WINDOWS_ALLOW_TEST_CERTIFICATE -eq "1") {
+          if ($env:WINDOWS_CERT_PFX -and $env:WINDOWS_CERT_PASSWORD) {
+            [IO.File]::WriteAllBytes("windows-cert.pfx", [Convert]::FromBase64String($env:WINDOWS_CERT_PFX))
+            "WINDOWS_CERT_PASSWORD=$env:WINDOWS_CERT_PASSWORD" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            if ($env:WINDOWS_ALLOW_TEST_CERTIFICATE -eq "1") {
+              "WINDOWS_TEST_CERTIFICATE_MODE=1" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+              Write-Host "Loaded GitHub-secret Windows signing certificate payload for non-production smoke."
+            } else {
+              Write-Host "Loaded GitHub-secret Windows signing certificate payload for production verification."
+            }
+          } elseif ($env:WINDOWS_ALLOW_TEST_CERTIFICATE -eq "1") {
             Write-Warning "Using a public test-only Windows signing certificate. This artifact is runnable smoke evidence, not a trusted public release."
             # Public, test-only PFX. It signs this disposable smoke artifact only.
             $passwordText = "motionsmith-ci-test"
@@ -223,9 +232,6 @@ jobs:
             "WINDOWS_TEST_CERTIFICATE_MODE=1" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
             $env:WINDOWS_CERT_PASSWORD = $passwordText
             Write-Host "Loaded public Windows test signing certificate payload."
-          } elseif ($env:WINDOWS_CERT_PFX -and $env:WINDOWS_CERT_PASSWORD) {
-            [IO.File]::WriteAllBytes("windows-cert.pfx", [Convert]::FromBase64String($env:WINDOWS_CERT_PFX))
-            "WINDOWS_CERT_PASSWORD=$env:WINDOWS_CERT_PASSWORD" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           } else {
             Write-Error "WINDOWS_CERT_PFX and WINDOWS_CERT_PASSWORD are required for signed Windows releases."
             exit 1
