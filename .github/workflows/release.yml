@@ -224,6 +224,7 @@ jobs:
             Write-Host "Loaded public Windows test signing certificate payload."
           } elseif ($env:WINDOWS_CERT_PFX -and $env:WINDOWS_CERT_PASSWORD) {
             [IO.File]::WriteAllBytes("windows-cert.pfx", [Convert]::FromBase64String($env:WINDOWS_CERT_PFX))
+            "WINDOWS_CERT_PASSWORD=$env:WINDOWS_CERT_PASSWORD" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           } else {
             Write-Error "WINDOWS_CERT_PFX and WINDOWS_CERT_PASSWORD are required for signed Windows releases."
             exit 1

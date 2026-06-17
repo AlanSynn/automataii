@@ -202,6 +202,7 @@ def test_windows_build_regression_files_are_release_ready() -> None:
         "WINDOWS_SIGNTOOL_PATH",
         "WINDOWS_ALLOW_TEST_CERTIFICATE",
         "WINDOWS_TEST_CERTIFICATE_MODE",
+        "WINDOWS_CERT_PASSWORD=$env:WINDOWS_CERT_PASSWORD",
         "Public, test-only PFX",
         "Loaded public Windows test signing certificate payload",
         "python -u scripts/build_windows.py",
