@@ -10,23 +10,34 @@ import stat
 import subprocess
 import sys
 from pathlib import Path
+from typing import cast
 
-import requests
+
+def _download_file(url: str, destination: Path) -> Path:
+    if __package__:
+        from .download_utils import download_file as package_download_file
+
+        return package_download_file(url, destination)
+    from download_utils import download_file as script_download_file
+
+    return cast(Path, script_download_file(url, destination))
+
 
 # Logging setup
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
+
 class LinuxBuilder:
-    def __init__(self, project_root: Path):
+    def __init__(self, project_root: Path) -> None:
         self.project_root = project_root
         self.build_dir = project_root / "scripts" / "build"
         self.dist_dir = project_root / "dist"
         self.appimage_tool_url = "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage"
 
-    def check_dependencies(self):
+    def check_dependencies(self) -> bool:
         """Check if required tools are installed"""
-        required_tools = ['pyinstaller', 'wget', 'file']
+        required_tools = ["pyinstaller", "file"]
         missing_tools = []
 
         for tool in required_tools:
@@ -35,17 +46,13 @@ class LinuxBuilder:
 
         if missing_tools:
             logger.error(f"Missing required tools: {', '.join(missing_tools)}")
-            if 'pyinstaller' in missing_tools:
+            if "pyinstaller" in missing_tools:
                 logger.info("Make sure pyinstaller is installed via uv sync --group build")
-            if 'wget' in missing_tools:
-                logger.info("Install wget: sudo apt-get install wget or sudo yum install wget")
             return False
 
         return True
 
-
-
-    def download_appimagetool(self):
+    def download_appimagetool(self) -> Path:
         """Download AppImageTool"""
         appimagetool_path = self.build_dir / "appimagetool-x86_64.AppImage"
 
@@ -56,12 +63,7 @@ class LinuxBuilder:
         logger.info("Downloading AppImageTool...")
         self.build_dir.mkdir(parents=True, exist_ok=True)
 
-        response = requests.get(self.appimage_tool_url, stream=True)
-        response.raise_for_status()
-
-        with open(appimagetool_path, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
+        _download_file(self.appimage_tool_url, appimagetool_path)
 
         # Make executable
         appimagetool_path.chmod(appimagetool_path.stat().st_mode | stat.S_IEXEC)
@@ -69,7 +71,7 @@ class LinuxBuilder:
 
         return appimagetool_path
 
-    def build_executable(self):
+    def build_executable(self) -> Path:
         """Build executable with PyInstaller"""
         logger.info("Building executable with PyInstaller...")
 
@@ -82,7 +84,7 @@ class LinuxBuilder:
             shutil.rmtree(self.dist_dir)
 
         # Run PyInstaller
-        cmd = [sys.executable, '-m', 'PyInstaller', '--clean', str(spec_file)]
+        cmd = [sys.executable, "-m", "PyInstaller", "--clean", str(spec_file)]
         subprocess.run(cmd, cwd=self.project_root, check=True)
 
         exe_dir = self.dist_dir / "MotionSmith"
@@ -92,7 +94,7 @@ class LinuxBuilder:
         logger.info(f"Executable built successfully: {exe_dir}")
         return exe_dir
 
-    def create_appdir(self, exe_dir: Path):
+    def create_appdir(self, exe_dir: Path) -> Path:
         """Create AppDir structure"""
         logger.info("Creating AppDir structure...")
 
@@ -118,7 +120,7 @@ StartupWMClass=MotionSmith
 """
 
         desktop_file = appdir_path / "motionsmith.desktop"
-        with open(desktop_file, 'w') as f:
+        with open(desktop_file, "w") as f:
             f.write(desktop_content)
 
         # Create AppRun script
@@ -128,7 +130,7 @@ exec ./MotionSmith "$@"
 """
 
         apprun_file = appdir_path / "AppRun"
-        with open(apprun_file, 'w') as f:
+        with open(apprun_file, "w") as f:
             f.write(apprun_content)
 
         # Make executable
@@ -141,20 +143,22 @@ exec ./MotionSmith "$@"
         logger.info(f"AppDir structure created: {appdir_path}")
         return appdir_path
 
-    def create_default_icon(self, icon_path: Path):
+    def create_default_icon(self, icon_path: Path) -> None:
         """Create default icon using PIL"""
         try:
             from PIL import Image, ImageDraw, ImageFont
 
             # Create 128x128 icon
-            img = Image.new('RGBA', (128, 128), (70, 130, 180, 255))  # Steel Blue
+            img = Image.new("RGBA", (128, 128), (70, 130, 180, 255))  # Steel Blue
             draw = ImageDraw.Draw(img)
 
             # Draw simple 'A' letter
             try:
-                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 80)
+                font = ImageFont.truetype(
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 80
+                )
             except OSError:
-                font = ImageFont.load_default()
+                font = ImageFont.load_default()  # type: ignore[assignment]
 
             # Calculate text size
             text = "A"
@@ -169,17 +173,21 @@ exec ./MotionSmith "$@"
             draw.text((x, y), text, fill=(255, 255, 255, 255), font=font)
 
             # Save as PNG
-            img.save(icon_path, 'PNG')
+            img.save(icon_path, "PNG")
             logger.info(f"Default icon created: {icon_path}")
 
         except ImportError:
             logger.warning("PIL not available, skipping default icon creation.")
             # Create minimal PNG file
-            with open(icon_path, 'wb') as f:
+            with open(icon_path, "wb") as f:
                 # Minimal PNG header
-                f.write(b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\rIDATx\xdac\xf8\x0f\x00\x00\x01\x00\x01\x00\x18\xdd\x8d\xb4\x00\x00\x00\x00IEND\xaeB`\x82')
+                f.write(
+                    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\rIDATx\xdac\xf8\x0f\x00\x00\x01\x00\x01\x00\x18\xdd\x8d\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+                )
 
-    def create_appimage(self, appdir_path: Path, appimagetool_path: Path, update_info: str = None):
+    def create_appimage(
+        self, appdir_path: Path, appimagetool_path: Path, update_info: str | None = None
+    ) -> Path:
         """Create AppImage"""
         logger.info("Creating AppImage...")
 
@@ -194,11 +202,11 @@ exec ./MotionSmith "$@"
 
         # Add update information
         if update_info:
-            cmd.extend(['-u', update_info])
+            cmd.extend(["-u", update_info])
 
         # Set environment variables (run without FUSE)
         env = os.environ.copy()
-        env['ARCH'] = 'x86_64'
+        env["ARCH"] = "x86_64"
 
         # Create AppImage
         result = subprocess.run(cmd, cwd=self.dist_dir, env=env, capture_output=True, text=True)
@@ -224,7 +232,7 @@ exec ./MotionSmith "$@"
         logger.info(f"AppImage created: {appimage_path}")
         return appimage_path
 
-    def build(self, update_url: str = None, create_zsync: bool = True):
+    def build(self, update_url: str | None = None, create_zsync: bool = True) -> bool:
         """Execute complete build process"""
         logger.info("=== Starting Linux build ===")
 
@@ -233,7 +241,6 @@ exec ./MotionSmith "$@"
             return False
 
         try:
-
             # 2. Download AppImageTool
             appimagetool_path = self.download_appimagetool()
 
@@ -259,24 +266,23 @@ exec ./MotionSmith "$@"
             logger.error(f"Build error: {e}")
             return False
 
-def main():
+
+def main() -> None:
     import argparse
 
-    parser = argparse.ArgumentParser(description='Build MotionSmith for Linux')
-    parser.add_argument('--update-url', type=str, help='Automatic update server URL')
-    parser.add_argument('--no-zsync', action='store_true', help='Skip zsync file creation')
+    parser = argparse.ArgumentParser(description="Build MotionSmith for Linux")
+    parser.add_argument("--update-url", type=str, help="Automatic update server URL")
+    parser.add_argument("--no-zsync", action="store_true", help="Skip zsync file creation")
 
     args = parser.parse_args()
 
     project_root = Path(__file__).parent.parent
     builder = LinuxBuilder(project_root)
 
-    success = builder.build(
-        update_url=args.update_url,
-        create_zsync=not args.no_zsync
-    )
+    success = builder.build(update_url=args.update_url, create_zsync=not args.no_zsync)
 
     sys.exit(0 if success else 1)
+
 
 if __name__ == "__main__":
     main()

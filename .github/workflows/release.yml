@@ -22,7 +22,7 @@ on:
         type: boolean
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   MACOS_UNIVERSAL2_PYTHON_VERSION: '3.12.10'
@@ -174,7 +174,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv sync
+          uv sync --group build
 
       - name: Build Linux AppImage
         run: |
@@ -201,22 +201,79 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv sync
+          uv sync --group build
 
-      - name: Build Windows executable
+      - name: Build signed Windows distribution
+        env:
+          WINDOWS_CERT_PFX: ${{ secrets.WINDOWS_CERT_PFX }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+          WINDOWS_SIGNTOOL_PATH: ${{ secrets.WINDOWS_SIGNTOOL_PATH }}
+          WINDOWS_ALLOW_TEST_CERTIFICATE: ${{ github.event_name == 'workflow_dispatch' && !inputs.publish_external && '1' || '' }}
         run: |
-          uv run python scripts/build_windows.py
+          if ($env:WINDOWS_ALLOW_TEST_CERTIFICATE -eq "1") {
+            Write-Warning "Using an ephemeral self-signed Windows test certificate. This artifact is runnable smoke evidence, not a trusted public release."
+            $passwordText = [System.Guid]::NewGuid().ToString("N")
+            $securePassword = ConvertTo-SecureString $passwordText -AsPlainText -Force
+            $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=MotionSmith CI Test Signing" -CertStoreLocation Cert:\CurrentUser\My -KeyAlgorithm RSA -KeyLength 3072 -HashAlgorithm SHA256 -KeyExportPolicy Exportable -KeyUsage DigitalSignature -NotAfter (Get-Date).AddDays(7)
+            Export-PfxCertificate -Cert "Cert:\CurrentUser\My\$($cert.Thumbprint)" -FilePath "windows-cert.pfx" -Password $securePassword | Out-Null
+            Export-Certificate -Cert $cert -FilePath "windows-test-cert.cer" | Out-Null
+            Import-Certificate -FilePath "windows-test-cert.cer" -CertStoreLocation Cert:\CurrentUser\Root | Out-Null
+            Import-Certificate -FilePath "windows-test-cert.cer" -CertStoreLocation Cert:\CurrentUser\TrustedPublisher | Out-Null
+            "WINDOWS_CERT_PASSWORD=$passwordText" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            "WINDOWS_TEST_CERT_THUMBPRINT=$($cert.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            $env:WINDOWS_CERT_PASSWORD = $passwordText
+          } elseif ($env:WINDOWS_CERT_PFX -and $env:WINDOWS_CERT_PASSWORD) {
+            [IO.File]::WriteAllBytes("windows-cert.pfx", [Convert]::FromBase64String($env:WINDOWS_CERT_PFX))
+          } else {
+            Write-Error "WINDOWS_CERT_PFX and WINDOWS_CERT_PASSWORD are required for signed Windows releases."
+            exit 1
+          }
+          uv run python scripts/build_windows.py --sign --certificate windows-cert.pfx --cert-password-env WINDOWS_CERT_PASSWORD --verify-signature
+
+      - name: Smoke Windows executable
+        env:
+          CI: "true"
+        run: |
+          $extractDir = Join-Path $env:RUNNER_TEMP "motionsmith-windows"
+          $scenarioDir = Join-Path $env:RUNNER_TEMP "motionsmith-scenario"
+          Remove-Item -Recurse -Force $extractDir, $scenarioDir -ErrorAction SilentlyContinue
+          Expand-Archive -Path "dist/MotionSmith-windows.zip" -DestinationPath $extractDir -Force
+          $exe = Join-Path $extractDir "MotionSmith\MotionSmith.exe"
+          if (-not (Test-Path $exe)) { Write-Error "Missing extracted Windows executable: $exe"; exit 1 }
+          $process = Start-Process -FilePath $exe -ArgumentList @("--scenario", "blueprint-export", "--scenario-output", $scenarioDir) -PassThru
+          if (-not $process.WaitForExit(120000)) {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            Write-Error "Windows executable smoke timed out."
+            exit 1
+          }
+          if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+          $manifest = Join-Path $scenarioDir "foundry_blueprint_manifest.json"
+          if (-not (Test-Path $manifest)) { Write-Error "Windows executable smoke manifest missing: $manifest"; exit 1 }
+          Write-Host "Windows executable smoke passed with manifest: $manifest"
+
+      - name: Clean Windows signing certificate
+        if: ${{ always() }}
+        run: |
+          Remove-Item -Force windows-cert.pfx -ErrorAction SilentlyContinue
+          Remove-Item -Force windows-test-cert.cer -ErrorAction SilentlyContinue
+          if ($env:WINDOWS_TEST_CERT_THUMBPRINT) {
+            Remove-Item -Force "Cert:\CurrentUser\My\$env:WINDOWS_TEST_CERT_THUMBPRINT" -ErrorAction SilentlyContinue
+            Remove-Item -Force "Cert:\CurrentUser\Root\$env:WINDOWS_TEST_CERT_THUMBPRINT" -ErrorAction SilentlyContinue
+            Remove-Item -Force "Cert:\CurrentUser\TrustedPublisher\$env:WINDOWS_TEST_CERT_THUMBPRINT" -ErrorAction SilentlyContinue
+          }
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
-          name: windows-exe
-          path: dist/*.exe
+          name: windows-release
+          path: dist/MotionSmith-windows.zip
 
   create-release:
     needs: [build-macos, build-linux, build-windows]
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_external }}
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -252,7 +309,7 @@ jobs:
           files: |
             macos-dmg/*
             linux-appimage/*
-            windows-exe/*
+            windows-release/*
             sparkle-appcast-payload/**
           generate_release_notes: true
         env:

@@ -45,8 +45,42 @@ Required only for `.github/workflows/release.yml` full build:
 - `KEYCHAIN_PASSWORD`
 - `MACOS_SIGN_IDENTITY`
 - `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_SPECIFIC_PASSWORD` for GitHub-hosted notarization, or a usable pre-provisioned notary profile on a self-hosted runner
+- `WINDOWS_CERT_PFX` as a base64-encoded Windows code-signing PFX
+- `WINDOWS_CERT_PASSWORD` for the Windows PFX
+- `WINDOWS_SIGNTOOL_PATH` only if the Windows runner cannot find `signtool.exe` from the Windows SDK/PATH
 - `SPARKLE_PUBLIC_ED_KEY`
 - `SPARKLE_PRIVATE_ED_KEY` if publishing OTA in the same workflow
+
+Manual `workflow_dispatch` runs with `publish_external=false` can fall back to an ephemeral
+self-signed Windows test certificate when the Windows PFX secrets are absent. That proves the
+Windows build/sign/run path on `windows-latest`, but it is not a trusted public release signature.
+
+## Local signed Windows build
+
+Windows releases are built on Windows because PyInstaller is not a cross-compiler. The release
+artifact is a zip containing the PyInstaller one-folder app with the signed `MotionSmith.exe`:
+
+```powershell
+$env:WINDOWS_CERT_PASSWORD = "..."
+make build-windows WINDOWS_CERTIFICATE=windows-cert.pfx
+
+# Equivalent direct command:
+uv sync --group build
+uv run python scripts/build_windows.py --sign --certificate windows-cert.pfx --cert-password-env WINDOWS_CERT_PASSWORD --verify-signature
+```
+
+Expected artifact:
+
+```text
+dist/MotionSmith-windows.zip
+```
+
+For GitHub Actions, store `WINDOWS_CERT_PFX` as base64 PFX content and
+`WINDOWS_CERT_PASSWORD` as the PFX password. Production/tagged releases fail before upload if
+either secret is missing, so unsigned Windows artifacts are not published by accident. The Windows
+job also expands the signed zip and runs `MotionSmith.exe --scenario blueprint-export` on the
+Windows runner before uploading the artifact. The bundled WinSparkle download is SHA256-verified
+before its DLL is staged and signed.
 
 ## Local signed/notarized macOS build
 

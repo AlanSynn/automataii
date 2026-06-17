@@ -88,6 +88,12 @@ def motionsmith_info_plist():
     return info
 
 
+def pyinstaller_icon():
+    if sys.platform == "darwin":
+        return project_path("resources", "icons", "AppIcon.icns")
+    return None
+
+
 def macos_extra_binaries():
     if sys.platform != "darwin":
         return []
@@ -160,7 +166,7 @@ exe = EXE(
     target_arch=os.environ.get("PYINSTALLER_TARGET_ARCH") or None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=project_path("resources", "icons", "AppIcon.icns"),
+    icon=pyinstaller_icon(),
 )
 
 coll = COLLECT(
@@ -174,10 +180,11 @@ coll = COLLECT(
     name="MotionSmith",
 )
 
-app = BUNDLE(
-    coll,
-    name="MotionSmith.app",
-    icon=project_path("resources", "icons", "AppIcon.icns"),
-    bundle_identifier="app.motionsmith.motionsmith",
-    info_plist=motionsmith_info_plist(),
-)
+if sys.platform == "darwin":
+    app = BUNDLE(
+        coll,
+        name="MotionSmith.app",
+        icon=project_path("resources", "icons", "AppIcon.icns"),
+        bundle_identifier="app.motionsmith.motionsmith",
+        info_plist=motionsmith_info_plist(),
+    )

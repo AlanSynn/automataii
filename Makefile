@@ -40,7 +40,7 @@ help:
 	@echo "  build-macos-arm64      - Signed + notarized macOS release (arm64)"
 	@echo "  build-macos-x86_64     - Signed + notarized macOS release (x86_64)"
 	@echo "  build-experiment       - Build experiment version"
-	@echo "  build-windows          - Build Windows executable"
+	@echo "  build-windows          - Build signed Windows distribution zip"
 	@echo "  build-linux            - Build Linux executable"
 	@echo "  release-macos          - Alias for build-macos"
 	@echo ""
@@ -154,9 +154,11 @@ build-macos-x86_64:
 release-macos: build-macos
 
 build-windows:
-	@echo "Building Windows executable..."
-	$(UV) sync --group build-windows
-	$(PYTHON) scripts/build_windows.py
+	@echo "Building signed Windows distribution zip..."
+	@test -n "$(WINDOWS_CERTIFICATE)" || (echo "WINDOWS_CERTIFICATE is required, e.g. make build-windows WINDOWS_CERTIFICATE=windows-cert.pfx" && exit 1)
+	@test -n "$${WINDOWS_CERT_PASSWORD}" || (echo "WINDOWS_CERT_PASSWORD is required in the environment" && exit 1)
+	$(UV) sync --group build
+	$(PYTHON) scripts/build_windows.py --sign --certificate "$(WINDOWS_CERTIFICATE)" --cert-password-env WINDOWS_CERT_PASSWORD --verify-signature
 
 build-linux:
 	@echo "Building Linux executable..."

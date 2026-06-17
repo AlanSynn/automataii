@@ -8,18 +8,52 @@ import argparse
 import logging
 import sys
 from pathlib import Path
+from typing import Protocol, cast
 
-try:
-    from .macos_arch import MACOS_ARCH_CHOICES
-except ImportError:  # pragma: no cover - used when executed as scripts/build.py
-    from macos_arch import MACOS_ARCH_CHOICES
+
+class WindowsBuilderProtocol(Protocol):
+    def build(
+        self,
+        *,
+        sign: bool,
+        certificate: Path | None,
+        cert_password_env: str,
+        signtool: str | None,
+        verify_signature: bool,
+        timestamp_url: str,
+    ) -> bool: ...
+
+
+class WindowsBuilderFactory(Protocol):
+    def __call__(self, project_root: Path) -> WindowsBuilderProtocol: ...
+
+
+def _import_windows_builder() -> WindowsBuilderFactory:
+    if __package__:
+        from .build_windows import WindowsBuilder as package_windows_builder
+
+        return package_windows_builder
+    from build_windows import WindowsBuilder as script_windows_builder
+
+    return cast(WindowsBuilderFactory, script_windows_builder)
+
+
+def _macos_arch_choices() -> tuple[str, ...]:
+    if __package__:
+        from .macos_arch import MACOS_ARCH_CHOICES as package_choices
+
+        return package_choices
+    from macos_arch import MACOS_ARCH_CHOICES as script_choices
+
+    return cast(tuple[str, ...], script_choices)
+
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
-def main():
+def main() -> int:
     parser = argparse.ArgumentParser(description="Build MotionSmith for current platform")
     parser.add_argument(
         "--platform",
@@ -31,12 +65,34 @@ def main():
     parser.add_argument("--no-dmg", action="store_true", help="Skip DMG creation (macOS only)")
     parser.add_argument(
         "--arch",
-        choices=MACOS_ARCH_CHOICES,
+        choices=_macos_arch_choices(),
         default="auto",
         help="Target architecture for macOS build",
     )
     parser.add_argument(
-        "--no-installer", action="store_true", help="Skip installer creation (Windows only)"
+        "--windows-sign", action="store_true", help="Sign Windows executable with SignTool"
+    )
+    parser.add_argument(
+        "--windows-certificate", type=Path, help="PFX certificate used for Windows signing"
+    )
+    parser.add_argument(
+        "--windows-cert-password-env",
+        default="WINDOWS_CERT_PASSWORD",
+        help="Environment variable containing the Windows PFX password",
+    )
+    parser.add_argument(
+        "--windows-signtool",
+        help="Path to signtool.exe; defaults to WINDOWS_SIGNTOOL_PATH/PATH/Windows SDK",
+    )
+    parser.add_argument(
+        "--windows-timestamp-url",
+        default="http://timestamp.digicert.com",
+        help="RFC3161 timestamp server URL for Windows signing",
+    )
+    parser.add_argument(
+        "--windows-verify-signature",
+        action="store_true",
+        help="Verify Windows Authenticode signature after build/sign",
     )
     parser.add_argument(
         "--no-zsync", action="store_true", help="Skip zsync file creation (Linux only)"
@@ -82,10 +138,17 @@ def main():
             success = builder.build(update_url=args.update_url, create_zsync=not args.no_zsync)
 
         elif args.platform == "windows":
-            from build_windows import WindowsBuilder
+            WindowsBuilder = _import_windows_builder()
 
             builder = WindowsBuilder(Path(__file__).parent.parent)
-            success = builder.build(create_installer=not args.no_installer)
+            success = builder.build(
+                sign=args.windows_sign,
+                certificate=args.windows_certificate,
+                cert_password_env=args.windows_cert_password_env,
+                signtool=args.windows_signtool,
+                verify_signature=args.windows_verify_signature,
+                timestamp_url=args.windows_timestamp_url,
+            )
 
         else:
             logger.error(f"Unsupported platform: {args.platform}")
