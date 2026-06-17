@@ -274,6 +274,46 @@ class TestProductionBranding:
         assert AppConfig.ORGANIZATION_NAME == "MotionSmith"
         assert AppConfig.ORGANIZATION_DOMAIN == "motionsmith.app"
 
+    def test_startup_splash_uses_landing_logo_asset(self):
+        from PyQt6.QtWidgets import QApplication
+
+        from automataii.__main__ import (
+            SPLASH_HEIGHT,
+            SPLASH_LOGO_RELATIVE_PATH,
+            SPLASH_WIDTH,
+            build_startup_splash_pixmap,
+            create_startup_splash,
+        )
+        from automataii.utils.paths import resolve_path
+
+        app = QApplication.instance() or QApplication([])
+        logo_path = resolve_path(SPLASH_LOGO_RELATIVE_PATH)
+
+        assert logo_path.exists()
+        pixmap = build_startup_splash_pixmap(app_name="MotionSmith")
+        assert pixmap is not None
+        assert pixmap.width() == SPLASH_WIDTH
+        assert pixmap.height() == SPLASH_HEIGHT
+
+        splash = create_startup_splash(app_name="MotionSmith")
+        try:
+            assert splash is not None
+            assert splash.objectName() == "motionsmith_startup_splash"
+            assert not splash.pixmap().isNull()
+        finally:
+            if splash is not None:
+                splash.close()
+        assert app is not None
+
+    def test_startup_splash_is_optional_when_logo_missing(self, tmp_path):
+        from PyQt6.QtWidgets import QApplication
+
+        from automataii.__main__ import build_startup_splash_pixmap
+
+        app = QApplication.instance() or QApplication([])
+        assert build_startup_splash_pixmap(logo_path=tmp_path / "missing.png") is None
+        assert app is not None
+
     def test_main_window_title_is_motionsmith(self):
         from PyQt6.QtWidgets import QApplication
 

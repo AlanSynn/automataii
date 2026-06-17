@@ -16,14 +16,21 @@ if not os.environ.get("QT_QPA_PLATFORM"):
         os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
 try:
-    from PyQt6.QtCore import Qt, QTimer
-    from PyQt6.QtGui import QFont
-    from PyQt6.QtWidgets import QApplication
+    from PyQt6.QtCore import QRect, Qt, QTimer
+    from PyQt6.QtGui import QBrush, QColor, QFont, QPainter, QPen, QPixmap
+    from PyQt6.QtWidgets import QApplication, QSplashScreen
 except ImportError:
     try:
-        from PySide6.QtCore import Qt, QTimer  # type: ignore[no-redef]
-        from PySide6.QtGui import QFont  # type: ignore[no-redef]
-        from PySide6.QtWidgets import QApplication  # type: ignore[no-redef]
+        from PySide6.QtCore import QRect, Qt, QTimer  # type: ignore[no-redef]
+        from PySide6.QtGui import (  # type: ignore[no-redef]
+            QBrush,
+            QColor,
+            QFont,
+            QPainter,
+            QPen,
+            QPixmap,
+        )
+        from PySide6.QtWidgets import QApplication, QSplashScreen  # type: ignore[no-redef]
     except ImportError:
         print(
             "This application requires PyQt6 or PySide6; please install one of these packages.",
@@ -36,8 +43,12 @@ from automataii.scenarios import run_blueprint_export_scenario
 from automataii.utils.auto_updater import setup_auto_updater
 from automataii.utils.config import AppConfig
 from automataii.utils.logging_config import setup_logging
-from automataii.utils.paths import get_app_data_dir, get_base_path, get_project_root
+from automataii.utils.paths import get_app_data_dir, get_base_path, get_project_root, resolve_path
 from automataii.utils.styling import LIGHT_STYLE
+
+SPLASH_LOGO_RELATIVE_PATH = "resources/img/landing.png"
+SPLASH_WIDTH = 560
+SPLASH_HEIGHT = 340
 
 
 def schedule_startup_update_check(
@@ -60,6 +71,82 @@ def schedule_startup_update_check(
 
     qtimer_cls.singleShot(delay_ms, lambda: check_for_updates(show_ui=False))
     return True
+
+
+def build_startup_splash_pixmap(
+    *,
+    app_name: str = AppConfig.APP_NAME,
+    logo_path: Path | None = None,
+) -> QPixmap | None:
+    """Build the MotionSmith startup splash from the former landing-tab logo."""
+    resolved_logo_path = logo_path or resolve_path(SPLASH_LOGO_RELATIVE_PATH)
+    if not resolved_logo_path.exists():
+        logging.warning("Startup splash logo not found: %s", resolved_logo_path)
+        return None
+
+    logo_pixmap = QPixmap(str(resolved_logo_path))
+    if logo_pixmap.isNull():
+        logging.warning("Startup splash logo could not be loaded: %s", resolved_logo_path)
+        return None
+
+    canvas = QPixmap(SPLASH_WIDTH, SPLASH_HEIGHT)
+    canvas.fill(QColor("#ffffff"))
+
+    painter = QPainter(canvas)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+    painter.setPen(QPen(QColor("#d9e3ec"), 1))
+    painter.setBrush(QBrush(QColor("#ffffff")))
+    painter.drawRoundedRect(0, 0, SPLASH_WIDTH - 1, SPLASH_HEIGHT - 1, 28, 28)
+
+    scaled_logo = logo_pixmap.scaled(
+        124,
+        124,
+        Qt.AspectRatioMode.KeepAspectRatio,
+        Qt.TransformationMode.SmoothTransformation,
+    )
+    logo_x = (SPLASH_WIDTH - scaled_logo.width()) // 2
+    painter.drawPixmap(logo_x, 44, scaled_logo)
+
+    title_font = QFont("Arial", 32)
+    title_font.setBold(True)
+    painter.setFont(title_font)
+    painter.setPen(QColor("#2f5f7f"))
+    painter.drawText(
+        QRect(0, 178, SPLASH_WIDTH, 58),
+        Qt.AlignmentFlag.AlignCenter,
+        app_name,
+    )
+
+    subtitle_font = QFont("Arial", 12)
+    painter.setFont(subtitle_font)
+    painter.setPen(QColor("#6c757d"))
+    painter.drawText(
+        QRect(0, 236, SPLASH_WIDTH, 30),
+        Qt.AlignmentFlag.AlignCenter,
+        "Mechanism design, animation, and physical prototyping",
+    )
+
+    painter.setPen(QColor("#9aa9b5"))
+    painter.drawText(
+        QRect(0, 286, SPLASH_WIDTH, 24),
+        Qt.AlignmentFlag.AlignCenter,
+        "Loading workspace…",
+    )
+    painter.end()
+    return canvas
+
+
+def create_startup_splash(*, app_name: str = AppConfig.APP_NAME) -> QSplashScreen | None:
+    """Create a branded splash screen, or return None if the logo asset is unavailable."""
+    pixmap = build_startup_splash_pixmap(app_name=app_name)
+    if pixmap is None:
+        return None
+
+    splash = QSplashScreen(pixmap)
+    splash.setObjectName("motionsmith_startup_splash")
+    splash.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+    return splash
 
 
 def main() -> None:
@@ -145,6 +232,10 @@ def main() -> None:
     app.setStyleSheet(LIGHT_STYLE)
 
     AppConfig.initialize()
+    splash = create_startup_splash()
+    if splash is not None:
+        splash.show()
+        app.processEvents()
 
     # Log important paths for debugging
     logging.info(f"Project root: {get_project_root()}")
@@ -168,6 +259,9 @@ def main() -> None:
         main_window.set_updater(updater)
 
     main_window.show()
+    if splash is not None:
+        splash.finish(main_window)
+        app.processEvents()
 
     # macOS specific: Bring window to front
     if platform.system() == "Darwin":
