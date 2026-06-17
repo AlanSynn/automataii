@@ -294,8 +294,53 @@ jobs:
           name: windows-release
           path: dist/MotionSmith-windows.zip
 
+  smoke-windows-install:
+    needs: build-windows
+    runs-on: windows-latest
+    steps:
+      - name: Download Windows release artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-release
+          path: windows-release
+
+      - name: Smoke installed Windows executable
+        env:
+          CI: "true"
+        run: |
+          $zip = Join-Path "windows-release" "MotionSmith-windows.zip"
+          $extractDir = Join-Path $env:RUNNER_TEMP "motionsmith-install-media"
+          $installDir = Join-Path $env:LOCALAPPDATA "MotionSmithResearchSmoke"
+          $scenarioDir = Join-Path $env:RUNNER_TEMP "motionsmith-installed-scenario"
+          Remove-Item -Recurse -Force $extractDir, $installDir, $scenarioDir -ErrorAction SilentlyContinue
+
+          Expand-Archive -Path $zip -DestinationPath $extractDir -Force
+          $installScript = Join-Path $extractDir "install.ps1"
+          $uninstallScript = Join-Path $extractDir "uninstall.ps1"
+          if (-not (Test-Path $installScript)) { Write-Error "Missing install script: $installScript"; exit 1 }
+          if (-not (Test-Path $uninstallScript)) { Write-Error "Missing uninstall script: $uninstallScript"; exit 1 }
+
+          powershell -NoProfile -ExecutionPolicy Bypass -File $installScript -InstallDir $installDir -NoDesktopShortcut
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $exe = Join-Path $installDir "MotionSmith.exe"
+          if (-not (Test-Path $exe)) { Write-Error "Missing installed Windows executable: $exe"; exit 1 }
+          $process = Start-Process -FilePath $exe -ArgumentList @("--scenario", "blueprint-export", "--scenario-output", $scenarioDir) -PassThru
+          if (-not $process.WaitForExit(120000)) {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            Write-Error "Installed Windows executable smoke timed out."
+            exit 1
+          }
+          if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+          $manifest = Join-Path $scenarioDir "foundry_blueprint_manifest.json"
+          if (-not (Test-Path $manifest)) { Write-Error "Installed Windows smoke manifest missing: $manifest"; exit 1 }
+
+          powershell -NoProfile -ExecutionPolicy Bypass -File $uninstallScript -InstallDir $installDir
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Write-Host "Windows install smoke passed with manifest: $manifest"
+
   create-release:
-    needs: [build-macos, build-linux, build-windows]
+    needs: [build-macos, build-linux, build-windows, smoke-windows-install]
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_external }}
     permissions:

@@ -9,6 +9,14 @@ from pytest import MonkeyPatch
 from scripts import build, build_windows
 
 
+def _write_windows_installer_payload(project_root: Path) -> None:
+    installer_dir = project_root / "packaging" / "windows"
+    installer_dir.mkdir(parents=True)
+    (installer_dir / "install.ps1").write_text("install", encoding="utf-8")
+    (installer_dir / "uninstall.ps1").write_text("uninstall", encoding="utf-8")
+    (installer_dir / "README-Windows.txt").write_text("readme", encoding="utf-8")
+
+
 def test_sign_executable_uses_sha256_timestamp(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
     builder = build_windows.WindowsBuilder(tmp_path)
     exe = tmp_path / "dist" / "MotionSmith" / "MotionSmith.exe"
@@ -87,6 +95,7 @@ def test_signtool_discovery_prefers_env(monkeypatch: MonkeyPatch, tmp_path: Path
 
 def test_distribution_zip_contains_pyinstaller_one_folder(tmp_path: Path) -> None:
     builder = build_windows.WindowsBuilder(tmp_path)
+    _write_windows_installer_payload(tmp_path)
     app_dir = tmp_path / "dist" / "MotionSmith"
     exe = app_dir / "MotionSmith.exe"
     dll = app_dir / "support.dll"
@@ -97,7 +106,13 @@ def test_distribution_zip_contains_pyinstaller_one_folder(tmp_path: Path) -> Non
     archive = builder.create_distribution_zip(exe)
 
     with zipfile.ZipFile(archive) as zipped:
-        assert {"MotionSmith/MotionSmith.exe", "MotionSmith/support.dll"} <= set(zipped.namelist())
+        assert {
+            "MotionSmith/MotionSmith.exe",
+            "MotionSmith/support.dll",
+            "install.ps1",
+            "uninstall.ps1",
+            "README-Windows.txt",
+        } <= set(zipped.namelist())
 
 
 def test_verify_file_sha256_rejects_unexpected_download(tmp_path: Path) -> None:
@@ -170,6 +185,8 @@ def test_windows_build_regression_files_are_release_ready() -> None:
     docs = Path("docs/deployment.md").read_text(encoding="utf-8")
     windows_builder = Path("scripts/build_windows.py").read_text(encoding="utf-8")
     linux_builder = Path("scripts/build_linux.py").read_text(encoding="utf-8")
+    install_script = Path("packaging/windows/install.ps1").read_text(encoding="utf-8")
+    uninstall_script = Path("packaging/windows/uninstall.ps1").read_text(encoding="utf-8")
     build_windows_target = makefile.split("build-windows:", 1)[1].split("build-linux:", 1)[0]
 
     assert "$(UV) sync --group build" in build_windows_target
@@ -194,6 +211,15 @@ def test_windows_build_regression_files_are_release_ready() -> None:
     assert "download_file" in windows_builder
     assert "download_file" in linux_builder
     assert "'wget'" not in linux_builder
+    assert "install.ps1" in windows_builder
+    assert "uninstall.ps1" in windows_builder
+    assert "README-Windows.txt" in windows_builder
+    assert "Windows installer payload missing" in windows_builder
+    assert "MotionSmith.exe" in install_script
+    assert "LOCALAPPDATA" in install_script
+    assert "Start Menu" in install_script
+    assert "NoDesktopShortcut" in install_script
+    assert "MotionSmith.lnk" in uninstall_script
 
     for required in (
         "uv sync --group build",
@@ -217,6 +243,15 @@ def test_windows_build_regression_files_are_release_ready() -> None:
         "Start-Process",
         "WaitForExit(120000)",
         '"--scenario", "blueprint-export"',
+        "smoke-windows-install",
+        "Download Windows release artifact",
+        "Smoke installed Windows executable",
+        "actions/download-artifact@v4",
+        "MotionSmithResearchSmoke",
+        "install.ps1",
+        "uninstall.ps1",
+        "-ExecutionPolicy Bypass",
+        "Windows install smoke passed",
         "windows-release",
         "dist/MotionSmith-windows.zip",
     ):
@@ -235,6 +270,10 @@ def test_windows_build_regression_files_are_release_ready() -> None:
         "dist/MotionSmith-windows.zip",
         "PyInstaller is not a cross-compiler",
         "trusted public release",
+        "install.ps1",
+        "uninstall.ps1",
+        "Start Menu shortcut",
+        "separate Windows runner",
         "Authenticode signature is present",
         "GitHub-secret Windows certificate is present",
         "trust-chain verification",
@@ -260,6 +299,7 @@ def test_build_signs_and_verifies_all_payload_pe_files(
     monkeypatch: MonkeyPatch, tmp_path: Path
 ) -> None:
     builder = build_windows.WindowsBuilder(tmp_path)
+    _write_windows_installer_payload(tmp_path)
     app_dir = tmp_path / "dist" / "MotionSmith"
     exe = app_dir / "MotionSmith.exe"
     dll = app_dir / "support.dll"

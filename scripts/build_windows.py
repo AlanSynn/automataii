@@ -255,17 +255,36 @@ class WindowsBuilder:
             self.verify_signature(file, signtool=signtool)
 
     def create_distribution_zip(self, exe_path: Path) -> Path:
-        """Package the PyInstaller one-folder app into a deployable zip."""
+        """Package the PyInstaller one-folder app and user install scripts into a zip."""
         archive_base = self.dist_dir / "MotionSmith-windows"
         archive_path = archive_base.with_suffix(".zip")
         if archive_path.exists():
             archive_path.unlink()
 
-        result = shutil.make_archive(
-            str(archive_base), "zip", root_dir=exe_path.parent.parent, base_dir=exe_path.parent.name
-        )
-        logger.info(f"Windows distribution archive created: {result}")
-        return Path(result)
+        installer_files = {
+            "install.ps1": self.project_root / "packaging" / "windows" / "install.ps1",
+            "uninstall.ps1": self.project_root / "packaging" / "windows" / "uninstall.ps1",
+            "README-Windows.txt": self.project_root
+            / "packaging"
+            / "windows"
+            / "README-Windows.txt",
+        }
+        missing = [str(path) for path in installer_files.values() if not path.exists()]
+        if missing:
+            raise FileNotFoundError(f"Windows installer payload missing: {', '.join(missing)}")
+
+        app_dir = exe_path.parent
+        with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as archive:
+            for path in sorted(app_dir.rglob("*")):
+                if not path.is_file():
+                    continue
+                relative = path.relative_to(app_dir)
+                archive.write(path, "/".join(("MotionSmith", *relative.parts)))
+            for archive_name, source in installer_files.items():
+                archive.write(source, archive_name)
+
+        logger.info(f"Windows distribution archive created: {archive_path}")
+        return archive_path
 
     def build(
         self,
