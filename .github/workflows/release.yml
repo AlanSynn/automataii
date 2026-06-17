@@ -213,21 +213,15 @@ jobs:
           if ($env:WINDOWS_ALLOW_TEST_CERTIFICATE -eq "1") {
             Write-Warning "Using an ephemeral self-signed Windows test certificate. This artifact is runnable smoke evidence, not a trusted public release."
             $passwordText = [System.Guid]::NewGuid().ToString("N")
-            $rsa = [System.Security.Cryptography.RSA]::Create(2048)
-            $request = [System.Security.Cryptography.X509Certificates.CertificateRequest]::new("CN=MotionSmith CI Test Signing", $rsa, [System.Security.Cryptography.HashAlgorithmName]::SHA256, [System.Security.Cryptography.RSASignaturePadding]::Pkcs1)
-            $request.CertificateExtensions.Add([System.Security.Cryptography.X509Certificates.X509KeyUsageExtension]::new([System.Security.Cryptography.X509Certificates.X509KeyUsageFlags]::DigitalSignature, $true))
-            $oids = [System.Security.Cryptography.OidCollection]::new()
-            [void]$oids.Add([System.Security.Cryptography.Oid]::new("1.3.6.1.5.5.7.3.3", "Code Signing"))
-            $request.CertificateExtensions.Add([System.Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension]::new($oids, $false))
-            $cert = $request.CreateSelfSigned([System.DateTimeOffset]::Now.AddMinutes(-5), [System.DateTimeOffset]::Now.AddDays(7))
-            [IO.File]::WriteAllBytes("windows-cert.pfx", $cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Pfx, $passwordText))
-            [IO.File]::WriteAllBytes("windows-test-cert.cer", $cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Cert))
-            Import-Certificate -FilePath "windows-test-cert.cer" -CertStoreLocation Cert:\CurrentUser\Root | Out-Null
+            openssl req -x509 -newkey rsa:2048 -keyout windows-test-key.pem -out windows-test-cert.pem -sha256 -days 7 -nodes -subj "/CN=MotionSmith CI Test Signing" -addext "keyUsage=digitalSignature" -addext "extendedKeyUsage=codeSigning"
+            openssl x509 -in windows-test-cert.pem -outform der -out windows-test-cert.cer
+            openssl pkcs12 -export -out windows-cert.pfx -inkey windows-test-key.pem -in windows-test-cert.pem -passout "pass:$passwordText"
+            $rootCert = Import-Certificate -FilePath "windows-test-cert.cer" -CertStoreLocation Cert:\CurrentUser\Root
             Import-Certificate -FilePath "windows-test-cert.cer" -CertStoreLocation Cert:\CurrentUser\TrustedPublisher | Out-Null
             "WINDOWS_CERT_PASSWORD=$passwordText" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-            "WINDOWS_TEST_CERT_THUMBPRINT=$($cert.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            "WINDOWS_TEST_CERT_THUMBPRINT=$($rootCert.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
             $env:WINDOWS_CERT_PASSWORD = $passwordText
-            Write-Host "Created ephemeral Windows test signing certificate: $($cert.Thumbprint)"
+            Write-Host "Created ephemeral Windows test signing certificate: $($rootCert.Thumbprint)"
           } elseif ($env:WINDOWS_CERT_PFX -and $env:WINDOWS_CERT_PASSWORD) {
             [IO.File]::WriteAllBytes("windows-cert.pfx", [Convert]::FromBase64String($env:WINDOWS_CERT_PFX))
           } else {
@@ -269,6 +263,8 @@ jobs:
         run: |
           Remove-Item -Force windows-cert.pfx -ErrorAction SilentlyContinue
           Remove-Item -Force windows-test-cert.cer -ErrorAction SilentlyContinue
+          Remove-Item -Force windows-test-cert.pem -ErrorAction SilentlyContinue
+          Remove-Item -Force windows-test-key.pem -ErrorAction SilentlyContinue
           if ($env:WINDOWS_TEST_CERT_THUMBPRINT) {
             Remove-Item -Force "Cert:\CurrentUser\My\$env:WINDOWS_TEST_CERT_THUMBPRINT" -ErrorAction SilentlyContinue
             Remove-Item -Force "Cert:\CurrentUser\Root\$env:WINDOWS_TEST_CERT_THUMBPRINT" -ErrorAction SilentlyContinue
