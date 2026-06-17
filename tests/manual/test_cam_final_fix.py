@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Test final CAM positioning with all fixes."""
 
+
 def test_cam_final():
     """Test final CAM configuration."""
-    print("="*60)
+    print("=" * 60)
     print("FINAL CAM CONFIGURATION TEST")
-    print("="*60)
+    print("=" * 60)
 
     # Configuration
     cam_scale_factor = 1.5  # 150% size
@@ -72,7 +73,8 @@ def test_cam_final():
     print("   - Follower reaches near foot level")
     print("   - X coordinate based on foot joints average")
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
+
 
 if __name__ == "__main__":
     test_cam_final()

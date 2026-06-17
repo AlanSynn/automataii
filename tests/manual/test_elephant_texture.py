@@ -30,16 +30,16 @@ def test_elephant_image():
         # Step 2: Extract body parts
         print("Step 2: Extracting body parts...")
         extractor = BodyPartsExtractor(
-            char_dir=results['output_dir'],
-            output_dir=Path(results['output_dir']) / "body_parts",
-            generate_animations=False
+            char_dir=results["output_dir"],
+            output_dir=Path(results["output_dir"]) / "body_parts",
+            generate_animations=False,
         )
         extractor.process()
 
         print(f"Body parts extracted to: {Path(results['output_dir']) / 'body_parts'}")
 
         # Check the results
-        output_dir = Path(results['output_dir']) / "body_parts"
+        output_dir = Path(results["output_dir"]) / "body_parts"
         if output_dir.exists():
             parts_found = list(output_dir.glob("*.png"))
             print(f"\nFound {len(parts_found)} body part images:")
@@ -55,9 +55,12 @@ def test_elephant_image():
                     alpha_mean = 0
                     if channels == 4:
                         alpha_mean = img[:, :, 3].mean()
-                    print(f"  {part_path.name}: {w}x{h}, {channels} channels, alpha mean: {alpha_mean:.1f}")
+                    print(
+                        f"  {part_path.name}: {w}x{h}, {channels} channels, alpha mean: {alpha_mean:.1f}"
+                    )
     else:
         print("Failed to generate annotations")
+
 
 if __name__ == "__main__":
     test_elephant_image()

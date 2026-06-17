@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1"
+     width="560mm" height="124mm"
+     viewBox="0 0 560 124"
+     data-profile-key="motionsmith-ms4n"
+     data-grid-pitch-mm="20"
+     data-hole-diameter-mm="4">
+  <title>Automataii assembly printable part checklist</title>
+  <desc>Large visual checklist for parts used by the board assembly guides.</desc>
+  <defs>
+    <style>
+      .cut { fill: none; stroke: #ed1c24; stroke-width: 0.25; stroke-miterlimit: 10; }
+      .drill { fill: none; stroke: #0071bc; stroke-width: 0.2; stroke-miterlimit: 10; }
+      .score { fill: none; stroke: #777777; stroke-width: 0.15; stroke-dasharray: 2 1; }
+      .label { fill: #333333; font-family: Arial, Helvetica, sans-serif; font-size: 4px; }
+      .tiny { fill: #333333; font-family: Arial, Helvetica, sans-serif; font-size: 3px; }
+      .small { fill: #333333; font-family: Arial, Helvetica, sans-serif; font-size: 3.6px; }
+      .step-title { fill: #111827; font-family: Arial, Helvetica, sans-serif; font-size: 5px; font-weight: bold; }
+      .part-card-label { fill: #111827; font-family: Arial, Helvetica, sans-serif; font-size: 3.5px; font-weight: bold; }
+      .coord-label { fill: #111827; font-family: Arial, Helvetica, sans-serif; font-size: 6px; font-weight: bold; }
+      .paper { fill: #ffffff; stroke: none; }
+    </style>
+  </defs>
+  <text x="10" y="12" class="label" text-anchor="start">Printable part checklist</text>
+  <text x="10" y="21" class="tiny" text-anchor="start">Print/cut these kit templates, then follow a board-coordinate guide.</text>
+  <rect x="12" y="30" width="126" height="22" class="score part-card" style="fill:#fbbf24;fill-opacity:0.2;stroke:#fbbf24;stroke-width:0.6" data-part-key="gears:g12" data-part-index="1"/>
+  <circle cx="24" cy="41" r="7" class="score part-token" data-part-key="gears:g12" data-part-index="1"/>
+  <text x="37" y="39.5" class="part-card-label" text-anchor="start">G12</text>
+  <text x="37" y="46" class="tiny" text-anchor="start">gears:g12</text>
+  <rect x="146" y="30" width="126" height="22" class="score part-card" style="fill:#fbbf24;fill-opacity:0.2;stroke:#fbbf24;stroke-width:0.6" data-part-key="gears:g16" data-part-index="2"/>
+  <circle cx="158" cy="41" r="7" class="score part-token" data-part-key="gears:g16" data-part-index="2"/>
+  <text x="171" y="39.5" class="part-card-label" text-anchor="start">G16</text>
+  <text x="171" y="46" class="tiny" text-anchor="start">gears:g16</text>
+  <rect x="280" y="30" width="126" height="22" class="score part-card" style="fill:#94a3b8;fill-opacity:0.2;stroke:#94a3b8;stroke-width:0.6" data-part-key="spacers:s8" data-part-index="3"/>
+  <circle cx="292" cy="41" r="7" class="score part-token" data-part-key="spacers:s8" data-part-index="3"/>
+  <text x="305" y="39.5" class="part-card-label" text-anchor="start">S8</text>
+  <text x="305" y="46" class="tiny" text-anchor="start">spacers:s8</text>
+  <rect x="414" y="30" width="126" height="22" class="score part-card" style="fill:#f472b6;fill-opacity:0.2;stroke:#f472b6;stroke-width:0.6" data-part-key="cams:eccentric" data-part-index="4"/>
+  <circle cx="426" cy="41" r="7" class="score part-token" data-part-key="cams:eccentric" data-part-index="4"/>
+  <text x="439" y="39.5" class="part-card-label" text-anchor="start">Eccentric</text>
+  <text x="439" y="46" class="tiny" text-anchor="start">cams:eccentric</text>
+  <rect x="12" y="60" width="126" height="22" class="score part-card" style="fill:#34d399;fill-opacity:0.2;stroke:#34d399;stroke-width:0.6" data-part-key="followers:f3-round" data-part-index="5"/>
+  <circle cx="24" cy="71" r="7" class="score part-token" data-part-key="followers:f3-round" data-part-index="5"/>
+  <text x="37" y="69.5" class="part-card-label" text-anchor="start">F3 Round</text>
+  <text x="37" y="76" class="tiny" text-anchor="start">followers:f3-round</text>
+  <rect x="146" y="60" width="126" height="22" class="score part-card" style="fill:#a78bfa;fill-opacity:0.2;stroke:#a78bfa;stroke-width:0.6" data-part-key="brackets:2-hole-straight" data-part-index="6"/>
+  <circle cx="158" cy="71" r="7" class="score part-token" data-part-key="brackets:2-hole-straight" data-part-index="6"/>
+  <text x="171" y="69.5" class="part-card-label" text-anchor="start">2 Hole Straight</text>
+  <text x="171" y="76" class="tiny" text-anchor="start">brackets:2-hole-straight</text>
+  <rect x="280" y="60" width="126" height="22" class="score part-card" style="fill:#94a3b8;fill-opacity:0.2;stroke:#94a3b8;stroke-width:0.6" data-part-key="spacers:s12" data-part-index="7"/>
+  <circle cx="292" cy="71" r="7" class="score part-token" data-part-key="spacers:s12" data-part-index="7"/>
+  <text x="305" y="69.5" class="part-card-label" text-anchor="start">S12</text>
+  <text x="305" y="76" class="tiny" text-anchor="start">spacers:s12</text>
+  <rect x="414" y="60" width="126" height="22" class="score part-card" style="fill:#60a5fa;fill-opacity:0.2;stroke:#60a5fa;stroke-width:0.6" data-part-key="linkages:linkage-2-cell" data-part-index="8"/>
+  <circle cx="426" cy="71" r="7" class="score part-token" data-part-key="linkages:linkage-2-cell" data-part-index="8"/>
+  <text x="439" y="69.5" class="part-card-label" text-anchor="start">L2</text>
+  <text x="439" y="76" class="tiny" text-anchor="start">linkages:linkage-2-cell</text>
+  <rect x="12" y="90" width="126" height="22" class="score part-card" style="fill:#60a5fa;fill-opacity:0.2;stroke:#60a5fa;stroke-width:0.6" data-part-key="linkages:linkage-4-cell" data-part-index="9"/>
+  <circle cx="24" cy="101" r="7" class="score part-token" data-part-key="linkages:linkage-4-cell" data-part-index="9"/>
+  <text x="37" y="99.5" class="part-card-label" text-anchor="start">L4</text>
+  <text x="37" y="106" class="tiny" text-anchor="start">linkages:linkage-4-cell</text>
+  <rect x="146" y="90" width="126" height="22" class="score part-card" style="fill:#a78bfa;fill-opacity:0.2;stroke:#a78bfa;stroke-width:0.6" data-part-key="brackets:l-3-hole" data-part-index="10"/>
+  <circle cx="158" cy="101" r="7" class="score part-token" data-part-key="brackets:l-3-hole" data-part-index="10"/>
+  <text x="171" y="99.5" class="part-card-label" text-anchor="start">L 3 Hole</text>
+  <text x="171" y="106" class="tiny" text-anchor="start">brackets:l-3-hole</text>
+</svg>

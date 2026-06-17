@@ -6,13 +6,14 @@ import json
 import shutil
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from html import escape as html_escape
 from pathlib import Path
 
 from automataii.application.mechanism_foundry.mechanism_types import (
     VISIBLE_FOUNDRY_MECHANISM_TYPES,
     canonical_mechanism_type,
 )
-from automataii.shared.fabrication_assembly import ASSEMBLY_SCHEMA_VERSION
+from automataii.shared.fabrication_assembly import ASSEMBLY_SCHEMA_VERSION, manifest_part_index
 from automataii.utils.paths import resolve_path
 
 
@@ -50,6 +51,10 @@ class FabricationAssemblyGuideExporter:
     def recipes_path(self) -> Path:
         return self.assembly_dir / "recipes.json"
 
+    @property
+    def manifest_path(self) -> Path:
+        return self.fabrication_root / "manifest.json"
+
     def _resolve_assembly_asset(self, rel_path: str | Path) -> Path:
         """Resolve a generated assembly asset without allowing path traversal."""
         relative = Path(rel_path)
@@ -65,12 +70,30 @@ class FabricationAssemblyGuideExporter:
             raise ValueError(f"Unsafe assembly guide path: {rel_path}") from exc
         return source
 
+    def _resolve_fabrication_asset(self, rel_path: str | Path) -> Path:
+        relative = Path(rel_path)
+        if relative.is_absolute() or ".." in relative.parts or not relative.parts:
+            raise ValueError(f"Unsafe fabrication asset path: {rel_path}")
+        try:
+            root = self.fabrication_root.resolve()
+            source = (self.fabrication_root / relative).resolve()
+            source.relative_to(root)
+        except (OSError, ValueError) as exc:
+            raise ValueError(f"Unsafe fabrication asset path: {rel_path}") from exc
+        return source
+
     def load_package(self) -> Mapping[str, object]:
         data = json.loads(self.recipes_path.read_text(encoding="utf-8"))
         if not isinstance(data, Mapping):
             raise ValueError("Assembly recipes.json must contain an object")
         if data.get("schema_version") != ASSEMBLY_SCHEMA_VERSION:
             raise ValueError("Unsupported assembly recipes schema")
+        return data
+
+    def load_manifest(self) -> Mapping[str, object]:
+        data = json.loads(self.manifest_path.read_text(encoding="utf-8"))
+        if not isinstance(data, Mapping):
+            raise ValueError("Fabrication manifest.json must contain an object")
         return data
 
     def list_guides(self) -> tuple[FabricationGuideSummary, ...]:
@@ -213,6 +236,183 @@ class FabricationAssemblyGuideExporter:
             if stale_path.is_file():
                 stale_path.unlink()
 
+    @staticmethod
+    def _recipe_part_ids(raw_recipe: object) -> tuple[str, ...]:
+        if not isinstance(raw_recipe, Mapping):
+            return ()
+        seen: dict[str, None] = {}
+        raw_parts = raw_recipe.get("parts", ())
+        if isinstance(raw_parts, Sequence) and not isinstance(raw_parts, str):
+            for raw_part in raw_parts:
+                if isinstance(raw_part, Mapping) and isinstance(raw_part.get("part"), str):
+                    seen[str(raw_part["part"])] = None
+        raw_steps = raw_recipe.get("steps", ())
+        if isinstance(raw_steps, Sequence) and not isinstance(raw_steps, str):
+            for raw_step in raw_steps:
+                if not isinstance(raw_step, Mapping):
+                    continue
+                step_parts = raw_step.get("parts", ())
+                if isinstance(step_parts, Sequence) and not isinstance(step_parts, str):
+                    for raw_part in step_parts:
+                        if isinstance(raw_part, Mapping) and isinstance(raw_part.get("part"), str):
+                            seen[str(raw_part["part"])] = None
+                stack = raw_step.get("stack", ())
+                if isinstance(stack, Sequence) and not isinstance(stack, str):
+                    for raw_layer in stack:
+                        if isinstance(raw_layer, Mapping) and isinstance(
+                            raw_layer.get("part"), str
+                        ):
+                            seen[str(raw_layer["part"])] = None
+        return tuple(seen)
+
+    @staticmethod
+    def _part_label(part_id: str) -> str:
+        _category, _sep, key = part_id.partition(":")
+        if key.startswith("g") and key[1:].isdigit():
+            return f"G{key[1:]}"
+        if key.startswith("linkage-"):
+            return key.replace("linkage-", "L").replace("-cell", "")
+        if key.startswith("s") and key[1:].isdigit():
+            return f"S{key[1:]}"
+        return key.replace("-", " ").title()
+
+    @staticmethod
+    def _part_color(part_id: str) -> str:
+        category, _sep, _key = part_id.partition(":")
+        return {
+            "gears": "#fbbf24",
+            "linkages": "#60a5fa",
+            "cams": "#f472b6",
+            "followers": "#34d399",
+            "brackets": "#a78bfa",
+            "spacers": "#94a3b8",
+        }.get(category, "#e5e7eb")
+
+    def _part_paths_by_id(self) -> dict[str, str]:
+        try:
+            index = manifest_part_index(self.load_manifest())
+        except (OSError, ValueError, json.JSONDecodeError):
+            return {}
+        paths: dict[str, str] = {}
+        for part_id, item in index.items():
+            raw_path = item.get("path") if isinstance(item, Mapping) else None
+            if isinstance(raw_path, str) and raw_path:
+                paths[part_id] = raw_path
+        return paths
+
+    def _copy_recipe_parts(
+        self,
+        *,
+        package: Mapping[str, object],
+        package_dir: Path,
+    ) -> list[Path]:
+        manifest = self.load_manifest()
+        index = manifest_part_index(manifest)
+        copied: list[Path] = []
+        raw_recipes = package.get("recipes", ())
+        if not isinstance(raw_recipes, Sequence) or isinstance(raw_recipes, str):
+            return copied
+        seen: dict[str, None] = {}
+        for raw_recipe in raw_recipes:
+            for part_id in self._recipe_part_ids(raw_recipe):
+                seen[part_id] = None
+        for part_id in seen:
+            item = index.get(part_id)
+            if not isinstance(item, Mapping):
+                continue
+            raw_path = item.get("path")
+            if not isinstance(raw_path, str) or not raw_path:
+                continue
+            source = self._resolve_fabrication_asset(raw_path)
+            if not source.is_file():
+                continue
+            target = package_dir / "parts" / raw_path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+            copied.append(target)
+        return copied
+
+    def _export_index_html(self, package: Mapping[str, object]) -> str:
+        raw_recipes = package.get("recipes", ())
+        recipes = (
+            [recipe for recipe in raw_recipes if isinstance(recipe, Mapping)]
+            if isinstance(raw_recipes, Sequence) and not isinstance(raw_recipes, str)
+            else []
+        )
+        sections: list[str] = []
+        part_paths = self._part_paths_by_id()
+        for recipe in recipes:
+            part_cards = []
+            for part_id in self._recipe_part_ids(recipe):
+                label = self._part_label(part_id)
+                color = self._part_color(part_id)
+                href = f"parts/{part_paths[part_id]}" if part_id in part_paths else "#"
+                part_cards.append(
+                    '<a class="part-card" '
+                    f'style="--part-color:{html_escape(color)}" '
+                    f'href="{html_escape(href)}">'
+                    f"<strong>{html_escape(label)}</strong>"
+                    f"<small>{html_escape(part_id)}</small>"
+                    "</a>"
+                )
+            step_rows: list[str] = []
+            raw_steps = recipe.get("steps", ())
+            if isinstance(raw_steps, Sequence) and not isinstance(raw_steps, str):
+                for raw_step in raw_steps:
+                    if not isinstance(raw_step, Mapping):
+                        continue
+                    coords = raw_step.get("coords", ())
+                    coord_text = (
+                        ", ".join(str(coord) for coord in coords)
+                        if isinstance(coords, Sequence) and not isinstance(coords, str)
+                        else ""
+                    )
+                    step_rows.append(
+                        "<li>"
+                        f"<b>{html_escape(str(raw_step.get('n', '')))}. "
+                        f"{html_escape(str(raw_step.get('title', '')))}</b>"
+                        f"<span>Board holes: {html_escape(coord_text)}</span>"
+                        f"<span>{html_escape(str(raw_step.get('instruction', '')))}</span>"
+                        "</li>"
+                    )
+            guide_name = Path(str(recipe.get("guide_svg", ""))).name
+            sections.append(
+                "<section>"
+                f"<h2>{html_escape(str(recipe.get('title', 'Guide')))}</h2>"
+                f'<p><a href="{html_escape(guide_name)}">Open printable guide</a></p>'
+                "<h3>Parts in this build</h3>"
+                f'<div class="parts-grid">{"".join(part_cards)}</div>'
+                "<h3>Assembly order</h3>"
+                f"<ol>{''.join(step_rows)}</ol>"
+                "</section>"
+            )
+        return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Automataii assembly export</title>
+  <style>
+    body {{ font-family: Arial, Helvetica, sans-serif; margin: 24px; color: #111827; }}
+    header, section {{ border: 1px solid #d1d5db; border-radius: 14px; padding: 16px; margin-bottom: 18px; }}
+    li {{ margin: 10px 0; }}
+    li span {{ display: block; margin-top: 4px; }}
+    .parts-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }}
+    .part-card {{ border: 2px solid var(--part-color); border-radius: 12px; padding: 10px; background: #fff; display: grid; gap: 4px; color: inherit; text-decoration: none; }}
+    .part-card strong {{ background: var(--part-color); border-radius: 999px; padding: 6px 8px; width: max-content; }}
+    @media print {{ body {{ margin: 12mm; }} section {{ break-inside: avoid; }} }}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Automataii board assembly</h1>
+    <p>Print/cut the parts, use board-15x15.svg to find holes, then follow each step.</p>
+  </header>
+  <p><a href="parts-overview.svg">Open printable part checklist</a></p>
+  {"".join(sections)}
+</body>
+</html>
+"""
+
     def _export_readme(self, summaries: Sequence[FabricationGuideSummary]) -> str:
         guide_lines = "\n".join(
             f"- `{summary.key}` — {summary.title} ({summary.step_count} steps)"
@@ -225,9 +425,10 @@ This folder is a self-contained `assembly/` package exported from Automataii.
 ## How to use
 
 1. Open `board-15x15.svg` to identify board coordinates.
-2. Pick one guide SVG listed below.
-3. Follow one step card at a time: place the fastener, add spacers, add the part, then run the check.
-4. Keep paper fasteners loose enough for rotation or sliding before flattening the tabs.
+2. Open `index.html` for a LEGO-style visual sequence and part checklist.
+3. Pick one guide SVG listed below.
+4. Follow one step card at a time: place the fastener, add spacers, add the part, then run the check.
+5. Keep paper fasteners loose enough for rotation or sliding before flattening the tabs.
 
 ## Included guides
 
@@ -236,6 +437,7 @@ This folder is a self-contained `assembly/` package exported from Automataii.
 ## Data contract
 
 - `recipes.json` lists exactly the guide SVGs included in this export.
+- `parts/` contains copied printable templates for the parts used by the selected guides.
 - Guide SVGs include board coordinates, stack order, part IDs, and app mechanism metadata.
 """
 
@@ -255,6 +457,9 @@ This folder is a self-contained `assembly/` package exported from Automataii.
         destination = Path(output_dir)
         package_dir = destination / "assembly"
         package_dir.mkdir(parents=True, exist_ok=True)
+        parts_dir = package_dir / "parts"
+        if parts_dir.is_dir():
+            shutil.rmtree(parts_dir)
         copied: list[Path] = []
         selected_filenames = {Path(summary.guide_svg).name for summary in summaries}
         self._prune_stale_exported_guides(package_dir, selected_filenames=selected_filenames)
@@ -267,10 +472,19 @@ This folder is a self-contained `assembly/` package exported from Automataii.
         readme_target = package_dir / "README.md"
         readme_target.write_text(self._export_readme(summaries), encoding="utf-8")
         copied.append(readme_target)
+        index_target = package_dir / "index.html"
+        index_target.write_text(self._export_index_html(package), encoding="utf-8")
+        copied.append(index_target)
         board_source = self._resolve_assembly_asset("board-15x15.svg")
         board_target = package_dir / "board-15x15.svg"
         shutil.copy2(board_source, board_target)
         copied.append(board_target)
+        overview_source = self._resolve_assembly_asset("parts-overview.svg")
+        if overview_source.is_file():
+            overview_target = package_dir / "parts-overview.svg"
+            shutil.copy2(overview_source, overview_target)
+            copied.append(overview_target)
+        copied.extend(self._copy_recipe_parts(package=package, package_dir=package_dir))
         for summary in summaries:
             source = self._resolve_assembly_asset(summary.guide_svg)
             filename = source.name

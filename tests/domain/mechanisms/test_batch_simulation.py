@@ -95,9 +95,7 @@ class TestBatchSimulationService:
         self, service: BatchSimulationService, fourbar_mechanism, fourbar_params
     ):
         """Generate animation frames convenience method."""
-        result = service.generate_animation_frames(
-            fourbar_mechanism, fourbar_params, num_frames=60
-        )
+        result = service.generate_animation_frames(fourbar_mechanism, fourbar_params, num_frames=60)
 
         assert len(result.angles) == 60
         assert result.angles[0] == 0.0
@@ -135,9 +133,7 @@ class TestBatchSimulationService:
         self, service: BatchSimulationService, fourbar_mechanism, fourbar_params
     ):
         """Compute motion path for specific joint."""
-        path = service.compute_motion_path(
-            fourbar_mechanism, fourbar_params, "A", resolution=36
-        )
+        path = service.compute_motion_path(fourbar_mechanism, fourbar_params, "A", resolution=36)
 
         assert path is not None
         assert path.shape == (36, 2)
@@ -217,9 +213,7 @@ class TestBatchSimulationPerformance:
         }
 
         # Generate 360 frames (1 degree per frame)
-        result = service.generate_animation_frames(
-            mechanism, params, num_frames=360
-        )
+        result = service.generate_animation_frames(mechanism, params, num_frames=360)
 
         assert len(result.angles) == 360
         assert "A" in result.positions

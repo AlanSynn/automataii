@@ -158,21 +158,33 @@ def test_image_processing_exposes_two_sample_image_buttons() -> None:
     tab = ImageProcessingTab(_DummyMainWindow())
 
     assert len(tab.sample_image_buttons) == 2
-    assert all(button.text().startswith("Use ") for button in tab.sample_image_buttons)
+    assert all("Example" in button.text() for button in tab.sample_image_buttons)
+    load_index = tab.load_image_btn.parentWidget().layout().indexOf(tab.load_image_btn)
+    first_example_index = (
+        tab.load_image_btn.parentWidget().layout().indexOf(tab.sample_image_buttons[0])
+    )
+    assert first_example_index < load_index
 
 
-def test_image_processing_exposes_user_visible_output_location(tmp_path: Path) -> None:
+def test_image_processing_prompts_for_output_location(tmp_path: Path, monkeypatch) -> None:
     _ = _get_app()
+
+    chosen_dir = tmp_path / "chosen-character-output"
+    monkeypatch.setattr(
+        QFileDialog,
+        "getExistingDirectory",
+        lambda *args, **kwargs: str(chosen_dir),
+    )
 
     tab = ImageProcessingTab(_DummyMainWindow())
     tab.output_dir = None
     tab._output_dir_user_selected = False
-    tab._default_output_root = lambda: tmp_path / "Automataii Characters"  # type: ignore[method-assign]
     tab.input_image_path = str(tmp_path / "robot sketch.png")
 
     output_dir = tab._ensure_output_dir()
 
-    assert output_dir.parent == tmp_path / "Automataii Characters"
+    assert output_dir == chosen_dir
+    assert tab._output_dir_user_selected is True
     assert tab.output_location_label is not None
     assert str(output_dir) in tab.output_location_label.text()
 

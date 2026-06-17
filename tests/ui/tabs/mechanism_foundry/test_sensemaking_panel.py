@@ -107,7 +107,9 @@ def test_panel_resets_stale_change_on_mechanism_switch(qapp):
         )
     )
 
-    panel.set_content(ContentLoader().load_content("cam_follower"), "cam_follower", reset_change=True)
+    panel.set_content(
+        ContentLoader().load_content("cam_follower"), "cam_follower", reset_change=True
+    )
 
     assert "Input link" not in _label_text(panel, "changeValueLabel")
     assert "Pick one slider" in _label_text(panel, "changeValueLabel")

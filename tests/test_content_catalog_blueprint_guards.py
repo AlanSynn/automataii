@@ -178,9 +178,9 @@ def test_blueprint_composer_normalizes_nonfinite_optimizer_dimensions() -> None:
         seen.update(width=width, height=height, unit=unit_system, snapshot=snapshot_data_uri)
         return "<svg/>"
 
-    result = BlueprintComposer(optimizer=_BadOptimizer(), svg_generator=generator).compose_single_page(
-        [], {}, unit_system="bad", snapshot_png_bytes=b"png"
-    )
+    result = BlueprintComposer(
+        optimizer=_BadOptimizer(), svg_generator=generator
+    ).compose_single_page([], {}, unit_system="bad", snapshot_png_bytes=b"png")
 
     assert result.width_mm == 800.0
     assert result.height_mm == 600.0
@@ -219,7 +219,7 @@ def test_png_blueprint_processor_escapes_part_names_and_invalid_metrics() -> Non
 
     svg = processor._create_manufacturing_part_svg(contour, math.nan, -5.0, '<Part "A">')
 
-    assert '&lt;Part &quot;A&quot;&gt;' in svg
+    assert "&lt;Part &quot;A&quot;&gt;" in svg
     assert 'onload="x' not in svg
     assert "nan" not in svg.lower()
     assert "Area: 0mm² | Perimeter: 0.0mm" in svg

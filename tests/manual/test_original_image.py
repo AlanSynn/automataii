@@ -7,7 +7,9 @@ import pytest
 # Load original image
 img = cv2.imread("image_123650291.JPG", cv2.IMREAD_UNCHANGED)
 if img is None:
-    pytest.skip("image_123650291.JPG not found; skipping manual image test.", allow_module_level=True)
+    pytest.skip(
+        "image_123650291.JPG not found; skipping manual image test.", allow_module_level=True
+    )
 
 print(f"Original image shape: {img.shape}")
 

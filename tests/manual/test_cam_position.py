@@ -6,21 +6,22 @@ import pytest
 # Manual CAM position exploration; skip during automated pytest.
 pytest.skip("Manual CAM position test; skipping in automated pytest.", allow_module_level=True)
 
+
 def test_character_position():
     """Test character position detection."""
     print("Character Position Test:")
-    print("="*40)
+    print("=" * 40)
 
     # Simulate character joints (example)
     joints = {
         "head": {"position": [300, 200]},
         "torso": {"position": [300, 300]},
         "left_foot": {"position": [280, 450]},
-        "right_foot": {"position": [320, 450]}
+        "right_foot": {"position": [320, 450]},
     }
 
     # Find lowest joint (feet)
-    lowest_y = float('-inf')
+    lowest_y = float("-inf")
     lowest_pos = None
     for joint_id, joint_data in joints.items():
         pos = joint_data.get("position", [0, 0])
@@ -37,10 +38,11 @@ def test_character_position():
 
     return cam_position
 
+
 def test_cam_scale_and_position():
     """Test final CAM scale and position."""
     print("\nFinal CAM Configuration:")
-    print("="*40)
+    print("=" * 40)
 
     # Current scaling
     base_radius = 25.0
@@ -58,7 +60,7 @@ def test_cam_scale_and_position():
     print(f"  Base radius: {scaled_base_radius:.2f}mm")
     print(f"  Eccentricity: {scaled_eccentricity:.2f}mm")
     print(f"  Rod length: {scaled_rod_length:.1f}mm")
-    print(f"  CAM diameter: {(scaled_base_radius + scaled_eccentricity)*2:.2f}mm")
+    print(f"  CAM diameter: {(scaled_base_radius + scaled_eccentricity) * 2:.2f}mm")
 
     # Position
     cam_pos = test_character_position()
@@ -72,10 +74,11 @@ def test_cam_scale_and_position():
     else:
         print("✗ CAM position needs adjustment")
 
+
 def test_egg_shape():
     """Test egg shape orientation."""
     print("\nEgg Shape Orientation:")
-    print("="*40)
+    print("=" * 40)
 
     # With cos(theta) formula, egg is wider at right (0°)
     print("Current formula: lift = eccentricity * (1 + cos(theta)) / 2")
@@ -86,22 +89,24 @@ def test_egg_shape():
     print("For vertical egg (CAM below):")
     print("  Should rotate or use sin(theta) for vertical orientation")
 
+
 def main():
-    print("="*50)
+    print("=" * 50)
     print("CAM POSITION AND SCALE VERIFICATION")
-    print("="*50)
+    print("=" * 50)
     print()
 
     test_cam_scale_and_position()
     test_egg_shape()
 
-    print("\n" + "="*50)
+    print("\n" + "=" * 50)
     print("SUMMARY")
-    print("="*50)
+    print("=" * 50)
     print("✓ CAM scale: 8% of original (2mm radius)")
     print("✓ Position: Below character feet")
     print("✓ Rod length: 48mm (moderate)")
     print("⚠ Egg orientation: Currently horizontal, may need vertical")
+
 
 if __name__ == "__main__":
     main()

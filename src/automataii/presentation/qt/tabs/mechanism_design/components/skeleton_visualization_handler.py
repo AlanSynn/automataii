@@ -94,6 +94,8 @@ class SkeletonVisualizationHandler(QObject):
         self._get_parts_data: Callable[[], dict[str, PartInfo]] = lambda: {}
         self._is_animation_running: Callable[[], bool] = lambda: False
         self._position_parts_at_anchor_joints: Callable[[], None] = lambda: None
+        self._connected_ik_manager: Any | None = None
+        self._connected_skeleton_manager: Any | None = None
 
     def configure_callbacks(
         self,
@@ -123,24 +125,49 @@ class SkeletonVisualizationHandler(QObject):
     # --- IK Manager Connection ---
 
     def connect_to_ik_manager(self) -> None:
-        """Connect to IK manager signals for skeleton animation."""
+        """Connect to IK/skeleton manager signals for skeleton animation.
+
+        This method is called from UI-state refresh paths, so it must be
+        idempotent. Qt permits duplicate connections to the same slot; without
+        the guards below, each refresh would make skeleton updates fan out
+        multiple times and inflate receiver counts.
+        """
         main_window = self._get_main_window()
         if not main_window:
             return
 
-        if hasattr(main_window, "ik_manager") and main_window.ik_manager:
+        ik_manager = getattr(main_window, "ik_manager", None)
+        if ik_manager is not None and self._connected_ik_manager is not ik_manager:
+            if self._connected_ik_manager is not None:
+                try:
+                    self._connected_ik_manager.skeleton_pose_updated.disconnect(
+                        self.on_skeleton_updated
+                    )
+                except (TypeError, RuntimeError):
+                    pass
             try:
                 # Connect to skeleton pose updates
-                main_window.ik_manager.skeleton_pose_updated.connect(self.on_skeleton_updated)
+                ik_manager.skeleton_pose_updated.connect(self.on_skeleton_updated)
+                self._connected_ik_manager = ik_manager
             except Exception as e:
                 logging.debug(f"SkeletonVisualizationHandler: Failed to connect to ik_manager: {e}")
 
         # Also connect to skeleton_manager for bend_direction updates
-        if hasattr(main_window, "skeleton_manager") and main_window.skeleton_manager:
+        skeleton_manager = getattr(main_window, "skeleton_manager", None)
+        if (
+            skeleton_manager is not None
+            and self._connected_skeleton_manager is not skeleton_manager
+        ):
+            if self._connected_skeleton_manager is not None:
+                try:
+                    self._connected_skeleton_manager.skeleton_updated.disconnect(
+                        self.on_skeleton_manager_updated
+                    )
+                except (TypeError, RuntimeError):
+                    pass
             try:
-                main_window.skeleton_manager.skeleton_updated.connect(
-                    self.on_skeleton_manager_updated
-                )
+                skeleton_manager.skeleton_updated.connect(self.on_skeleton_manager_updated)
+                self._connected_skeleton_manager = skeleton_manager
             except Exception as e:
                 logging.debug(
                     f"SkeletonVisualizationHandler: Failed to connect to skeleton_manager: {e}"
@@ -275,7 +302,9 @@ class SkeletonVisualizationHandler(QObject):
             # Don't let skeleton errors crash the mechanism animation
             logging.debug(f"SkeletonVisualizationHandler: Error in on_skeleton_updated: {e}")
 
-    def _find_matching_joint_id(self, anchor_joint_id: str, joints_dict: dict) -> str | None:
+    def _find_matching_joint_id(
+        self, anchor_joint_id: str, joints_dict: dict[str, Any]
+    ) -> str | None:
         """
         Find matching joint ID with prefix matching support.
 

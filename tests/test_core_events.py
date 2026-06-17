@@ -1,6 +1,7 @@
 """
 Test event bus system
 """
+
 from automataii.infrastructure.events import ApplicationStarted, ComponentActivated, EventBus
 
 
@@ -121,7 +122,7 @@ class TestEventBus:
             component_id="test_component",
             component_type="dialog",
             widget_id="widget123",
-            action="activate"
+            action="activate",
         )
 
         bus.publish(original_event)

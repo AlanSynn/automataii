@@ -38,7 +38,9 @@ def test_compose_single_page_with_layout():
 
 
 def test_compose_single_page_empty_layout():
-    composer = BlueprintComposer(optimizer=DummyOptimizer(layout_items=[]), svg_generator=dummy_generator)
+    composer = BlueprintComposer(
+        optimizer=DummyOptimizer(layout_items=[]), svg_generator=dummy_generator
+    )
     result = composer.compose_single_page([], {})
     assert result.item_count == 0
     assert "No items to export" in result.svg or "svg" in result.svg

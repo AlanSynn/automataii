@@ -55,9 +55,7 @@ class TestSkeletonManagerGoldenMaster:
             ]
         }
 
-    def test_skeleton_loading_ad_format(
-        self, golden_master, skeleton_manager, sample_ad_skeleton
-    ):
+    def test_skeleton_loading_ad_format(self, golden_master, skeleton_manager, sample_ad_skeleton):
         """Capture skeleton loading from Animated Drawings format."""
         result = skeleton_manager.load_skeleton_from_dict(
             sample_ad_skeleton, source_format="animated_drawings"
@@ -83,9 +81,7 @@ class TestSkeletonManagerGoldenMaster:
             message="Skeleton loading from Animated Drawings format",
         )
 
-    def test_skeleton_joint_positions(
-        self, golden_master, skeleton_manager, sample_ad_skeleton
-    ):
+    def test_skeleton_joint_positions(self, golden_master, skeleton_manager, sample_ad_skeleton):
         """Capture joint positions after loading."""
         skeleton_manager.load_skeleton_from_dict(
             sample_ad_skeleton, source_format="animated_drawings"
@@ -94,9 +90,7 @@ class TestSkeletonManagerGoldenMaster:
         positions = skeleton_manager.joint_positions
 
         # Normalize positions for stable comparison
-        normalized_positions = {
-            k: (round(v[0], 2), round(v[1], 2)) for k, v in positions.items()
-        }
+        normalized_positions = {k: (round(v[0], 2), round(v[1], 2)) for k, v in positions.items()}
 
         snapshot = golden_master("skeleton_joint_positions")
         snapshot.assert_matches(
@@ -104,9 +98,7 @@ class TestSkeletonManagerGoldenMaster:
             message="Joint positions after loading",
         )
 
-    def test_skeleton_hierarchy(
-        self, golden_master, skeleton_manager, sample_ad_skeleton
-    ):
+    def test_skeleton_hierarchy(self, golden_master, skeleton_manager, sample_ad_skeleton):
         """Capture skeleton hierarchy structure."""
         skeleton_manager.load_skeleton_from_dict(
             sample_ad_skeleton, source_format="animated_drawings"
@@ -130,9 +122,7 @@ class TestSkeletonManagerGoldenMaster:
             message="Skeleton hierarchy structure",
         )
 
-    def test_skeleton_limb_lengths(
-        self, golden_master, skeleton_manager, sample_ad_skeleton
-    ):
+    def test_skeleton_limb_lengths(self, golden_master, skeleton_manager, sample_ad_skeleton):
         """Capture calculated limb lengths."""
         skeleton_manager.load_skeleton_from_dict(
             sample_ad_skeleton, source_format="animated_drawings"
@@ -152,9 +142,7 @@ class TestSkeletonManagerGoldenMaster:
             message="Calculated limb lengths",
         )
 
-    def test_skeleton_extend_lengths(
-        self, golden_master, skeleton_manager, sample_ad_skeleton
-    ):
+    def test_skeleton_extend_lengths(self, golden_master, skeleton_manager, sample_ad_skeleton):
         """Capture skeleton after extending lengths."""
         skeleton_manager.load_skeleton_from_dict(
             sample_ad_skeleton, source_format="animated_drawings"
@@ -186,9 +174,7 @@ class TestSkeletonManagerGoldenMaster:
             message="Joint displacements after extending lengths",
         )
 
-    def test_skeleton_bend_directions(
-        self, golden_master, skeleton_manager, sample_ad_skeleton
-    ):
+    def test_skeleton_bend_directions(self, golden_master, skeleton_manager, sample_ad_skeleton):
         """Capture bend directions for joints."""
         skeleton_manager.load_skeleton_from_dict(
             sample_ad_skeleton, source_format="animated_drawings"
@@ -197,9 +183,7 @@ class TestSkeletonManagerGoldenMaster:
         bend_directions = skeleton_manager.get_all_joint_bend_directions()
 
         # Filter to only joints with non-default bend directions
-        non_default_bends = {
-            k: v for k, v in bend_directions.items() if v is not None and v != 0.0
-        }
+        non_default_bends = {k: v for k, v in bend_directions.items() if v is not None and v != 0.0}
 
         snapshot = golden_master("skeleton_bend_directions")
         snapshot.assert_matches(
@@ -236,9 +220,8 @@ class TestSkeletonManagerGoldenMaster:
             if joint_id in new_positions:
                 orig = original_positions[joint_id]
                 new = new_positions[joint_id]
-                matches = (
-                    round(orig[0], 2) == round(new[0], 2)
-                    and round(orig[1], 2) == round(new[1], 2)
+                matches = round(orig[0], 2) == round(new[0], 2) and round(orig[1], 2) == round(
+                    new[1], 2
                 )
                 position_matches[joint_id] = matches
 

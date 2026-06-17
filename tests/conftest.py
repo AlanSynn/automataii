@@ -1,6 +1,7 @@
 """
 pytest configuration and fixtures
 """
+
 import os
 import sys
 from pathlib import Path
@@ -21,11 +22,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 @pytest.fixture
 def sample_test_data():
     """Provide sample test data"""
-    return {
-        "test_string": "Test Value",
-        "test_number": 42,
-        "test_list": [1, 2, 3]
-    }
+    return {"test_string": "Test Value", "test_number": 42, "test_list": [1, 2, 3]}
 
 
 @pytest.fixture

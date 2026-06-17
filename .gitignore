@@ -485,6 +485,7 @@ src/automataii/examples/
 !fabrication/
 !fabrication/**/*.svg
 !fabrication/**/*.json
+!fabrication/**/*.html
 !fabrication/**/*.md
 
 *venv*

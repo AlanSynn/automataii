@@ -197,9 +197,7 @@ def test_fourbar_regeneration_starts_at_dragged_crank_position(qapp):
 
     manager._regenerate_4bar_simulation(layer_data, params)
 
-    first_p3 = np.array(
-        layer_data["full_simulation_data"]["joint_positions"]["p3_positions"][0]
-    )
+    first_p3 = np.array(layer_data["full_simulation_data"]["joint_positions"]["p3_positions"][0])
     assert first_p3 == pytest.approx(dragged_crank, rel=1e-6)
     assert params["crank_angle"] == pytest.approx(math.degrees(math.atan2(30.0, 60.0)))
     assert params["crank_x"] == pytest.approx(120.0, rel=1e-6)
@@ -231,9 +229,7 @@ def test_fourbar_regeneration_prefers_dragged_rocker_branch(qapp):
 
     manager._regenerate_4bar_simulation(layer_data, params)
 
-    first_p4 = np.array(
-        layer_data["full_simulation_data"]["joint_positions"]["p4_positions"][0]
-    )
+    first_p4 = np.array(layer_data["full_simulation_data"]["joint_positions"]["p4_positions"][0])
     assert first_p4 == pytest.approx(np.array([70.0, -40.0]), rel=1e-6)
     assert params["rocker_x"] == pytest.approx(140.0, rel=1e-6)
     assert params["rocker_y"] == pytest.approx(-80.0, rel=1e-6)

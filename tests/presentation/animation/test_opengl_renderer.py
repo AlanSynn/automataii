@@ -12,6 +12,7 @@ These tests verify:
 
 Note: Some tests require a display and may be skipped in headless CI.
 """
+
 from __future__ import annotations
 
 import os
@@ -26,7 +27,7 @@ if TYPE_CHECKING:
 # Skip all tests if running in headless environment
 pytestmark = pytest.mark.skipif(
     os.environ.get("CI") == "true" or os.environ.get("DISPLAY") is None,
-    reason="OpenGL tests require display"
+    reason="OpenGL tests require display",
 )
 
 
@@ -104,11 +105,14 @@ class TestGeometryBuffer:
 
         buffer = GeometryBuffer(max_vertices=100, max_indices=100)
 
-        points = np.array([
-            [0.0, 0.0],
-            [1.0, 0.0],
-            [0.5, 1.0],
-        ], dtype=np.float32)
+        points = np.array(
+            [
+                [0.0, 0.0],
+                [1.0, 0.0],
+                [0.5, 1.0],
+            ],
+            dtype=np.float32,
+        )
 
         buffer.add_polygon(
             points=points,
@@ -372,9 +376,9 @@ class TestOpenGLPerformance:
 
         elapsed, buffer = min(measurements, key=lambda measurement: measurement[0])
 
-        print(f"\nBatched {num_objects} circles in {elapsed*1000:.2f}ms")
-        print(f"  Per object: {elapsed*1000000/num_objects:.2f}us")
+        print(f"\nBatched {num_objects} circles in {elapsed * 1000:.2f}ms")
+        print(f"  Per object: {elapsed * 1000000 / num_objects:.2f}us")
         print(f"  Vertex count: {buffer.vertex_count}")
 
         # Should batch 1000 circles in under 100ms
-        assert elapsed < 0.1, f"Batching too slow: {elapsed*1000:.2f}ms"
+        assert elapsed < 0.1, f"Batching too slow: {elapsed * 1000:.2f}ms"

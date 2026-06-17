@@ -199,7 +199,12 @@ class _GearTrainPreviewMechanism:
         if has_linkage:
             default_pin_radius = min(r2 * 0.72, grid_step_mm(parameters.get("grid_cell_cm", 2.0)))
             pin_radius = min(
-                max(1.0, _positive_finite_float(parameters.get("linkage_pin_radius"), default_pin_radius)),
+                max(
+                    1.0,
+                    _positive_finite_float(
+                        parameters.get("linkage_pin_radius"), default_pin_radius
+                    ),
+                ),
                 max(1.0, r2 - (profile.hole_diameter_mm / 2.0)),
             )
             arm_length = _positive_finite_float(
@@ -763,7 +768,9 @@ class MechanismFoundryView(QWidget):
         # Export the controller selection so gear+linkage stays distinct from plain gear train.
         mechanism_type = self._current_controller_mechanism_type()
         if not mechanism_type and self.current_mechanism:
-            mechanism_type = self._to_controller_mechanism_type(self.current_mechanism.mechanism_type)
+            mechanism_type = self._to_controller_mechanism_type(
+                self.current_mechanism.mechanism_type
+            )
         if not mechanism_type:
             return
 
@@ -1799,7 +1806,9 @@ class MechanismFoundryView(QWidget):
                 ("gear_linkage_end", linkage_end, QColor("#d62728")),
             ):
                 if key not in cache:
-                    item = self.scene.addEllipse(0, 0, 1, 1, QPen(QColor("#7f1d1d"), 2), QBrush(color))
+                    item = self.scene.addEllipse(
+                        0, 0, 1, 1, QPen(QColor("#7f1d1d"), 2), QBrush(color)
+                    )
                     item.setData(0, "mechanism_item")
                     item.setZValue(21)
                     cache[key] = item

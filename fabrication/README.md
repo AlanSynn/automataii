@@ -54,7 +54,7 @@ These files are nominal geometry, not material-specific kerf compensation. Befor
 - `spacers/` — washer spacers for stack clearance between the board, gears, cams, links, and brackets.
 - `sheets/` — 8 workshop sheets for pre-fabricated sets.
 
-Managed files in this generated package: 41.
+Managed files in this generated package: 43.
 
 ## Regeneration
 

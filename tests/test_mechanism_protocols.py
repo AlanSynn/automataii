@@ -133,6 +133,7 @@ class TestMechanismRendererClass:
         from automataii.presentation.qt.tabs.mechanism_foundry.components.mechanism_renderer import (
             MechanismRenderer,
         )
+
         assert MechanismRenderer is not None
 
     def test_renderer_has_render_method(self):
@@ -140,5 +141,6 @@ class TestMechanismRendererClass:
         from automataii.presentation.qt.tabs.mechanism_foundry.components.mechanism_renderer import (
             MechanismRenderer,
         )
+
         assert hasattr(MechanismRenderer, "render_mechanism")
         assert callable(getattr(MechanismRenderer, "render_mechanism", None))

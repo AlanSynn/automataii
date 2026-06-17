@@ -3,6 +3,7 @@
 Visual test for MechanismFoundryView
 Run with: uv run python test_foundry_view_visual.py
 """
+
 import sys
 
 from PyQt6.QtWidgets import QApplication, QMainWindow

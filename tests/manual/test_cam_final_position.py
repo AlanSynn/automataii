@@ -4,9 +4,9 @@
 
 def test_final_configuration():
     """Test final CAM configuration."""
-    print("="*60)
+    print("=" * 60)
     print("FINAL CAM MECHANISM CONFIGURATION TEST")
-    print("="*60)
+    print("=" * 60)
     print()
 
     # Configuration values
@@ -27,7 +27,7 @@ def test_final_configuration():
     print(f"  Original base radius: {base_radius:.1f}mm")
     print(f"  Scaled base radius: {scaled_base_radius:.1f}mm (30%)")
     print(f"  Scaled eccentricity: {scaled_eccentricity:.1f}mm")
-    print(f"  CAM diameter: {(scaled_base_radius + scaled_eccentricity)*2:.1f}mm")
+    print(f"  CAM diameter: {(scaled_base_radius + scaled_eccentricity) * 2:.1f}mm")
     print()
 
     print("2. Rod Configuration:")
@@ -76,7 +76,7 @@ def test_final_configuration():
         print("  ✗ Follower is too far from feet")
 
     # Check CAM size
-    if 10 < (scaled_base_radius + scaled_eccentricity)*2 < 30:
+    if 10 < (scaled_base_radius + scaled_eccentricity) * 2 < 30:
         print("  ✓ CAM size is appropriate")
     else:
         print("  ✗ CAM size needs adjustment")
@@ -88,14 +88,15 @@ def test_final_configuration():
         print("  ✗ CAM position needs adjustment")
 
     print()
-    print("="*60)
+    print("=" * 60)
     print("SUMMARY")
-    print("="*60)
+    print("=" * 60)
     print("• CAM scale: 30% (7.5mm radius)")
     print("• Rod length: 80% (32mm)")
     print("• Position: 30 units below feet")
     print("• Follower reaches near feet level")
     print("• Egg shape maintained (horizontal orientation)")
+
 
 if __name__ == "__main__":
     test_final_configuration()

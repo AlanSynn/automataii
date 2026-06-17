@@ -89,6 +89,7 @@ class BlueprintExportManager(QObject):
         single_large_page: bool = True,
         snapshot_png_bytes: bytes | None = None,
         unit_system: str = "metric",
+        output_format: str = "pdf",
     ) -> bool:
         """
         Export blueprint with character parts and mechanisms.
@@ -108,7 +109,7 @@ class BlueprintExportManager(QObject):
             self.export_started.emit()
 
             # Get save file path for single large page
-            file_path = self._get_save_file_path(parent_widget)
+            file_path = self._get_save_file_path(parent_widget, output_format=output_format)
             if not file_path:
                 self.logger.debug("Export cancelled by user")
                 return False
@@ -156,14 +157,28 @@ class BlueprintExportManager(QObject):
             self.export_completed.emit(False, f"Export failed: {str(e)}")
             return False
 
-    def _get_save_file_path(self, parent_widget: QWidget | None) -> str | None:
+    def _get_save_file_path(
+        self,
+        parent_widget: QWidget | None,
+        *,
+        output_format: str = "pdf",
+    ) -> str | None:
         """Get save file path from user using file dialog."""
         try:
+            fmt = str(output_format).strip().lower()
+            if fmt not in {"pdf", "svg"}:
+                fmt = "pdf"
+            default_name = "blueprint.pdf" if fmt == "pdf" else "blueprint.svg"
+            filters = (
+                "PDF Files (*.pdf);;SVG Files (*.svg);;All Files (*)"
+                if fmt == "pdf"
+                else "SVG Files (*.svg);;PDF Files (*.pdf);;All Files (*)"
+            )
             file_path, _ = QFileDialog.getSaveFileName(
                 parent_widget,
                 "Export Blueprint",
-                "blueprint.svg",
-                "SVG Files (*.svg);;All Files (*)",
+                default_name,
+                filters,
             )
             return file_path if file_path else None
         except Exception as e:

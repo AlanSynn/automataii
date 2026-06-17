@@ -9,6 +9,7 @@ custom output while preserving the profile's bracket/axle hole contract.
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import math
 import sys
@@ -225,6 +226,10 @@ def _svg_document(template: SvgTemplate, spec: FabricationSpec) -> str:
       .score {{ fill: none; stroke: {SCORE}; stroke-width: 0.15; stroke-dasharray: 2 1; }}
       .label {{ fill: {TEXT}; font-family: Arial, Helvetica, sans-serif; font-size: 4px; }}
       .tiny {{ fill: {TEXT}; font-family: Arial, Helvetica, sans-serif; font-size: 3px; }}
+      .small {{ fill: {TEXT}; font-family: Arial, Helvetica, sans-serif; font-size: 3.6px; }}
+      .step-title {{ fill: #111827; font-family: Arial, Helvetica, sans-serif; font-size: 5px; font-weight: bold; }}
+      .part-card-label {{ fill: #111827; font-family: Arial, Helvetica, sans-serif; font-size: 3.5px; font-weight: bold; }}
+      .coord-label {{ fill: #111827; font-family: Arial, Helvetica, sans-serif; font-size: 6px; font-weight: bold; }}
       .paper {{ fill: {FILL}; stroke: none; }}
     </style>
   </defs>
@@ -1356,6 +1361,58 @@ def _part_label(part_id: str) -> str:
     return key.replace("-", " ").title()
 
 
+def _part_category(part_id: str) -> str:
+    category, _, _key = part_id.partition(":")
+    return category or "parts"
+
+
+def _part_color(part_id: str) -> str:
+    category = _part_category(part_id)
+    return {
+        "gears": "#fbbf24",
+        "linkages": "#60a5fa",
+        "cams": "#f472b6",
+        "followers": "#34d399",
+        "brackets": "#a78bfa",
+        "spacers": "#94a3b8",
+    }.get(category, "#e5e7eb")
+
+
+def _part_card_elements(
+    part_id: str,
+    *,
+    x: float,
+    y: float,
+    step: int,
+    index: int,
+) -> list[str]:
+    """Return a large, colored part callout for LEGO-style step scanning."""
+    color = _part_color(part_id)
+    label = _part_label(part_id)
+    category = _part_category(part_id).rstrip("s").title()
+    elements = [
+        _rect(
+            x,
+            y,
+            92.0,
+            13.0,
+            "score part-card",
+            extra={"step": step, "part_key": part_id, "part_index": index},
+            style=f"fill:{color};fill-opacity:0.22;stroke:{color};stroke-width:0.6",
+        ),
+        _circle(
+            x + 8.0,
+            y + 6.5,
+            4.2,
+            "score part-token",
+            extra={"step": step, "part_key": part_id, "part_index": index},
+        ),
+        _text(x + 17.0, y + 5.7, label, class_name="part-card-label", anchor="start"),
+        _text(x + 17.0, y + 10.4, category, class_name="tiny", anchor="start"),
+    ]
+    return elements
+
+
 def _step_coord_labels(step: dict[str, object]) -> list[str]:
     coords = step.get("coords", [])
     if not isinstance(coords, list):
@@ -1416,7 +1473,7 @@ def _assembly_step_panel_height(step: dict[str, object]) -> float:
     stack_rows = len(_step_stack_layers(step))
     ghost_rows = len(_step_ghost_parts(step))
     row_count = max(6, part_rows, stack_rows, ghost_rows + 3)
-    return 32.0 + row_count * 8.0
+    return max(116.0, 38.0 + row_count * 13.0)
 
 
 def _assembly_board_grid_elements(
@@ -1516,31 +1573,48 @@ def _assembly_step_panel(recipe: dict[str, object], step: dict[str, object], y: 
     ghost_parts = _step_ghost_parts(step)
     panel_height = _assembly_step_panel_height(step)
     content_height = panel_height - 30.0
-    board_x, board_y, board_size = 106.0, y + 18.0, 58.0
+    board_x, board_y, board_size = 150.0, y + 30.0, 82.0
 
     elements: list[str] = [
-        _rect(8.0, y, 404.0, panel_height, "score step-card"),
-        _text(14.0, y + 10.0, f"Step {step_n}: {title}", anchor="start"),
-        _layout_box(step_n, "parts", 14.0, y + 16.0, 78.0, content_height),
-        _layout_box(step_n, "board", 100.0, y + 16.0, 78.0, content_height),
-        _layout_box(step_n, "stack", 188.0, y + 16.0, 78.0, content_height),
-        _layout_box(step_n, "check", 278.0, y + 16.0, 122.0, content_height),
+        _rect(8.0, y, 544.0, panel_height, "score step-card"),
+        _text(16.0, y + 11.0, f"{step_n}", class_name="coord-label", anchor="start"),
+        _text(28.0, y + 10.5, title, class_name="step-title", anchor="start"),
+        _text(28.0, y + 17.0, instruction, class_name="small", anchor="start"),
+        _layout_box(step_n, "parts", 16.0, y + 22.0, 112.0, content_height),
+        _layout_box(step_n, "board", 142.0, y + 22.0, 104.0, content_height),
+        _layout_box(step_n, "stack", 262.0, y + 22.0, 92.0, content_height),
+        _layout_box(step_n, "check", 372.0, y + 22.0, 164.0, content_height),
         f'  <g id="layer-callouts-step-{step_n}" data-step="{step_n}" data-recipe-key="{escape(recipe_key)}">',
-        _text(18.0, y + 24.0, "Parts", class_name="tiny", anchor="start"),
+        _text(18.0, y + 29.0, "Parts to add now", class_name="small", anchor="start"),
     ]
     if part_ids:
         for idx, part in enumerate(part_ids):
-            elements.append(
-                _text(
-                    20.0,
-                    y + 33.0 + idx * 8.0,
-                    _part_label(part),
-                    class_name="tiny",
-                    anchor="start",
+            elements.extend(
+                _part_card_elements(
+                    part,
+                    x=20.0,
+                    y=y + 34.0 + idx * 15.0,
+                    step=step_n,
+                    index=idx + 1,
                 )
             )
     else:
-        elements.append(_text(20.0, y + 33.0, "Fastener", class_name="tiny", anchor="start"))
+        elements.extend(
+            [
+                _rect(
+                    20.0,
+                    y + 34.0,
+                    92.0,
+                    13.0,
+                    "score part-card",
+                    extra={"step": step_n, "part_key": "paper-fastener", "part_index": 1},
+                    style="fill:#f97316;fill-opacity:0.18;stroke:#f97316;stroke-width:0.6",
+                ),
+                _text(
+                    28.0, y + 42.5, "Paper Fastener", class_name="part-card-label", anchor="start"
+                ),
+            ]
+        )
     elements.append("  </g>")
 
     elements.extend(
@@ -1555,7 +1629,13 @@ def _assembly_step_panel(recipe: dict[str, object], step: dict[str, object], y: 
     )
     for idx, part in enumerate(ghost_parts):
         elements.append(
-            _text(103.0, y + 81.0 + idx * 5.0, _part_label(part), class_name="tiny", anchor="start")
+            _text(
+                146.0,
+                y + 117.0 + idx * 5.0,
+                _part_label(part),
+                class_name="tiny",
+                anchor="start",
+            )
         )
     elements.append("  </g>")
 
@@ -1584,19 +1664,19 @@ def _assembly_step_panel(recipe: dict[str, object], step: dict[str, object], y: 
     elements.extend(
         [
             f'  <g id="layer-stack-diagram-step-{step_n}" data-step="{step_n}">',
-            _text(192.0, y + 24.0, "Stack", class_name="tiny", anchor="start"),
+            _text(266.0, y + 29.0, "Fastener stack", class_name="small", anchor="start"),
         ]
     )
     for idx, layer in enumerate(stack_layers):
-        layer_y = y + 31.0 + idx * 7.0
+        layer_y = y + 38.0 + idx * 9.5
         layer_role = str(layer.get("role", "layer"))
         layer_part = str(layer.get("part", ""))
         elements.append(
             _rect(
-                194.0,
-                layer_y - 4.5,
-                28.0,
-                4.0,
+                268.0,
+                layer_y - 5.5,
+                34.0,
+                5.0,
                 "score stack-layer",
                 extra={
                     "step": step_n,
@@ -1607,7 +1687,7 @@ def _assembly_step_panel(recipe: dict[str, object], step: dict[str, object], y: 
             )
         )
         elements.append(
-            _text(228.0, layer_y, _stack_label(layer), class_name="tiny", anchor="start")
+            _text(308.0, layer_y, _stack_label(layer), class_name="tiny", anchor="start")
         )
     elements.append("  </g>")
 
@@ -1616,15 +1696,31 @@ def _assembly_step_panel(recipe: dict[str, object], step: dict[str, object], y: 
     elements.extend(
         [
             f'  <g id="layer-labels-step-{step_n}" data-step="{step_n}" data-board-coord="{escape(coord_text)}" data-part-key="{escape(part_text)}">',
-            _text(282.0, y + 25.0, f"Where: {coord_text}", class_name="tiny", anchor="start"),
-            _text(282.0, y + 36.0, instruction, class_name="tiny", anchor="start"),
-            _text(282.0, y + 58.0, f"Check: {check}", class_name="tiny", anchor="start"),
+            _text(
+                376.0, y + 31.0, f"Board holes: {coord_text}", class_name="small", anchor="start"
+            ),
+            _text(376.0, y + 45.0, "Check", class_name="part-card-label", anchor="start"),
+            _text(376.0, y + 53.0, check, class_name="small", anchor="start"),
+            _text(
+                376.0,
+                y + 72.0,
+                "Spacer rule: spacer below moving part.",
+                class_name="tiny",
+                anchor="start",
+            ),
+            _text(
+                376.0,
+                y + 80.0,
+                "Paper fastener tabs stay loose until tested.",
+                class_name="tiny",
+                anchor="start",
+            ),
             "  </g>",
             f'  <g id="layer-fasteners-step-{step_n}" data-step="{step_n}"></g>',
             f'  <g id="layer-spacers-step-{step_n}" data-step="{step_n}"></g>',
             f'  <g id="layer-motion-arrows-step-{step_n}" data-step="{step_n}">',
             _path(
-                f"M 364 {y + 70:.3f} L 386 {y + 70:.3f} L 380 {y + 66:.3f} M 386 {y + 70:.3f} L 380 {y + 74:.3f}",
+                f"M 484 {y + 94:.3f} L 522 {y + 94:.3f} L 514 {y + 88:.3f} M 522 {y + 94:.3f} L 514 {y + 100:.3f}",
                 "score motion-arrow",
             ),
             "  </g>",
@@ -1668,7 +1764,7 @@ def _assembly_recipe_template(recipe: dict[str, object], spec: FabricationSpec) 
         path=str(recipe["guide_svg"]),
         title=f"Automataii assembly guide {recipe['key']}",
         desc=f"Board-coordinate assembly guide for {recipe['title']}.",
-        width_mm=420.0,
+        width_mm=560.0,
         height_mm=height,
         elements=tuple(elements),
         metadata={
@@ -1682,11 +1778,113 @@ def _assembly_recipe_template(recipe: dict[str, object], spec: FabricationSpec) 
     )
 
 
+def _recipe_part_ids(recipe: dict[str, object]) -> list[str]:
+    seen: dict[str, None] = {}
+    raw_parts = recipe.get("parts", [])
+    if isinstance(raw_parts, list):
+        for item in raw_parts:
+            if isinstance(item, dict) and isinstance(item.get("part"), str):
+                seen[str(item["part"])] = None
+    raw_steps = recipe.get("steps", [])
+    if isinstance(raw_steps, list):
+        for step in raw_steps:
+            if isinstance(step, dict):
+                for part in _step_part_ids(step):
+                    seen[part] = None
+                for layer in _step_stack_layers(step):
+                    part = layer.get("part")
+                    if isinstance(part, str):
+                        seen[part] = None
+    return list(seen)
+
+
+def _assembly_all_part_ids(assembly_package: dict[str, object]) -> list[str]:
+    seen: dict[str, None] = {}
+    raw_recipes = assembly_package.get("recipes", [])
+    recipes = raw_recipes if isinstance(raw_recipes, list) else []
+    for recipe in recipes:
+        if isinstance(recipe, dict):
+            for part in _recipe_part_ids(recipe):
+                seen[part] = None
+    return list(seen)
+
+
+def _assembly_parts_overview_template(assembly_package: dict[str, object]) -> SvgTemplate:
+    part_ids = _assembly_all_part_ids(assembly_package)
+    columns = 4
+    card_w = 126.0
+    card_h = 22.0
+    gap = 8.0
+    rows = max(1, math.ceil(len(part_ids) / columns))
+    height = 34.0 + rows * (card_h + gap)
+    elements: list[str] = [
+        _text(10.0, 12.0, "Printable part checklist", anchor="start"),
+        _text(
+            10.0,
+            21.0,
+            "Print/cut these kit templates, then follow a board-coordinate guide.",
+            class_name="tiny",
+            anchor="start",
+        ),
+    ]
+    for idx, part_id in enumerate(part_ids):
+        col = idx % columns
+        row = idx // columns
+        x = 12.0 + col * (card_w + gap)
+        y = 30.0 + row * (card_h + gap)
+        color = _part_color(part_id)
+        elements.extend(
+            [
+                _rect(
+                    x,
+                    y,
+                    card_w,
+                    card_h,
+                    "score part-card",
+                    extra={"part_key": part_id, "part_index": idx + 1},
+                    style=f"fill:{color};fill-opacity:0.2;stroke:{color};stroke-width:0.6",
+                ),
+                _circle(
+                    x + 12.0,
+                    y + 11.0,
+                    7.0,
+                    "score part-token",
+                    extra={"part_key": part_id, "part_index": idx + 1},
+                ),
+                _text(
+                    x + 25.0,
+                    y + 9.5,
+                    _part_label(part_id),
+                    class_name="part-card-label",
+                    anchor="start",
+                ),
+                _text(x + 25.0, y + 16.0, part_id, class_name="tiny", anchor="start"),
+            ]
+        )
+    return SvgTemplate(
+        path="assembly/parts-overview.svg",
+        title="Automataii assembly printable part checklist",
+        desc="Large visual checklist for parts used by the board assembly guides.",
+        width_mm=560.0,
+        height_mm=height,
+        elements=tuple(elements),
+        metadata={
+            "key": "parts-overview",
+            "label": "Printable part checklist",
+            "path": "assembly/parts-overview.svg",
+            "part_count": len(part_ids),
+        },
+    )
+
+
 def _assembly_templates(
     assembly_package: dict[str, object],
     spec: FabricationSpec,
 ) -> list[SvgTemplate]:
-    templates = [_assembly_board_template(spec)]
+    templates = [
+        _assembly_board_template(spec),
+        _assembly_parts_overview_template(assembly_package),
+    ]
     raw_recipes = assembly_package.get("recipes", [])
     recipes = (
         [recipe for recipe in raw_recipes if isinstance(recipe, dict)]
@@ -1714,9 +1912,10 @@ the 15x15 hole board (15 rows x 15 columns = 225 board holes).
 ## How to use
 
 1. Open `board-15x15.svg` to identify the 225 row-letter/column-number holes.
-2. Pick one guide SVG.
-3. Follow one step card at a time: place the fastener, add spacers, add the part, then run the check.
-4. Keep paper fasteners loose enough for rotation or sliding before flattening the tabs.
+2. Open `index.html` for the print-first / place-next visual sequence.
+3. Pick one guide SVG.
+4. Follow one step card at a time: place the fastener, add spacers, add the part, then run the check.
+5. Keep paper fasteners loose enough for rotation or sliding before flattening the tabs.
 
 ## Guides
 
@@ -1727,6 +1926,113 @@ the 15x15 hole board (15 rows x 15 columns = 225 board holes).
 - `recipes.json` is the semantic source of truth for board coordinates, parts, stack order, and app visual mappings.
 - Guide SVGs are render targets. They include `data-step`, `data-board-coord`, `data-part-key`, `data-stack-layer`, `data-layout-box`, and `data-app-mechanism` metadata for tests and future app previews.
 - Self-fabrication cut sheets stay in the sibling part and `sheets/` folders.
+"""
+
+
+def _manifest_part_paths(manifest: dict[str, object]) -> dict[str, str]:
+    raw_parts = manifest.get("parts", {})
+    result: dict[str, str] = {}
+    if not isinstance(raw_parts, dict):
+        return result
+    for category, raw_items in raw_parts.items():
+        if not isinstance(category, str) or not isinstance(raw_items, list):
+            continue
+        for item in raw_items:
+            if not isinstance(item, dict):
+                continue
+            key = item.get("key")
+            path = item.get("path")
+            if key is None and isinstance(path, str):
+                key = path.rsplit("/", 1)[-1].removesuffix(".svg")
+            if isinstance(key, str) and isinstance(path, str):
+                result[f"{category}:{key}"] = path
+    return result
+
+
+def _assembly_index_html(
+    assembly_package: dict[str, object],
+    manifest: dict[str, object],
+) -> str:
+    recipes = [recipe for recipe in assembly_package.get("recipes", []) if isinstance(recipe, dict)]
+    part_paths = _manifest_part_paths(manifest)
+    recipe_sections: list[str] = []
+    for recipe in recipes:
+        step_rows: list[str] = []
+        for step in recipe.get("steps", []):
+            if not isinstance(step, dict):
+                continue
+            coords = ", ".join(_step_coord_labels(step))
+            parts = (
+                ", ".join(_part_label(part) for part in _step_part_ids(step)) or "Paper fastener"
+            )
+            step_rows.append(
+                "<li>"
+                f"<strong>{html.escape(str(step.get('n', '')))}. "
+                f"{html.escape(str(step.get('title', '')))}</strong>"
+                f"<span>Board holes: {html.escape(coords)}</span>"
+                f"<span>Parts: {html.escape(parts)}</span>"
+                f"<span>{html.escape(str(step.get('instruction', '')))}</span>"
+                "</li>"
+            )
+        parts_cards: list[str] = []
+        for part_id in _recipe_part_ids(recipe):
+            rel_path = part_paths.get(part_id, "")
+            href = f"../{rel_path}" if rel_path else "#"
+            parts_cards.append(
+                '<a class="part-card" '
+                f'style="--part-color:{_part_color(part_id)}" '
+                f'href="{html.escape(href)}">'
+                f'<span class="part-token">{html.escape(_part_label(part_id))}</span>'
+                f"<span>{html.escape(part_id)}</span>"
+                "</a>"
+            )
+        guide_href = html.escape(Path(str(recipe.get("guide_svg", ""))).name)
+        recipe_sections.append(
+            '<section class="guide">'
+            f"<h2>{html.escape(str(recipe.get('title', 'Assembly guide')))}</h2>"
+            f'<p><a href="{guide_href}">Open printable board guide</a></p>'
+            "<h3>Print/cut these parts first</h3>"
+            f'<div class="parts-grid">{"".join(parts_cards)}</div>'
+            "<h3>Assembly order</h3>"
+            f'<ol class="steps">{"".join(step_rows)}</ol>'
+            "</section>"
+        )
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Automataii board assembly guide</title>
+  <style>
+    body {{ font-family: Arial, Helvetica, sans-serif; margin: 24px; color: #111827; }}
+    header {{ border-bottom: 3px solid #111827; margin-bottom: 24px; padding-bottom: 12px; }}
+    h1 {{ margin: 0 0 8px; }}
+    .quick-start, .guide {{ border: 1px solid #d1d5db; border-radius: 14px; padding: 18px; margin: 18px 0; }}
+    .quick-start li, .steps li {{ margin: 12px 0; }}
+    .steps span {{ display: block; margin-top: 4px; }}
+    .parts-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }}
+    .part-card {{ border: 2px solid var(--part-color); background: color-mix(in srgb, var(--part-color) 18%, white); border-radius: 12px; padding: 10px; text-decoration: none; color: inherit; display: flex; gap: 10px; align-items: center; }}
+    .part-token {{ font-weight: 700; background: var(--part-color); border-radius: 999px; padding: 8px 10px; min-width: 44px; text-align: center; }}
+    @media print {{ body {{ margin: 12mm; }} .guide {{ break-inside: avoid; }} }}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Automataii board assembly</h1>
+    <p>15 x 15 means 225 board holes. Use the row letter and column number on the board map.</p>
+  </header>
+  <section class="quick-start">
+    <h2>Quick start</h2>
+    <ol>
+      <li>Print or fabricate the linked part templates.</li>
+      <li>Open <a href="board-15x15.svg">board-15x15.svg</a> and find the called-out holes.</li>
+      <li>Put the paper fastener through the board, add spacers, add the part, then leave the tabs loose.</li>
+      <li>After each step, run the motion check before adding the next layer.</li>
+    </ol>
+  </section>
+  <p><a href="parts-overview.svg">Open printable part checklist</a></p>
+  {"".join(recipe_sections)}
+</body>
+</html>
 """
 
 
@@ -1919,6 +2225,7 @@ def write_fabrication_templates(
     }
     assembly_files = [
         "assembly/README.md",
+        "assembly/index.html",
         "assembly/recipes.json",
         *[template.path for template in assembly_templates],
     ]
@@ -1958,6 +2265,10 @@ def write_fabrication_templates(
         json.dumps(assembly_package, indent=2, sort_keys=True) + "\n",
     )
     _write_text(output_path / "assembly" / "README.md", _assembly_readme_text(assembly_package))
+    _write_text(
+        output_path / "assembly" / "index.html",
+        _assembly_index_html(assembly_package, manifest),
+    )
     _write_text(
         output_path / "manifest.json", json.dumps(manifest, indent=2, sort_keys=True) + "\n"
     )

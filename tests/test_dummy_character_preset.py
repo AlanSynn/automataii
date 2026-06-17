@@ -1,4 +1,5 @@
 """Regression coverage for the bundled Image #1 dummy character preset."""
+
 from __future__ import annotations
 
 import json

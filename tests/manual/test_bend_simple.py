@@ -6,14 +6,15 @@ import logging
 from PyQt6.QtCore import QPointF
 
 # Setup logging
-logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
 
 def test_joint_id_mapping():
     """Test joint ID mapping logic."""
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("JOINT ID MAPPING TEST")
-    print("="*60)
+    print("=" * 60)
 
     # Simulate joint_map
     joint_map = {
@@ -90,9 +91,10 @@ def test_joint_id_mapping():
         else:
             print(f"   ✗ Not found with key '{key}'")
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("TEST COMPLETE")
-    print("="*60)
+    print("=" * 60)
+
 
 if __name__ == "__main__":
     test_joint_id_mapping()

@@ -109,20 +109,20 @@ class ImageProcessingTab(QWidget):
         input_layout.setSpacing(10)
         self.load_image_btn = QPushButton("Load Image File")
         self.capture_image_btn = QPushButton("Capture Camera")
-        sample_label = QLabel("Or start with a sample:")
+        sample_label = QLabel("Example Character")
         sample_label.setStyleSheet("font-weight: bold; color: #495057;")
-        input_layout.addWidget(self.load_image_btn)
-        input_layout.addWidget(self.capture_image_btn)
         input_layout.addWidget(sample_label)
         self.sample_image_buttons = []
         for sample_path in self._sample_image_paths(limit=2):
-            button = QPushButton(f"Use {sample_path.stem.title()} Sample")
-            button.setToolTip(f"Load sample image: {sample_path.name}")
+            button = QPushButton(f"Use {sample_path.stem.title()} Example")
+            button.setToolTip(f"Load example character image: {sample_path.name}")
             button.clicked.connect(
                 lambda _checked=False, path=sample_path: self._load_sample_image(path)
             )
             input_layout.addWidget(button)
             self.sample_image_buttons.append(button)
+        input_layout.addWidget(self.load_image_btn)
+        input_layout.addWidget(self.capture_image_btn)
         panel_layout.addWidget(input_group)
 
         panel_layout.addWidget(self.processing_steps_group)
@@ -381,12 +381,14 @@ class ImageProcessingTab(QWidget):
                 for path in base.iterdir()
                 if path.is_file() and path.suffix.lower() in supported
             ]
-            files.sort(key=lambda path: (
-                preferred_names.index(path.stem.lower())
-                if path.stem.lower() in preferred_names
-                else len(preferred_names),
-                path.name.lower(),
-            ))
+            files.sort(
+                key=lambda path: (
+                    preferred_names.index(path.stem.lower())
+                    if path.stem.lower() in preferred_names
+                    else len(preferred_names),
+                    path.name.lower(),
+                )
+            )
             for path in files:
                 resolved = path.resolve()
                 if resolved in seen:
@@ -422,32 +424,43 @@ class ImageProcessingTab(QWidget):
         return True
 
     def _default_output_root(self) -> Path:
-        downloads = Path.home() / "Downloads"
-        base = downloads if downloads.exists() else Path.home()
-        return base / "Automataii Characters"
+        if self.input_image_path:
+            return Path(self.input_image_path).expanduser().resolve().parent
+        return Path.home()
 
     @staticmethod
     def _safe_output_name(raw_name: str) -> str:
         name = re.sub(r"[^A-Za-z0-9._-]+", "_", raw_name).strip("._-")
         return name or "character"
 
-    def _ensure_output_dir(self) -> Path:
+    def _suggested_output_folder(self) -> Path:
+        source_name = Path(self.input_image_path).stem if self.input_image_path else "character"
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        return self._default_output_root() / f"{self._safe_output_name(source_name)}_{timestamp}"
+
+    def _ensure_output_dir(self) -> Path | None:
         if self.output_dir:
             output_dir = Path(self.output_dir)
         else:
-            source_name = Path(self.input_image_path).stem if self.input_image_path else "character"
-            timestamp = time.strftime("%Y%m%d_%H%M%S")
-            output_dir = (
-                self._default_output_root()
-                / f"{self._safe_output_name(source_name)}_{timestamp}"
+            suggested = self._suggested_output_folder()
+            chosen = QFileDialog.getExistingDirectory(
+                self,
+                "Choose Save Folder for Generated Character Parts",
+                str(suggested.parent),
             )
+            if not chosen:
+                self._update_output_location_label()
+                return None
+            output_dir = Path(chosen)
             self.output_dir = str(output_dir)
+            self._output_dir_user_selected = True
+            self._settings.setValue("output_dir", str(output_dir))
         output_dir.mkdir(parents=True, exist_ok=True)
         self._update_output_location_label()
         return output_dir
 
     def _choose_output_folder(self) -> None:
-        initial = self.output_dir or str(self._default_output_root())
+        initial = self.output_dir or str(self._suggested_output_folder().parent)
         chosen = QFileDialog.getExistingDirectory(self, "Choose Save Folder", initial)
         if not chosen:
             return
@@ -462,7 +475,10 @@ class ImageProcessingTab(QWidget):
         if self.output_dir:
             label = f"Will save generated parts to:\n{self.output_dir}"
         else:
-            label = f"Default save folder:\n{self._default_output_root()}"
+            label = (
+                "No save folder selected.\n"
+                "Choose a folder when you generate parts or use Choose Save Folder…"
+            )
         self.output_location_label.setText(label)
 
     def _infer_character_dir(self, image_path: str) -> str:
@@ -1066,6 +1082,13 @@ class ImageProcessingTab(QWidget):
 
         try:
             bpe_output_dir = self._ensure_output_dir()
+            if bpe_output_dir is None:
+                if status_bar:
+                    status_bar.showMessage(
+                        "Parts generation cancelled: no save folder selected.", 3000
+                    )
+                progress_dialog.close()
+                return False
 
             # Keep annotation-generated texture/mask coordinate system intact.
             # Only refresh texture/image from input when dimensions exactly match

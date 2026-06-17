@@ -93,3 +93,27 @@ def test_generate_single_page_delegates_to_composer(fresh_manager):
     assert captured["mechanism_layers"] == {"mech": {"type": "demo"}}
     assert captured["unit_system"] == "imperial"
     assert captured["snapshot_png_bytes"] == b"png-bytes"
+
+
+def test_save_dialog_defaults_to_pdf_and_allows_svg(fresh_manager, monkeypatch):
+    from PyQt6.QtWidgets import QFileDialog
+
+    captured: list[tuple[str, str]] = []
+
+    def fake_get_save_file_name(_parent, _title, default_name, filters):
+        captured.append((default_name, filters))
+        return (default_name, filters)
+
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", fake_get_save_file_name)
+
+    assert fresh_manager._get_save_file_path(None) == "blueprint.pdf"  # type: ignore[attr-defined]
+    assert fresh_manager._get_save_file_path(None, output_format="svg") == "blueprint.svg"  # type: ignore[attr-defined]
+
+    assert captured[0] == (
+        "blueprint.pdf",
+        "PDF Files (*.pdf);;SVG Files (*.svg);;All Files (*)",
+    )
+    assert captured[1] == (
+        "blueprint.svg",
+        "SVG Files (*.svg);;PDF Files (*.pdf);;All Files (*)",
+    )

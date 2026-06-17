@@ -401,9 +401,7 @@ def build_fallback_items(
             entry=_build_entry_from_config(
                 key="gear_linkage",
                 display_name="Gear + Linkage",
-                description=(
-                    "Meshing gears with an off-center crank hole driving a linkage arm."
-                ),
+                description=("Meshing gears with an off-center crank hole driving a linkage arm."),
                 mech_type="gear_linkage",
                 config=configs["gear_linkage"],
             ),

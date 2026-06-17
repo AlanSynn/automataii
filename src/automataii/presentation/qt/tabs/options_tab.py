@@ -41,6 +41,7 @@ class OptionsTab(QWidget):
     gridCellSizeChanged = pyqtSignal(float)
     gridPitchChoiceChanged = pyqtSignal(str)
     physicalContextChanged = pyqtSignal(object)
+    blueprintExportFormatChanged = pyqtSignal(str)
 
     def __init__(self, initial_anim_duration: float = 2.0, parent=None):
         super().__init__(parent)
@@ -217,6 +218,24 @@ class OptionsTab(QWidget):
 
         self._add_group(layout, workflow_group)
 
+        # --- Fabrication / Blueprint Settings ---
+        fabrication_group = QGroupBox("Fabrication / Blueprint Export")
+        fabrication_layout = self._create_group_form_layout(fabrication_group)
+
+        self.blueprint_export_format_combo = QComboBox()
+        self.blueprint_export_format_combo.addItem("PDF (default)", "pdf")
+        self.blueprint_export_format_combo.addItem("SVG", "svg")
+        self.blueprint_export_format_combo.setCurrentIndex(0)
+        self.blueprint_export_format_combo.currentIndexChanged.connect(
+            self._on_blueprint_export_format_changed
+        )
+        self.blueprint_export_format_combo.setToolTip(
+            "Choose the default file type for make-parts blueprint exports."
+        )
+        fabrication_layout.addRow("Blueprint File Type:", self.blueprint_export_format_combo)
+
+        self._add_group(layout, fabrication_group)
+
         # --- Display Unit Settings ---
         unit_settings_group = QGroupBox("Grid & Display Units")
         unit_settings_layout = self._create_group_form_layout(unit_settings_group)
@@ -354,6 +373,21 @@ class OptionsTab(QWidget):
             # Fallback to balanced
             mode = "balanced"
         self.physicsSnapModeChanged.emit(mode)
+
+    def _on_blueprint_export_format_changed(self, _index: int) -> None:
+        fmt = str(self.blueprint_export_format_combo.currentData() or "pdf").strip().lower()
+        if fmt not in {"pdf", "svg"}:
+            fmt = "pdf"
+        self.blueprintExportFormatChanged.emit(fmt)
+        self.setting_changed.emit("blueprint_export_format", fmt)
+
+    def set_blueprint_export_format_input(self, fmt: str) -> None:
+        normalized = str(fmt).strip().lower()
+        if normalized not in {"pdf", "svg"}:
+            normalized = "pdf"
+        index = self.blueprint_export_format_combo.findData(normalized)
+        if index >= 0:
+            self.blueprint_export_format_combo.setCurrentIndex(index)
 
     def set_debug_mode(self, enabled: bool):
         """Sets the 'Enable Debug Visuals' checkbox state."""

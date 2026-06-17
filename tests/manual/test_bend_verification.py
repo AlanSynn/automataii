@@ -5,15 +5,11 @@ import logging
 import sys
 
 # Set up detailed logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(levelname)s: %(message)s',
-    stream=sys.stdout
-)
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s", stream=sys.stdout)
 
-print("\n" + "="*80)
+print("\n" + "=" * 80)
 print("BEND DIRECTION VERIFICATION TEST")
-print("="*80)
+print("=" * 80)
 print("\n문제 해결 확인:")
 print("✓ left_shoulder_7 → left_elbow_8 (이전: left_elbow_7)")
 print("✓ right_shoulder_4 → right_elbow_5 (이전: right_elbow_4)")
@@ -27,4 +23,4 @@ print("\n예상 로그:")
 print("- 클릭: 'Joint left_elbow_8 bend direction changed to -1.0'")
 print("- 애니메이션: 'IK: Using bend_direction -1.0 for middle joint left_elbow_8'")
 print("\n중요: 이제 'left_elbow_7' 에러가 나오지 않아야 합니다!")
-print("="*80)
+print("=" * 80)

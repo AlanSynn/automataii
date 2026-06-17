@@ -1,6 +1,7 @@
 """
 Tests for Animation Scheduler and Viewport Controller.
 """
+
 from unittest.mock import MagicMock
 
 import pytest
@@ -52,6 +53,7 @@ def get_qapp():
             import sys
 
             from PyQt6.QtWidgets import QApplication
+
             _app = QApplication.instance() or QApplication(sys.argv)
         except ImportError:
             pytest.skip("PyQt6 not available")

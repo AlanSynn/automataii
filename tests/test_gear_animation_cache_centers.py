@@ -1,4 +1,5 @@
 """Regression tests for cached gear animation center placement."""
+
 from __future__ import annotations
 
 import sys

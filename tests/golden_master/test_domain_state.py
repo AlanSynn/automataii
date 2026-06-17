@@ -5,7 +5,6 @@ These tests capture the expected behavior of domain state classes
 to ensure refactoring doesn't change their semantics.
 """
 
-
 from automataii.domain.mechanisms.core.state import (
     ForceType,
     ForceVector,
@@ -108,9 +107,7 @@ class TestMechanismStateGoldenMaster:
             positions={"joint_A": (0.0, 0.0), "joint_B": (100.0, 50.0)},
             velocities={"joint_A": (0.0, 0.0), "joint_B": (10.0, 5.0)},
             forces={"input_force": force1, "output_force": force2},
-            safety_status=SafetyStatus(
-                level=SafetyLevel.WARNING, message="High stress detected"
-            ),
+            safety_status=SafetyStatus(level=SafetyLevel.WARNING, message="High stress detected"),
             metadata={"simulation_time": 1.5},
         )
 

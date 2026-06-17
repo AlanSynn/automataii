@@ -166,7 +166,12 @@ def _makefile_target_recipe(makefile: str, target: str) -> str:
 
 
 def test_release_parser_rejects_distribution_bypass_options():
-    for option in ("--no-notarize", "--no-strict-distribution", "--no-smoke", "--skip-profile-check"):
+    for option in (
+        "--no-notarize",
+        "--no-strict-distribution",
+        "--no-smoke",
+        "--skip-profile-check",
+    ):
         with pytest.raises(SystemExit):
             release_macos.parse_args([option])
 

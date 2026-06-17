@@ -626,6 +626,7 @@ class AutomataDesigner(QMainWindow):
 
         self.visualization_layer_x_offset = 10.0  # Horizontal offset for visualization layers
         self._physical_context_store = PhysicalKitContextStore(parent=self)
+        self.blueprint_export_format = "pdf"
         self._options_dialog: QDialog | None = None
         self._auto_scale_character_to_dummy_next_load = False
         self._suppress_project_data_cleared_ui_once = False
@@ -785,7 +786,9 @@ class AutomataDesigner(QMainWindow):
         # --- Tab 0: Image Processing / Character Selection ---
         self.image_proc_tab = ImageProcessingTab(self, editing_mode=self.editing_mode)
         self.image_proc_tab.setObjectName("tab_character_selection")
-        character_title = "1. Character Selection" if self.experiment_mode else "Character Selection"
+        character_title = (
+            "1. Character Selection" if self.experiment_mode else "Character Selection"
+        )
         self.tab_widget.addTab(self.image_proc_tab, character_title)
         self.tab_widget.setTabToolTip(
             self.tab_widget.indexOf(self.image_proc_tab),
@@ -878,6 +881,10 @@ class AutomataDesigner(QMainWindow):
             self.options_tab.timingProfileChanged.connect(self.ik_manager.set_timing_profile)
         self.options_tab.themeChanged.connect(self._apply_theme)
         self.options_tab.toolbarVisibilityChanged.connect(self._toggle_toolbar_visibility)
+        if hasattr(self.options_tab, "blueprintExportFormatChanged"):
+            self.options_tab.blueprintExportFormatChanged.connect(
+                self._handle_blueprint_export_format_changed
+            )
         self.options_tab.partPropertiesVisibilityChanged.connect(
             self._toggle_part_properties_visibility
         )
@@ -2850,8 +2857,19 @@ class AutomataDesigner(QMainWindow):
                 self.image_proc_tab.set_debug_mode(bool(value))
             else:
                 logging.warning("ImageProcessingTab does not have set_debug_mode method.")
+        elif setting_name == "blueprint_export_format":
+            self._handle_blueprint_export_format_changed(str(value))
         else:
             logging.warning(f"Unhandled option change: {setting_name}")
+
+    def _handle_blueprint_export_format_changed(self, fmt: str) -> None:
+        normalized = str(fmt).strip().lower()
+        if normalized not in {"pdf", "svg"}:
+            normalized = "pdf"
+        self.blueprint_export_format = normalized
+        self.statusBar().showMessage(
+            f"Blueprint exports will default to {normalized.upper()}.", 3000
+        )
 
     def show_options_dialog(self) -> None:
         """Open the live Options settings panel from the menubar."""

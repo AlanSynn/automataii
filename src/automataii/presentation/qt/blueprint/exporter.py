@@ -53,12 +53,14 @@ class BlueprintExporter:
         get_scene_transform_function: Callable[
             [dict[str, Any]], Callable[[np.ndarray], QPointF] | None
         ],
+        get_blueprint_export_format: Callable[[], str] | None = None,
     ) -> None:
         self._parent = parent
         self._mechanism_view = mechanism_view
         self._get_mechanism_layers = get_mechanism_layers
         self._get_current_editor_items = get_current_editor_items
         self._get_scene_transform_function = get_scene_transform_function
+        self._get_blueprint_export_format = get_blueprint_export_format or (lambda: "pdf")
 
     # ---------- Public API ----------
 
@@ -91,7 +93,7 @@ class BlueprintExporter:
         layout.addWidget(assembly_radio)
 
         parts_radio = QRadioButton("Make Parts / Cut Sheets")
-        parts_radio.setToolTip("SVG blueprint/cut-sheet export for making components")
+        parts_radio.setToolTip("Blueprint/cut-sheet export for making components")
         option_group.addButton(parts_radio, 1)
         layout.addWidget(parts_radio)
 
@@ -130,7 +132,6 @@ class BlueprintExporter:
                 output_dir = QFileDialog.getExistingDirectory(
                     self._parent,
                     "Export Board Assembly Guide",
-                    "fabrication-assembly-guide",
                 )
                 if not output_dir:
                     return
@@ -214,6 +215,7 @@ class BlueprintExporter:
                     single_large_page=True,
                     snapshot_png_bytes=None,
                     unit_system="metric",
+                    output_format=self._blueprint_output_format(),
                 )
                 span.set(status="success" if success else "failure")
 
@@ -397,6 +399,7 @@ class BlueprintExporter:
                         single_large_page=True,
                         snapshot_png_bytes=None,
                         unit_system=unit_system,
+                        output_format=self._blueprint_output_format(),
                     )
 
                     span.set(status="success" if success else "failure")
@@ -419,6 +422,10 @@ class BlueprintExporter:
             QMessageBox.critical(
                 self._parent, "Export Failed", f"Failed to export blueprint:\n{str(e)}"
             )
+
+    def _blueprint_output_format(self) -> str:
+        fmt = str(self._get_blueprint_export_format()).strip().lower()
+        return fmt if fmt in {"pdf", "svg"} else "pdf"
 
     def show_mechanism_dimensions(self, mechanism_id: str) -> None:
         """Show a dimension summary for a specific mechanism."""

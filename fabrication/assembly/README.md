@@ -6,9 +6,10 @@ the 15x15 hole board (15 rows x 15 columns = 225 board holes).
 ## How to use
 
 1. Open `board-15x15.svg` to identify the 225 row-letter/column-number holes.
-2. Pick one guide SVG.
-3. Follow one step card at a time: place the fastener, add spacers, add the part, then run the check.
-4. Keep paper fasteners loose enough for rotation or sliding before flattening the tabs.
+2. Open `index.html` for the print-first / place-next visual sequence.
+3. Pick one guide SVG.
+4. Follow one step card at a time: place the fastener, add spacers, add the part, then run the check.
+5. Keep paper fasteners loose enough for rotation or sliding before flattening the tabs.
 
 ## Guides
 

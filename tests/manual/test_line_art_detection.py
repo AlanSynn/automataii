@@ -9,10 +9,13 @@ import numpy as np
 # Add the src directory to path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
+
 def test_line_art_detection():
     """Test if line art detection is working"""
 
-    temp_dir = Path("/private/var/folders/qf/8vynx0hj5q55zj3rcrqw1myw0000gn/T/automataii/image_123650291")
+    temp_dir = Path(
+        "/private/var/folders/qf/8vynx0hj5q55zj3rcrqw1myw0000gn/T/automataii/image_123650291"
+    )
 
     # Load texture
     texture_path = temp_dir / "texture.png"
@@ -38,6 +41,7 @@ def test_line_art_detection():
         # Show first 10 unique values
         unique_vals = np.unique(gray)[:10]
         print(f"First 10 unique gray values: {unique_vals}")
+
 
 if __name__ == "__main__":
     test_line_art_detection()

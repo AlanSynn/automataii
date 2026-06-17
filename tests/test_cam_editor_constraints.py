@@ -84,9 +84,7 @@ def test_cam_follower_drag_uses_mechanism_space_with_transforms(qapp):
     editor._on_follower_moved("follower", new_scene_pos)
 
     # Scene y=-200 maps to mechanism y=-100; visual contact y is +25.
-    assert editor.mechanism_data["params"]["follower_rod_length"] == pytest.approx(
-        125.0, rel=1e-6
-    )
+    assert editor.mechanism_data["params"]["follower_rod_length"] == pytest.approx(125.0, rel=1e-6)
 
 
 def test_cam_follower_handle_uses_cam_scale_factor_with_transforms(qapp):
@@ -113,9 +111,7 @@ def test_cam_follower_drag_uses_cam_scale_factor_with_transforms(qapp):
     editor._on_follower_moved("follower", new_scene_pos)
 
     # Scaled visual contact is y=50; (50 - -150) / rod multiplier 2 = 100.
-    assert editor.mechanism_data["params"]["follower_rod_length"] == pytest.approx(
-        100.0, rel=1e-6
-    )
+    assert editor.mechanism_data["params"]["follower_rod_length"] == pytest.approx(100.0, rel=1e-6)
 
 
 def test_cam_follower_constraint_boundary_matches_min_scaled_visual_rod(qapp):
@@ -130,9 +126,7 @@ def test_cam_follower_constraint_boundary_matches_min_scaled_visual_rod(qapp):
     editor._on_follower_moved("follower", boundary_pos)
 
     assert boundary_pos.y() == pytest.approx(10.0, rel=1e-6)
-    assert editor.mechanism_data["params"]["follower_rod_length"] == pytest.approx(
-        20.0, rel=1e-6
-    )
+    assert editor.mechanism_data["params"]["follower_rod_length"] == pytest.approx(20.0, rel=1e-6)
 
     contact_y = 50.0
     visual_follower_y = contact_y - (
@@ -196,9 +190,7 @@ def test_cam_follower_handle_uses_scene_vertical_rod_under_rotated_transform(qap
     editor.handles["follower"].setPos(new_scene_pos)
     editor._on_follower_moved("follower", new_scene_pos)
 
-    assert editor.mechanism_data["params"]["follower_rod_length"] == pytest.approx(
-        100.0, rel=1e-6
-    )
+    assert editor.mechanism_data["params"]["follower_rod_length"] == pytest.approx(100.0, rel=1e-6)
 
 
 def test_cam_regeneration_frame_zero_matches_visual_contact_y(qapp):

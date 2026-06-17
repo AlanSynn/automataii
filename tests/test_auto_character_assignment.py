@@ -13,6 +13,7 @@ class TestAutoCharacterAssignment:
             import sys
 
             from PyQt6.QtWidgets import QApplication
+
             return QApplication.instance() or QApplication(sys.argv)
         except ImportError:
             pytest.skip("PyQt6 not available")
@@ -34,35 +35,43 @@ class TestAutoCharacterAssignment:
         from automataii.presentation.qt.tabs.mechanism_design.tab import MechanismDesignTab
 
         # We need to mock the managers that the tab initializes or uses
-        with patch('automataii.application.managers.MechanismManager'), \
-             patch('automataii.presentation.qt.kinematics.ik_manager.IKManager'), \
-             patch('automataii.presentation.qt.tabs.parametric_editing_manager.ParametricEditingManager'), \
-             patch('automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service.MechanismInstantiationService'):
+        with (
+            patch("automataii.application.managers.MechanismManager"),
+            patch("automataii.presentation.qt.kinematics.ik_manager.IKManager"),
+            patch(
+                "automataii.presentation.qt.tabs.parametric_editing_manager.ParametricEditingManager"
+            ),
+            patch(
+                "automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service.MechanismInstantiationService"
+            ),
+        ):
+            tab = MechanismDesignTab(mock_main_window)
+            # Mock internal data structures often set by signals or init
+            tab.parts_data = {}
+            tab.mechanism_layers = {}
 
-             tab = MechanismDesignTab(mock_main_window)
-             # Mock internal data structures often set by signals or init
-             tab.parts_data = {}
-             tab.mechanism_layers = {}
+            # Mock methods we want to verify or that would trigger UI updates
+            tab.apply_character_preset = MagicMock(wraps=tab.apply_character_preset)
+            tab._map_orphan_mechanisms_to_character = MagicMock(
+                wraps=tab._map_orphan_mechanisms_to_character
+            )
 
-             # Mock methods we want to verify or that would trigger UI updates
-             tab.apply_character_preset = MagicMock(wraps=tab.apply_character_preset)
-             tab._map_orphan_mechanisms_to_character = MagicMock(wraps=tab._map_orphan_mechanisms_to_character)
+            # Mock preset loading to avoid file system reading
+            tab.character_preset_service = MagicMock()
+            # Mock create_silhouette_human to return a dummy preset object
+            mock_preset = MagicMock()
+            mock_preset.name = "Human Silhouette"
+            mock_preset.skeleton = {}
+            mock_preset.parts = {"head": MagicMock(name="head"), "torso": MagicMock(name="torso")}
+            tab.character_preset_service.get_preset.return_value = mock_preset
 
-             # Mock preset loading to avoid file system reading
-             tab.character_preset_service = MagicMock()
-             # Mock create_silhouette_human to return a dummy preset object
-             mock_preset = MagicMock()
-             mock_preset.name = "Human Silhouette"
-             mock_preset.skeleton = {}
-             mock_preset.parts = {"head": MagicMock(name="head"), "torso": MagicMock(name="torso")}
-             tab.character_preset_service.get_preset.return_value = mock_preset
+            # Mock set_parts_data to actually populate parts_data for the logic to work
+            def side_effect_set_parts(parts, clear_mechanisms=False):
+                tab.parts_data = parts
 
-             # Mock set_parts_data to actually populate parts_data for the logic to work
-             def side_effect_set_parts(parts, clear_mechanisms=False):
-                 tab.parts_data = parts
-             tab.set_parts_data = MagicMock(side_effect=side_effect_set_parts)
+            tab.set_parts_data = MagicMock(side_effect=side_effect_set_parts)
 
-             return tab
+            return tab
 
     def test_auto_load_dummy_character_on_empty_import(self, tab):
         """Test that importing a mechanism when no parts exist triggers dummy character loading."""
@@ -75,9 +84,7 @@ class TestAutoCharacterAssignment:
         tab._add_mechanism_layer = MagicMock()
 
         tab.import_mechanism_from_foundry(
-            mechanism_type="four_bar",
-            parameters={"p": 1},
-            pivot_point=(0,0)
+            mechanism_type="four_bar", parameters={"p": 1}, pivot_point=(0, 0)
         )
 
         # Assertion: fallback preset path can still be used in isolated tests
@@ -134,9 +141,7 @@ class TestAutoCharacterAssignment:
         # Action
         tab._add_mechanism_layer = MagicMock()
         tab.import_mechanism_from_foundry(
-            mechanism_type="four_bar",
-            parameters={"p": 1},
-            pivot_point=(0,0)
+            mechanism_type="four_bar", parameters={"p": 1}, pivot_point=(0, 0)
         )
 
         # Assertion
@@ -148,9 +153,7 @@ class TestAutoCharacterAssignment:
         # Setup:
         # 1. Orphan mechanism (no part_name)
         mechanism_id = "mech_1"
-        tab.mechanism_layers = {
-            mechanism_id: {"part_name": None, "type": "test_mech"}
-        }
+        tab.mechanism_layers = {mechanism_id: {"part_name": None, "type": "test_mech"}}
 
         # 2. Simulate parts being loaded (e.g. by applying preset)
         tab.parts_data = {"head": {}, "torso": {}}
@@ -169,9 +172,7 @@ class TestAutoCharacterAssignment:
         """Test that applying a preset triggers the orphan mapping logic."""
 
         # Setup
-        tab.mechanism_layers = {
-            "mech_1": {"part_name": None}
-        }
+        tab.mechanism_layers = {"mech_1": {"part_name": None}}
 
         # Action
         tab.apply_character_preset("silhouette_human")

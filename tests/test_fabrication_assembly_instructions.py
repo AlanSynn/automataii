@@ -153,6 +153,11 @@ def test_assembly_svg_cards_have_testable_layers_and_non_overlapping_layout(
     managed_files = set(cast(list[str], manifest["managed_files"]))
 
     board_root = _svg_root(tmp_path / "assembly" / "board-15x15.svg")
+    assert (tmp_path / "assembly" / "index.html").is_file()
+    assert (tmp_path / "assembly" / "parts-overview.svg").is_file()
+    index_text = (tmp_path / "assembly" / "index.html").read_text(encoding="utf-8")
+    assert "Quick start" in index_text
+    assert "Assembly order" in index_text
     board_coords = {
         element.attrib["data-board-coord"]
         for element in board_root.iter()
@@ -183,6 +188,8 @@ def test_assembly_svg_cards_have_testable_layers_and_non_overlapping_layout(
         assert any("data-stack-layer" in element.attrib for element in root.iter())
         assert any("data-app-mechanism" in element.attrib for element in root.iter())
         visible_text = _text_content(root)
+        assert "Parts to add now" in visible_text
+        assert "Fastener stack" in visible_text
         assert "Metric" not in visible_text
         assert "Imperial" not in visible_text
         assert "inch" not in visible_text.lower()
@@ -229,9 +236,15 @@ def test_application_exporter_lists_and_copies_board_guides(tmp_path: Path) -> N
     assert result.package_dir == output_dir / "assembly"
     assert (output_dir / "assembly" / "recipes.json").is_file()
     assert (output_dir / "assembly" / "README.md").is_file()
+    assert (output_dir / "assembly" / "index.html").is_file()
     assert (output_dir / "assembly" / "board-15x15.svg").is_file()
+    assert (output_dir / "assembly" / "parts-overview.svg").is_file()
     assert (output_dir / "assembly" / "01-gear-train-basic.svg").is_file()
-    assert len(result.copied_files) == 4
+    assert (output_dir / "assembly" / "parts" / "gears").is_dir()
+    exported_index = (output_dir / "assembly" / "index.html").read_text(encoding="utf-8")
+    assert 'href="parts/gears/gear-' in exported_index
+    assert 'href="parts/spacers/spacer-s8.svg"' in exported_index
+    assert len(result.copied_files) > 4
     reloaded = FabricationAssemblyGuideExporter(output_dir)
     reloaded_summaries = reloaded.list_guides()
     assert [summary.key for summary in reloaded_summaries] == ["gear-train-basic"]
@@ -287,8 +300,8 @@ def test_fabrication_export_surface_splits_board_guide_from_cut_sheets() -> None
     assert "Board Assembly Guide" in blueprint_source
     assert "Make Parts / Cut Sheets" in blueprint_source
     assert "FabricationAssemblyGuideExporter" in blueprint_source
-    assert "PDF Files" not in manager_source
-    assert "SVG Files (*.svg);;All Files (*)" in manager_source
+    assert "PDF Files (*.pdf);;SVG Files (*.svg);;All Files (*)" in manager_source
+    assert "SVG Files (*.svg);;PDF Files (*.pdf);;All Files (*)" in manager_source
 
 
 def test_committed_assembly_package_exists_and_matches_generator(tmp_path: Path) -> None:

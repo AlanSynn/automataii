@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Test CAM mechanism positioning after fixes."""
+
 import numpy as np
 
 
 def test_cam_positioning():
     """Test CAM positioning logic."""
-    print("="*60)
+    print("=" * 60)
     print("CAM POSITIONING TEST - AFTER FIXES")
-    print("="*60)
+    print("=" * 60)
 
     # Simulated character position (from _get_character_position)
     # This would return [center_x, lowest_y + 30]
@@ -51,10 +52,7 @@ def test_cam_positioning():
         """Transform CAM coordinates to scene, placing CAM at character feet."""
         if len(p) != 2:
             return [cam_position[0], cam_position[1]]
-        return [
-            float(p[0] + cam_position[0]),
-            float(p[1] + cam_position[1])
-        ]
+        return [float(p[0] + cam_position[0]), float(p[1] + cam_position[1])]
 
     # Transform cam center to scene
     cam_center_scene = cam_to_scene_coords(cam_center_orig)
@@ -81,7 +79,9 @@ def test_cam_positioning():
     min_radius = scaled_base_radius
     print(f"   - CAM Max Diameter: {max_radius * 2}mm")
     print(f"   - CAM Min Diameter: {min_radius * 2}mm")
-    print(f"   - Total Mechanism Height: {scaled_base_radius + scaled_rod_length + scaled_eccentricity}mm")
+    print(
+        f"   - Total Mechanism Height: {scaled_base_radius + scaled_rod_length + scaled_eccentricity}mm"
+    )
 
     # Verify positioning
     print("\n7. Verification:")
@@ -95,7 +95,8 @@ def test_cam_positioning():
     else:
         print("   ❌ Follower is too far from feet")
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
+
 
 if __name__ == "__main__":
     test_cam_positioning()

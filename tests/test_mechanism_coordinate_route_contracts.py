@@ -1,4 +1,5 @@
 """Route-level coordinate contracts for cam/linkage screen alignment."""
+
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
@@ -39,9 +40,7 @@ def _cam_centers(layer_data: dict[str, object]) -> list[list[float]]:
     return cast(list[list[float]], cam_data["cam_centers"])
 
 
-def _assert_cam_center_aliases(
-    layer_data: dict[str, object], expected_center: list[float]
-) -> None:
+def _assert_cam_center_aliases(layer_data: dict[str, object], expected_center: list[float]) -> None:
     params = _params(layer_data)
     key_points = _key_points(layer_data)
     assert layer_data["cam_position"] == pytest.approx(expected_center)
@@ -82,9 +81,7 @@ class _BrokenSceneParent:
 
         return to_scene
 
-    def _get_inverse_scene_transform_function(
-        self, _layer_data: dict[str, object]
-    ) -> None:
+    def _get_inverse_scene_transform_function(self, _layer_data: dict[str, object]) -> None:
         return None
 
 

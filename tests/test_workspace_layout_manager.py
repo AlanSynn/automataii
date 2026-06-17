@@ -89,6 +89,7 @@ def test_scrollable_tab_bar_caps_primary_workflow_tab_widths() -> None:
     tabs = QTabWidget()
     tab_bar = ScrollableTabBar(tabs)
     tabs.setTabBar(tab_bar)
+    tab_bar.resize(880, 36)
     for label in (
         "Character Selection",
         "Path Editor",
@@ -100,6 +101,9 @@ def test_scrollable_tab_bar_caps_primary_workflow_tab_widths() -> None:
     widths = [tab_bar.tabSizeHint(index).width() for index in range(tab_bar.count())]
 
     assert max(widths) <= ScrollableTabBar.MAX_TAB_WIDTH
+    assert min(widths) >= ScrollableTabBar.MIN_TAB_WIDTH
+    assert sum(widths) >= tab_bar.width() - 20
+    assert tab_bar.expanding() is True
     assert app is not None
 
 
@@ -151,7 +155,9 @@ def test_menus_do_not_expose_workflow_ui() -> None:
     menu_titles = [action.text().replace("&", "") for action in window.menuBar().actions()]
     assert "Workflow" not in menu_titles
 
-    view_menu = next(action.menu() for action in window.menuBar().actions() if action.text() == "&View")
+    view_menu = next(
+        action.menu() for action in window.menuBar().actions() if action.text() == "&View"
+    )
     view_actions = [action.text() for action in view_menu.actions()]
     assert "Show Workflow Navigator" not in view_actions
     assert app is not None
@@ -165,7 +171,9 @@ def test_experiment_mode_hides_foundry_and_options_tabs() -> None:
     window = AutomataDesigner(experiment_mode=True)
     try:
         window.reset_workspace_layout()
-        tab_titles = [window.tab_widget.tabText(index) for index in range(window.tab_widget.count())]
+        tab_titles = [
+            window.tab_widget.tabText(index) for index in range(window.tab_widget.count())
+        ]
 
         assert tab_titles == [
             "1. Character Selection",

@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Test CAM parametric handles functionality."""
 
+
 def test_cam_handles():
     """Test the three CAM handles and their functions."""
-    print("="*60)
+    print("=" * 60)
     print("CAM PARAMETRIC HANDLES TEST")
-    print("="*60)
+    print("=" * 60)
 
     print("\n🔧 HANDLE CONFIGURATION:")
     print("-" * 40)
@@ -28,7 +29,7 @@ def test_cam_handles():
     print("   - Behavior: Changes base radius and eccentricity")
     print("   - Updates: base_radius and eccentricity parameters")
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("HANDLE CALCULATIONS:")
     print("-" * 40)
 
@@ -64,7 +65,7 @@ def test_cam_handles():
     print(f"  2. Rod Handle: (0, {rod_handle_y:.1f})")
     print(f"  3. Shape Handle: ({shape_handle_x:.1f}, 0)")
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("DRAG BEHAVIORS:")
     print("-" * 40)
 
@@ -99,7 +100,7 @@ def test_cam_handles():
     print(f"   - New eccentricity: {new_ecc:.1f}mm")
     print("   - Effect: CAM becomes larger/smaller")
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("HANDLE VISUAL DESIGN:")
     print("-" * 40)
     print("  🔵 Blue Handle: #2196f3 (Material Blue)")
@@ -110,7 +111,8 @@ def test_cam_handles():
     print("  - Rod: 'Drag to adjust rod length'")
     print("  - Shape: 'Drag to adjust CAM size and shape'")
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
+
 
 if __name__ == "__main__":
     test_cam_handles()

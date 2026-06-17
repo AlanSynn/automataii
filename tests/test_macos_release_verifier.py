@@ -188,9 +188,7 @@ def test_dmg_app_is_copied_before_signature_checks(monkeypatch, tmp_path):
     assert any(check.name == "dmg_extract_app" and check.passed for check in result.checks)
 
 
-def test_dmg_embedded_app_strict_codesign_failure_blocks_distribution(
-    monkeypatch, tmp_path
-):
+def test_dmg_embedded_app_strict_codesign_failure_blocks_distribution(monkeypatch, tmp_path):
     dmg = tmp_path / "MotionSmith.dmg"
     dmg.write_text("not really a dmg")
 
@@ -289,9 +287,7 @@ def test_universal2_verification_fails_on_nested_thin_macho(monkeypatch, tmp_pat
     result = verify_macos_release.verify_release(app, expected_arch="universal2")
 
     assert result.passed is False
-    assert any(
-        check.name == "nested_architecture" and not check.passed for check in result.checks
-    )
+    assert any(check.name == "nested_architecture" and not check.passed for check in result.checks)
 
 
 def test_dmg_container_signature_is_required(monkeypatch, tmp_path):
@@ -352,7 +348,10 @@ def test_dependency_closure_fails_on_missing_loader_path_dependency(monkeypatch,
     def fake_run(command: list[str]):
         if command[:2] == ["otool", "-L"]:
             if Path(command[-1]) == nested:
-                return _completed(command, stdout=f"{nested}:\n\t@loader_path/missing.dylib (compatibility version 1.0.0, current version 1.0.0)\n")
+                return _completed(
+                    command,
+                    stdout=f"{nested}:\n\t@loader_path/missing.dylib (compatibility version 1.0.0, current version 1.0.0)\n",
+                )
             return _completed(command, stdout=f"{command[-1]}:\n")
         if command[:2] == ["otool", "-D"]:
             return _completed(command, stdout=f"{command[-1]}:\n")

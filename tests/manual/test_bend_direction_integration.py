@@ -14,10 +14,13 @@ from automataii.presentation.qt.kinematics import IKManager
 from automataii.presentation.qt.models import PartInfo
 
 # Skip this manual/integration test in automated runs
-pytest.skip("Manual bend direction integration test; skipping in automated pytest.", allow_module_level=True)
+pytest.skip(
+    "Manual bend direction integration test; skipping in automated pytest.", allow_module_level=True
+)
 
 # Setup logging
-logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
 
 class MockMainWindow:
     def __init__(self):
@@ -28,7 +31,9 @@ class MockMainWindow:
         class MockStatusBar:
             def showMessage(self, msg, timeout=0):
                 logging.info(f"STATUS: {msg}")
+
         return MockStatusBar()
+
 
 def create_test_skeleton():
     """Create a test skeleton with specific joint IDs."""
@@ -83,12 +88,13 @@ def create_test_skeleton():
 
     return skeleton
 
+
 def test_bend_direction_flow():
     """Test the complete flow of bend direction from user click to animation."""
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("BEND DIRECTION INTEGRATION TEST")
-    print("="*60)
+    print("=" * 60)
 
     # Create application
     app = QApplication(sys.argv)
@@ -145,7 +151,9 @@ def test_bend_direction_flow():
     # This should trigger skeleton_updated signal
     updated_skeleton = skeleton_manager.get_current_skeleton_data()
     if updated_skeleton:
-        print(f"   Skeleton updated with new bend_direction for left_elbow_8: {updated_skeleton['joints']['left_elbow_8'].get('bend_direction')}")
+        print(
+            f"   Skeleton updated with new bend_direction for left_elbow_8: {updated_skeleton['joints']['left_elbow_8'].get('bend_direction')}"
+        )
 
     # Check if IK manager received the update
     print("\n5. After user click, bend directions in IK manager:")
@@ -187,9 +195,10 @@ def test_bend_direction_flow():
     # Start event loop
     app.exec()
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("TEST COMPLETE")
-    print("="*60)
+    print("=" * 60)
+
 
 if __name__ == "__main__":
     test_bend_direction_flow()

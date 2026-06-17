@@ -72,6 +72,23 @@ def test_grid_system_controls_defaults_and_toggle() -> None:
     assert tab.grid_pitch_combo.isEnabled() is False
 
 
+def test_blueprint_export_format_defaults_to_pdf_and_can_switch_to_svg() -> None:
+    _ = _get_app()
+    tab = OptionsTab()
+    seen: list[str] = []
+    tab.blueprintExportFormatChanged.connect(seen.append)
+
+    assert tab.blueprint_export_format_combo.currentData() == "pdf"
+
+    tab.blueprint_export_format_combo.setCurrentIndex(
+        tab.blueprint_export_format_combo.findData("svg")
+    )
+
+    assert seen[-1] == "svg"
+    tab.set_blueprint_export_format_input("pdf")
+    assert tab.blueprint_export_format_combo.currentData() == "pdf"
+
+
 def test_grid_cell_display_is_preset_authoritative() -> None:
     _ = _get_app()
     tab = OptionsTab()

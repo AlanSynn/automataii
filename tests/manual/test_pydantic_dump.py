@@ -6,14 +6,15 @@ import logging
 from automataii.domain.skeleton import StandardizedJointModel, StandardizedSkeletonModel
 
 # Setup logging
-logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
 
 def test_model_dump():
     """Test if model_dump includes bend_direction field."""
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("PYDANTIC MODEL_DUMP TEST")
-    print("="*60)
+    print("=" * 60)
 
     # Create a joint with bend_direction
     joint = StandardizedJointModel(
@@ -62,9 +63,10 @@ def test_model_dump():
     joint_from_dict2 = skeleton_dict2.get("joints", {}).get("left_elbow_8", {})
     print(f"   After model_dump: {joint_from_dict2.get('bend_direction')}")
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("TEST COMPLETE")
-    print("="*60)
+    print("=" * 60)
+
 
 if __name__ == "__main__":
     test_model_dump()

@@ -1,4 +1,5 @@
 """Regression tests for 4-bar coupler parameter alias handling."""
+
 from __future__ import annotations
 
 import sys

@@ -49,9 +49,7 @@ def controller() -> MechanismDesignController:
     )
     recommendation_service = DummyRecommendationService([rec])
     generation_service = DummyGenerationService()
-    controller = MechanismDesignController(
-        recommendation_service, generation_service
-    )
+    controller = MechanismDesignController(recommendation_service, generation_service)
     controller.update_paths({"arm": PartPath.from_points([(0, 0), (10, 10)])})
     return controller
 

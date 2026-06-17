@@ -341,6 +341,9 @@ class MechanismDesignTab(QWidget):
             get_mechanism_layers=lambda: self.mechanism_layers,
             get_current_editor_items=lambda: self.current_editor_items,
             get_scene_transform_function=self._get_scene_transform_function,
+            get_blueprint_export_format=lambda: getattr(
+                self.main_window, "blueprint_export_format", "pdf"
+            ),
         )
 
         # UI state manager

@@ -14,7 +14,7 @@ import pytest
 import yaml
 
 # Add source to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 try:
     from automataii.domain.animation.body_parts_extractor import (
@@ -30,15 +30,17 @@ except ImportError:
 from automataii.domain.animation.part_definitions import BODY_PARTS
 
 
-def create_structure_preserving_mask(gray: np.ndarray, alpha_mask: np.ndarray, rgb_data: np.ndarray) -> np.ndarray:
+def create_structure_preserving_mask(
+    gray: np.ndarray, alpha_mask: np.ndarray, rgb_data: np.ndarray
+) -> np.ndarray:
     """Create an advanced mask that preserves all structural information from the robot image"""
     height, width = gray.shape
 
     print("Creating structure-preserving mask with multiple techniques...")
 
     # Method 1: Multi-scale edge detection for different detail levels
-    edges_fine = cv2.Canny(gray, 20, 60)      # Fine details (joint lines, small features)
-    edges_medium = cv2.Canny(gray, 50, 100)   # Medium details (part boundaries)
+    edges_fine = cv2.Canny(gray, 20, 60)  # Fine details (joint lines, small features)
+    edges_medium = cv2.Canny(gray, 50, 100)  # Medium details (part boundaries)
     edges_coarse = cv2.Canny(gray, 100, 200)  # Coarse details (major outlines)
 
     # Method 2: Gradient-based edge detection
@@ -63,8 +65,8 @@ def create_structure_preserving_mask(gray: np.ndarray, alpha_mask: np.ndarray, r
         lab = cv2.cvtColor(rgb_data, cv2.COLOR_BGR2LAB)
 
         # Extract intensity variations in different color channels
-        hsv_edges = cv2.Canny(hsv[:,:,2], 30, 80)  # Value channel
-        lab_edges = cv2.Canny(lab[:,:,0], 25, 75)  # L channel
+        hsv_edges = cv2.Canny(hsv[:, :, 2], 30, 80)  # Value channel
+        lab_edges = cv2.Canny(lab[:, :, 0], 25, 75)  # L channel
 
         # Combine color-based edges
         color_edges = cv2.bitwise_or(hsv_edges, lab_edges)
@@ -79,14 +81,16 @@ def create_structure_preserving_mask(gray: np.ndarray, alpha_mask: np.ndarray, r
     combined_edges = np.zeros_like(alpha_mask, dtype=np.float32)
 
     # Weight different edge types by importance
-    combined_edges += edges_fine.astype(np.float32) * 0.8      # High weight for fine details
-    combined_edges += edges_medium.astype(np.float32) * 1.0    # Highest weight for medium details
-    combined_edges += edges_coarse.astype(np.float32) * 0.6    # Medium weight for coarse details
-    combined_edges += sobel_edges.astype(np.float32) * 0.7     # Good weight for gradients
-    combined_edges += laplacian_edges.astype(np.float32) * 0.5 # Medium weight for internal structure
-    combined_edges += morph_edges.astype(np.float32) * 0.6     # Good weight for boundaries
-    combined_edges += color_edges.astype(np.float32) * 0.4     # Lower weight for color edges
-    combined_edges += texture_mask.astype(np.float32) * 0.3    # Lower weight for texture
+    combined_edges += edges_fine.astype(np.float32) * 0.8  # High weight for fine details
+    combined_edges += edges_medium.astype(np.float32) * 1.0  # Highest weight for medium details
+    combined_edges += edges_coarse.astype(np.float32) * 0.6  # Medium weight for coarse details
+    combined_edges += sobel_edges.astype(np.float32) * 0.7  # Good weight for gradients
+    combined_edges += (
+        laplacian_edges.astype(np.float32) * 0.5
+    )  # Medium weight for internal structure
+    combined_edges += morph_edges.astype(np.float32) * 0.6  # Good weight for boundaries
+    combined_edges += color_edges.astype(np.float32) * 0.4  # Lower weight for color edges
+    combined_edges += texture_mask.astype(np.float32) * 0.3  # Lower weight for texture
 
     # Normalize combined edges
     if np.max(combined_edges) > 0:
@@ -130,7 +134,7 @@ def create_structure_preserving_mask(gray: np.ndarray, alpha_mask: np.ndarray, r
     # Enhance contrast to make internal structure more visible
     print("Enhancing contrast for better structure visibility...")
     # Apply CLAHE (Contrast Limited Adaptive Histogram Equalization)
-    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
     enhanced_mask = clahe.apply(smoothed_mask)
 
     # Ensure we maintain the original alpha boundary
@@ -145,7 +149,9 @@ def create_structure_preserving_mask(gray: np.ndarray, alpha_mask: np.ndarray, r
     strong_edges = (combined_edges > 150).astype(np.uint8) * 255
     final_mask = cv2.bitwise_or(final_mask, cv2.bitwise_and(strong_edges, alpha_mask))
 
-    print(f"Structure-preserving mask created with intensity range: {np.min(final_mask)}-{np.max(final_mask)}")
+    print(
+        f"Structure-preserving mask created with intensity range: {np.min(final_mask)}-{np.max(final_mask)}"
+    )
 
     # Save intermediate results for debugging
     cv2.imwrite("debug_alpha_mask.png", alpha_mask)
@@ -165,11 +171,18 @@ def create_texture_aware_mask(gray: np.ndarray) -> np.ndarray:
     texture_response = np.zeros_like(gray, dtype=np.float32)
 
     # Pad image for convolution
-    padded = cv2.copyMakeBorder(gray, kernel_size//2, kernel_size//2, kernel_size//2, kernel_size//2, cv2.BORDER_REFLECT)
+    padded = cv2.copyMakeBorder(
+        gray,
+        kernel_size // 2,
+        kernel_size // 2,
+        kernel_size // 2,
+        kernel_size // 2,
+        cv2.BORDER_REFLECT,
+    )
 
     for i in range(height):
         for j in range(width):
-            window = padded[i:i+kernel_size, j:j+kernel_size].astype(np.float32)
+            window = padded[i : i + kernel_size, j : j + kernel_size].astype(np.float32)
             texture_response[i, j] = np.std(window)
 
     # Threshold texture response
@@ -222,33 +235,26 @@ def create_test_robot_data():
         # Head
         "head_top": (width // 2, int(height * 0.05)),
         "neck": (width // 2, int(height * 0.12)),
-
         # Torso
         "torso": (width // 2, int(height * 0.25)),
         "pelvis": (width // 2, int(height * 0.45)),
-
         # Shoulders
         "left_shoulder": (int(width * 0.35), int(height * 0.18)),
         "right_shoulder": (int(width * 0.65), int(height * 0.18)),
-
         # Arms
         "left_elbow": (int(width * 0.25), int(height * 0.35)),
         "left_wrist": (int(width * 0.20), int(height * 0.50)),
         "left_hand": (int(width * 0.15), int(height * 0.55)),
-
         "right_elbow": (int(width * 0.75), int(height * 0.35)),
         "right_wrist": (int(width * 0.80), int(height * 0.50)),
         "right_hand": (int(width * 0.85), int(height * 0.55)),
-
         # Hips
         "left_hip": (int(width * 0.42), int(height * 0.45)),
         "right_hip": (int(width * 0.58), int(height * 0.45)),
-
         # Legs
         "left_knee": (int(width * 0.40), int(height * 0.65)),
         "left_ankle": (int(width * 0.38), int(height * 0.85)),
         "left_foot": (int(width * 0.35), int(height * 0.95)),
-
         "right_knee": (int(width * 0.60), int(height * 0.65)),
         "right_ankle": (int(width * 0.62), int(height * 0.85)),
         "right_foot": (int(width * 0.65), int(height * 0.95)),
@@ -263,18 +269,18 @@ def create_test_robot_data():
             "joints": {
                 f"{joint_name}_0": {
                     "position": [float(pos[0]), float(pos[1])],
-                    "parent": None  # Simplified - no hierarchy for this test
+                    "parent": None,  # Simplified - no hierarchy for this test
                 }
                 for joint_name, pos in joint_map.items()
             }
-        }
+        },
     }
 
     # Save test data
     cv2.imwrite(str(test_dir / "texture.png"), texture)
     cv2.imwrite(str(test_dir / "mask.png"), mask)
 
-    with open(test_dir / "char_cfg.yaml", 'w') as f:
+    with open(test_dir / "char_cfg.yaml", "w") as f:
         yaml.safe_dump(char_config, f)
 
     print(f"Created test data in {test_dir}")
@@ -304,7 +310,7 @@ def test_enhanced_segmentation():
         output_dir=str(output_dir),
         generate_animations=False,  # Skip animations for this test
         num_frames=10,
-        fps=12
+        fps=12,
     )
 
     try:
@@ -318,12 +324,14 @@ def test_enhanced_segmentation():
                 results = json.load(f)
 
             print("\nSegmentation Results:")
-            parts = results.get('character', {}).get('parts', {})
+            parts = results.get("character", {}).get("parts", {})
             print(f"Total parts extracted: {len(parts)}")
 
             for part_name, part_info in parts.items():
-                roi = part_info.get('roi', [0, 0, 0, 0])
-                print(f"  {part_name}: ROI {roi[2]:.0f}x{roi[3]:.0f} at ({roi[0]:.0f}, {roi[1]:.0f})")
+                roi = part_info.get("roi", [0, 0, 0, 0])
+                print(
+                    f"  {part_name}: ROI {roi[2]:.0f}x{roi[3]:.0f} at ({roi[0]:.0f}, {roi[1]:.0f})"
+                )
 
         # Check for debug visualization
         debug_file = output_dir / "enhanced_segmentation_debug.png"
@@ -340,6 +348,7 @@ def test_enhanced_segmentation():
     except Exception as e:
         print(f"Error during segmentation: {e}")
         import traceback
+
         traceback.print_exc()
 
 
@@ -378,10 +387,7 @@ def test_direct_torso_first_segmenter():
 
     # Create torso-first segmenter
     segmenter = TorsoFirstSkeletonSegmenter(
-        mask=mask,
-        joint_map=joint_map,
-        part_definitions=BODY_PARTS,
-        scale_factor=0.5
+        mask=mask, joint_map=joint_map, part_definitions=BODY_PARTS, scale_factor=0.5
     )
 
     try:
@@ -404,6 +410,7 @@ def test_direct_torso_first_segmenter():
     except Exception as e:
         print(f"Error in direct segmentation: {e}")
         import traceback
+
         traceback.print_exc()
 
 
@@ -467,7 +474,7 @@ def test_direct_texture_aware_segmenter():
         texture=texture,
         joint_map=joint_map,
         part_definitions=BODY_PARTS,
-        scale_factor=0.5
+        scale_factor=0.5,
     )
 
     try:
@@ -490,6 +497,7 @@ def test_direct_texture_aware_segmenter():
     except Exception as e:
         print(f"Error in texture-aware segmentation: {e}")
         import traceback
+
         traceback.print_exc()
 
 
