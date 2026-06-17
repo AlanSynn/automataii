@@ -84,7 +84,7 @@ def test_scrollable_tab_bar_disables_native_overflow_buttons() -> None:
     assert app is not None
 
 
-def test_scrollable_tab_bar_caps_primary_workflow_tab_widths() -> None:
+def test_scrollable_tab_bar_spreads_primary_workflow_tabs_across_width() -> None:
     app = QApplication.instance() or QApplication([])
     tabs = QTabWidget()
     tab_bar = ScrollableTabBar(tabs)
@@ -100,10 +100,38 @@ def test_scrollable_tab_bar_caps_primary_workflow_tab_widths() -> None:
 
     widths = [tab_bar.tabSizeHint(index).width() for index in range(tab_bar.count())]
 
-    assert max(widths) <= ScrollableTabBar.MAX_TAB_WIDTH
     assert min(widths) >= ScrollableTabBar.MIN_TAB_WIDTH
     assert sum(widths) >= tab_bar.width() - 20
     assert tab_bar.expanding() is True
+    assert app is not None
+
+
+def test_scrollable_tab_bar_geometry_uses_whole_qtabwidget_width() -> None:
+    app = QApplication.instance() or QApplication([])
+    tabs = QTabWidget()
+    tab_bar = ScrollableTabBar(tabs)
+    tabs.setTabBar(tab_bar)
+    tabs.setUsesScrollButtons(False)
+    for label in (
+        "Character Selection",
+        "Path Editor",
+        "Mechanism Design",
+        "Mechanism Foundry",
+    ):
+        tabs.addTab(QWidget(), label)
+
+    tabs.resize(1320, 320)
+    tabs.show()
+    app.processEvents()
+
+    try:
+        assert tab_bar.sizeHint().width() >= tabs.width() - 4
+        assert tab_bar.geometry().width() >= tabs.width() - 24
+        assert sum(tab_bar.tabRect(index).width() for index in range(tab_bar.count())) >= (
+            tabs.width() - 40
+        )
+    finally:
+        tabs.close()
     assert app is not None
 
 

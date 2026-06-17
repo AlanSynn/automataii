@@ -31,15 +31,34 @@ class ScrollableTabBar(QTabBar):
         """Share available width so the four primary workflow tabs remain visible."""
         size = super().tabSizeHint(index)
         tab_count = max(1, self.count())
-        available_width = max(0, self.width() - 12)
-        target_width = self.MAX_TAB_WIDTH
-        if available_width:
-            target_width = max(
-                self.MIN_TAB_WIDTH,
-                min(self.MAX_TAB_WIDTH, available_width // tab_count),
-            )
+        available_width = max(0, self._available_tab_bar_width() - 12)
+        target_width = max(self.MIN_TAB_WIDTH, available_width // tab_count)
         size.setWidth(target_width)
         return size
+
+    def sizeHint(self) -> QSize:
+        """Ask QTabWidget to allocate the whole top navigation width."""
+        size = super().sizeHint()
+        available_width = self._available_tab_bar_width()
+        if available_width:
+            size.setWidth(available_width)
+        return size
+
+    def minimumSizeHint(self) -> QSize:
+        """Keep the tab strip full-width while allowing labels to elide."""
+        size = super().minimumSizeHint()
+        available_width = self._available_tab_bar_width()
+        if available_width:
+            size.setWidth(available_width)
+        return size
+
+    def _available_tab_bar_width(self) -> int:
+        """Return the width QTabWidget should dedicate to the tab strip."""
+        parent_width = 0
+        parent = self.parentWidget()
+        if parent is not None:
+            parent_width = parent.width()
+        return max(self.width(), parent_width)
 
     def wheelEvent(self, event: QWheelEvent | None) -> None:
         """Move to the neighboring tab when users scroll on the tab strip."""
