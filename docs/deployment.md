@@ -2,10 +2,36 @@
 
 MotionSmith has two production release lanes:
 
-1. **Full CI release** (`.github/workflows/release.yml`) builds all platforms in GitHub Actions. This requires macOS signing and notarization secrets in Actions.
+1. **Full CI release** (`make deploy`, backed by `.github/workflows/release.yml`) builds all public platforms in GitHub Actions. This requires macOS signing/notarization secrets and Windows signing secrets in Actions.
 2. **Local build + deploy-only OTA** (`.github/workflows/publish-ota.yml`) assumes the macOS DMG was already built, signed, notarized, and uploaded to a GitHub Release. Actions then verifies that DMG, generates the Sparkle appcast, uploads generated OTA metadata to the Release, and can publish the OTA payload to MotionSmith Pages.
 
 Use lane 2 when GitHub Actions does not have `MACOS_CERT_P12` / `MACOS_CERT_PASSWORD` but the local machine can already sign and notarize.
+
+## Public deploy command
+
+When a release is meant for external users, use the deploy target rather than
+`scripts/build.py` or an unsigned local app bundle:
+
+```bash
+make deploy
+```
+
+`make deploy` reads the current `pyproject.toml` version, creates and pushes
+`vX.Y.Z`, and lets the tag-triggered `release.yml` build the public artifacts.
+That workflow is the only supported full-public deploy path:
+
+- macOS must pass Developer ID signing, notarization/stapling, strict
+  distribution verification, and a packaged smoke scenario.
+- Windows must pass Authenticode signing with the production certificate and
+  both build-machine and downloaded-zip smoke scenarios.
+- Unsigned local builds are development artifacts only and must not be uploaded
+  as external releases.
+
+Override only when intentionally deploying a different already-versioned tag:
+
+```bash
+make deploy RELEASE_TAG=v0.1.1
+```
 
 ## Secrets and local `.env`
 

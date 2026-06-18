@@ -221,3 +221,21 @@ def test_makefile_and_docs_route_releases_through_automation_script():
     assert "MACOS_SIGN_IDENTITY" in docs
     assert "MotionSmith-macos-universal2-release-manifest.json" in docs
     assert "Applications" in docs
+
+
+def test_makefile_deploy_uses_tag_triggered_strict_release_workflow():
+    makefile = Path("Makefile").read_text(encoding="utf-8")
+    docs = Path("docs/deployment.md").read_text(encoding="utf-8")
+    release_workflow = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
+    recipe = _makefile_target_recipe(makefile, "deploy")
+
+    assert "RELEASE_TAG" in makefile
+    assert "git tag -a" in recipe
+    assert "git push" in recipe
+    assert "release.yml" in recipe
+    assert "notarization/stapling" in recipe
+    assert "Authenticode signing" in recipe
+    assert "make deploy" in docs
+    assert "Unsigned local builds are development artifacts only" in docs
+    assert "--notarize --verify-release --strict-distribution" in release_workflow
+    assert "default: 'v0.1.0'" not in release_workflow

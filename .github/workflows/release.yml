@@ -9,7 +9,6 @@ on:
       version:
         description: 'Version tag'
         required: true
-        default: 'v0.1.0'
       publish_external:
         description: 'Publish GitHub Release'
         required: true

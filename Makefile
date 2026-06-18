@@ -5,7 +5,7 @@
         lint lint-fix format format-check type-check type-debt-report quality \
         build build-experiment build-experiment-arm64 build-experiment-x86_64 \
         build-macos build-macos-native build-macos-arm64 build-macos-x86_64 \
-        build-windows build-linux release-macos \
+        build-windows build-linux release-macos deploy \
         store-notary-profile verify-macos-release \
         clean clean-all info
 
@@ -44,6 +44,7 @@ help:
 	@echo "  build-windows          - Build signed Windows distribution zip"
 	@echo "  build-linux            - Build Linux executable"
 	@echo "  release-macos          - Alias for build-macos"
+	@echo "  deploy                 - Push release tag; CI builds signed Windows + notarized macOS"
 	@echo ""
 	@echo "macOS Distribution:"
 	@echo "  store-notary-profile   - Store notarytool credentials in keychain"
@@ -61,6 +62,8 @@ PYTHON := uv run python
 UV := uv
 PROJECT_NAME := automataii
 MACOS_SIGN_ARG := $(if $(SIGN_ID),--sign "$(SIGN_ID)")
+RELEASE_REMOTE ?= origin
+RELEASE_TAG ?= v$(shell uv run python -c 'import tomllib; print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])')
 
 # ---------------------------------------------------------------------------
 # Dependencies
@@ -156,6 +159,18 @@ build-macos-x86_64:
 
 # Alias kept for documentation compatibility (docs/macos-distribution.md)
 release-macos: build-macos
+
+deploy:
+	@echo "Deploying $(RELEASE_TAG) via GitHub Actions release.yml..."
+	@test "$$(git status --porcelain)" = "" || (echo "Working tree must be clean before deploy." && exit 1)
+	@test -z "$$(git ls-remote --tags $(RELEASE_REMOTE) refs/tags/$(RELEASE_TAG))" || (echo "Remote tag $(RELEASE_TAG) already exists on $(RELEASE_REMOTE)." && exit 1)
+	@if git rev-parse -q --verify "refs/tags/$(RELEASE_TAG)" >/dev/null; then \
+		echo "Local tag $(RELEASE_TAG) already exists; delete or choose RELEASE_TAG explicitly."; \
+		exit 1; \
+	fi
+	git tag -a "$(RELEASE_TAG)" -m "MotionSmith $(RELEASE_TAG)"
+	git push "$(RELEASE_REMOTE)" "$(RELEASE_TAG)"
+	@echo "Triggered release.yml for $(RELEASE_TAG). macOS release must pass Developer ID signing, notarization/stapling, strict verification, and smoke; Windows release must pass Authenticode signing and portable smoke."
 
 build-windows:
 	@echo "Building signed Windows distribution zip..."
