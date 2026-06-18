@@ -53,6 +53,58 @@ class FabricationGuideExportResult:
     contract_warnings: tuple[str, ...] = ()
 
 
+def _normalize_part_ids(raw_value: object) -> tuple[str, ...]:
+    if isinstance(raw_value, str) or not isinstance(raw_value, Iterable):
+        return ()
+    seen: list[str] = []
+    for item in raw_value:
+        if not isinstance(item, str):
+            continue
+        part_id = item.strip()
+        if part_id and part_id not in seen:
+            seen.append(part_id)
+    return tuple(seen)
+
+
+def _active_part_ids_with_source(layer_data: Mapping[str, object]) -> tuple[tuple[str, ...], str | None]:
+    for key in ("active_part_ids", "app_highlight_ids", "fabrication_part_ids", "part_ids"):
+        extracted = _normalize_part_ids(layer_data.get(key))
+        if extracted:
+            return extracted, key
+
+    raw_fabrication = layer_data.get("fabrication")
+    if isinstance(raw_fabrication, Mapping):
+        extracted = _normalize_part_ids(raw_fabrication.get("active_part_ids"))
+        if extracted:
+            return extracted, "fabrication.active_part_ids"
+    return (), None
+
+
+@dataclass(frozen=True, slots=True)
+class FabricationLayerSelection:
+    """Typed compatibility contract for app-layer fabrication recipe selection."""
+
+    mechanism_type: str
+    active_part_ids: tuple[str, ...] = ()
+    active_part_ids_source: str | None = None
+
+    @classmethod
+    def from_layer_data(cls, layer_data: Mapping[str, object]) -> FabricationLayerSelection:
+        raw_type = layer_data.get("type") or layer_data.get("mechanism_type")
+        raw_type = raw_type or layer_data.get("source_type") or ""
+        active_part_ids, source = _active_part_ids_with_source(layer_data)
+        return cls(
+            mechanism_type=str(canonical_mechanism_type(raw_type)),
+            active_part_ids=active_part_ids,
+            active_part_ids_source=source,
+        )
+
+
+def active_part_ids_from_layer(layer_data: Mapping[str, object]) -> tuple[str, ...]:
+    """Extract active fabrication part IDs from a mechanism-layer payload."""
+    return FabricationLayerSelection.from_layer_data(layer_data).active_part_ids
+
+
 class FabricationAssemblyGuideExporter:
     """Copy generated board-assembly guides without entering legacy blueprint export flow."""
 
@@ -424,7 +476,7 @@ class FabricationAssemblyGuideExporter:
                 f'<circle cx="25" cy="{y - 3}" r="3" fill="#ef4444"/>'
                 f'<text x="34" y="{y - 2}" class="item">{start + offset}. '
                 f"{html_escape(hardware_id.replace('-', ' ').title())}</text>"
-                '<text x="130" y="{y - 2}" class="small">hardware — buy, do not cut</text>'
+                f'<text x="130" y="{y - 2}" class="small">hardware — buy, do not cut</text>'
                 f'<text x="242" y="{y - 2}" class="item" text-anchor="end">x{count}</text>'
             )
         recipe_text = ", ".join(str(recipe.get("title", "Guide")) for recipe in recipes) or "Guide"
@@ -676,9 +728,13 @@ class FabricationAssemblyGuideExporter:
         for layer_id, raw_layer in mechanism_layers.items():
             if not isinstance(raw_layer, Mapping):
                 continue
-            mechanism_type = self._layer_mechanism_type(raw_layer)
+            selection = FabricationLayerSelection.from_layer_data(raw_layer)
+            mechanism_type = selection.mechanism_type
             params = self._layer_params(raw_layer)
-            summary = self.resolve_app_state_to_guide(mechanism_type)
+            summary = self.resolve_app_state_to_guide(
+                mechanism_type,
+                active_part_ids=selection.active_part_ids,
+            )
             recipe = recipes.get(summary.key) if summary is not None else None
             expected_parts = self._expected_part_ids_for_layer(mechanism_type, params)
             recipe_counts = self._recipe_part_counts(recipe) if recipe is not None else {}
@@ -720,6 +776,8 @@ class FabricationAssemblyGuideExporter:
                     "mechanism_type": mechanism_type,
                     "recipe_key": summary.key if summary is not None else None,
                     "recipe_title": summary.title if summary is not None else None,
+                    "active_part_ids_from_app": list(selection.active_part_ids),
+                    "active_part_ids_source": selection.active_part_ids_source,
                     "expected_part_ids_from_app": list(expected_parts),
                     "recipe_part_ids": list(recipe_parts),
                     "status": "warning" if layer_warnings else "matched",

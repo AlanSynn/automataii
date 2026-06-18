@@ -11,7 +11,11 @@ import pytest
 from scripts.generate_fabrication_templates import write_fabrication_templates
 
 import automataii.application.fabrication.assembly_export as assembly_export
-from automataii.application.fabrication import FabricationAssemblyGuideExporter
+from automataii.application.fabrication import (
+    FabricationAssemblyGuideExporter,
+    FabricationLayerSelection,
+    active_part_ids_from_layer,
+)
 from automataii.application.managers.blueprint_manager import BlueprintExportManager
 from automataii.application.mechanism_foundry.controller import build_mechanism_configs
 from automataii.application.mechanism_foundry.mechanism_types import (
@@ -595,6 +599,7 @@ def test_assembly_export_readme_and_pdf_cover_explain_character_attachment(tmp_p
     assert "spacers:s8" in cover
     assert "x1" in cover
     assert "Paper Fastener" in cover
+    assert "{y - 2}" not in cover
     assert "assembly-guide.pdf" in readme
     assert "kit-parts-to-cut.pdf" in readme
     assert "There is no" in readme
@@ -628,6 +633,50 @@ def test_physical_contract_flags_when_app_parts_do_not_match_recipe(tmp_path: Pa
     layers = cast(list[dict[str, Any]], contract["layers"])
     assert layers[0]["status"] == "warning"
     assert "linkages:linkage-6-cell" in layers[0]["expected_part_ids_from_app"]
+
+
+def test_active_part_ids_helper_contract_and_physical_contract_echo(tmp_path: Path) -> None:
+    write_fabrication_templates(tmp_path)
+    exporter = FabricationAssemblyGuideExporter(tmp_path)
+
+    assert active_part_ids_from_layer(
+        {
+            "active_part_ids": ["gears:g12", "gears:g12", 42],
+            "app_highlight_ids": ["ignored:lower-precedence"],
+        }
+    ) == ("gears:g12",)
+    assert active_part_ids_from_layer({"app_highlight_ids": ["gears:g16"]}) == ("gears:g16",)
+    assert active_part_ids_from_layer(
+        {"fabrication": {"active_part_ids": ["linkages:linkage-4-cell"]}}
+    ) == ("linkages:linkage-4-cell",)
+    assert active_part_ids_from_layer({"active_part_ids": "gears:g12"}) == ()
+    selection = FabricationLayerSelection.from_layer_data(
+        {"source_type": "gear_train", "fabrication_part_ids": ["gears:g12"]}
+    )
+    assert selection.mechanism_type == "gear_train"
+    assert selection.active_part_ids == ("gears:g12",)
+    assert selection.active_part_ids_source == "fabrication_part_ids"
+
+    contract = exporter.build_app_physical_contract(
+        {
+            "gear": {
+                "type": "gear_train",
+                "active_part_ids": ["gears:g12", "gears:g16"],
+                "params": {
+                    "grid_system_enabled": True,
+                    "grid_cell_cm": 2.0,
+                    "gear1_teeth": 12,
+                    "gear2_teeth": 16,
+                },
+            }
+        },
+        recipe_keys={"gear-train-basic"},
+    )
+
+    layers = cast(list[dict[str, Any]], contract["layers"])
+    assert layers[0]["recipe_key"] == "gear-train-basic"
+    assert layers[0]["active_part_ids_from_app"] == ["gears:g12", "gears:g16"]
+    assert layers[0]["active_part_ids_source"] == "active_part_ids"
 
 
 def test_foundry_default_mechanisms_match_physical_recipe_parts(tmp_path: Path) -> None:

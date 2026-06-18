@@ -230,9 +230,9 @@ class OptionsTab(QWidget):
             self._on_blueprint_export_format_changed
         )
         self.blueprint_export_format_combo.setToolTip(
-            "Choose the default file type for make-parts blueprint exports."
+            "Choose the file type for current-design cut sheets. Assembly guides remain PDF-first when available."
         )
-        fabrication_layout.addRow("Blueprint File Type:", self.blueprint_export_format_combo)
+        fabrication_layout.addRow("Cut-sheet File Type:", self.blueprint_export_format_combo)
 
         self._add_group(layout, fabrication_group)
 

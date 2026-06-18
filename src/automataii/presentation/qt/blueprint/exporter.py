@@ -3,12 +3,14 @@ from __future__ import annotations
 import logging
 import math
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any, SupportsFloat, SupportsIndex, cast
 
 import numpy as np
 from PyQt6.QtCore import QPointF
 from PyQt6.QtWidgets import QMessageBox, QWidget
 
+from automataii.application.fabrication import FabricationLayerSelection
 from automataii.infrastructure.telemetry import telemetry_span
 from automataii.shared.physical_kit import (
     gear_center_distance,
@@ -81,8 +83,11 @@ class BlueprintExporter:
         for layer_data in mechanism_layers.values():
             if not isinstance(layer_data, dict):
                 continue
-            mechanism_type = layer_data.get("type") or layer_data.get("mechanism_type")
-            summary = guide_exporter.resolve_app_state_to_guide(mechanism_type)
+            selection = FabricationLayerSelection.from_layer_data(layer_data)
+            summary = guide_exporter.resolve_app_state_to_guide(
+                selection.mechanism_type,
+                active_part_ids=selection.active_part_ids,
+            )
             if summary is not None:
                 recipe_keys.add(summary.key)
         return recipe_keys
@@ -97,8 +102,6 @@ class BlueprintExporter:
         needs both directions side-by-side.
         """
         try:
-            from pathlib import Path
-
             from PyQt6.QtWidgets import QFileDialog, QMessageBox
 
             from automataii.application.fabrication import FabricationAssemblyGuideExporter
@@ -114,7 +117,12 @@ class BlueprintExporter:
                 return
             output_dir = Path(output_dir_text)
             output_dir.mkdir(parents=True, exist_ok=True)
-            for legacy_name in ("cut-sheets.pdf", "cut-sheets.svg"):
+            for legacy_name in (
+                "cut-sheets.pdf",
+                "cut-sheets.svg",
+                "current-design-cut-sheets.pdf",
+                "current-design-cut-sheets.svg",
+            ):
                 legacy_path = output_dir / legacy_name
                 if legacy_path.is_file():
                     legacy_path.unlink()
@@ -205,7 +213,12 @@ class BlueprintExporter:
                 recipe_count=len(recipe_keys),
                 output_format=output_format,
             ) as span:
-                cut_sheet_success = blueprint_manager.export_blueprint_to_path(
+                export_cut_sheet = getattr(
+                    blueprint_manager,
+                    "export_blueprint_to_path_result",
+                    blueprint_manager.export_blueprint_to_path,
+                )
+                cut_sheet_result = export_cut_sheet(
                     part_items=part_items,
                     mechanism_layers=mechanism_layers,
                     file_path=output_dir / cut_sheet_name,
@@ -213,6 +226,17 @@ class BlueprintExporter:
                     unit_system="metric",
                     output_format=output_format,
                 )
+                cut_sheet_success = bool(getattr(cut_sheet_result, "success", cut_sheet_result))
+                actual_cut_sheet_path = getattr(cut_sheet_result, "path", None)
+                if actual_cut_sheet_path is not None:
+                    actual_cut_sheet_path = Path(actual_cut_sheet_path)
+                actual_cut_sheet_format = getattr(cut_sheet_result, "actual_format", None)
+                if actual_cut_sheet_format is None and cut_sheet_success:
+                    actual_cut_sheet_format = output_format
+                actual_cut_sheet_name = (
+                    actual_cut_sheet_path.name if actual_cut_sheet_path is not None else cut_sheet_name
+                )
+                cut_sheet_error = getattr(cut_sheet_result, "error", None)
 
                 assembly_success = True
                 if assembly_contract_ready:
@@ -251,7 +275,8 @@ class BlueprintExporter:
                         )
                         next_steps_text = (
                             "Use it like a LEGO guide book: print/cut the current-design cut "
-                            "sheet and kit-parts PDF first, then follow assembly-guide.pdf one "
+                            f"sheet ({str(actual_cut_sheet_format).upper()}) and kit-parts "
+                            "PDF first, then follow assembly-guide.pdf one "
                             "step card at a time."
                         )
                     else:
@@ -300,10 +325,15 @@ class BlueprintExporter:
                     else len(contract_warnings)
                 )
                 logging.info("[BLUEPRINT] Fabrication package export completed: %s", output_dir)
+                package_label = (
+                    "PDF-first blueprint package exported successfully."
+                    if actual_cut_sheet_format == "pdf"
+                    else "Blueprint package exported successfully with SVG cut sheet."
+                )
                 message = (
-                    "PDF-first blueprint package exported successfully.\n\n"
+                    f"{package_label}\n\n"
                     f"Folder: {output_dir}\n"
-                    f"Current design cut sheet: {cut_sheet_name}\n"
+                    f"Current design cut sheet: {actual_cut_sheet_name}\n"
                     f"{guide_text}"
                     f"Parts: {len(part_items)}\n"
                     f"Mechanisms: {len(mechanism_layers)}\n"
@@ -328,7 +358,8 @@ class BlueprintExporter:
                 QMessageBox.warning(
                     self._parent,
                     "Blueprint Package Export Failed",
-                    "Blueprint package export failed.\nCheck the console for details.",
+                    "Blueprint package export failed.\n"
+                    f"{cut_sheet_error or 'Check the console for details.'}",
                 )
 
         except ImportError as e:

@@ -3,6 +3,7 @@
 
 import logging
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
@@ -19,6 +20,21 @@ from automataii.infrastructure.generation.pdf.svg_pdf import render_svg_to_pdf
 # from automataii.generation.multi_page_blueprint import (
 #     MultiPageSVGGenerator,
 # )
+
+
+@dataclass(frozen=True, slots=True)
+class BlueprintExportResult:
+    """Observable result for a package cut-sheet export."""
+
+    success: bool
+    requested_format: str
+    actual_format: str | None
+    path: Path | None
+    fallback_path: Path | None = None
+    error: str | None = None
+
+    def __bool__(self) -> bool:
+        return self.success
 
 
 class BlueprintExportManager(QObject):
@@ -159,6 +175,92 @@ class BlueprintExportManager(QObject):
             self.export_completed.emit(False, f"Export failed: {str(e)}")
             return False
 
+    def export_blueprint_to_path_result(
+        self,
+        part_items: list[Any],
+        mechanism_layers: dict[str, Any] | None,
+        file_path: str | Path,
+        *,
+        snapshot_png_bytes: bytes | None = None,
+        unit_system: str = "metric",
+        output_format: str = "pdf",
+    ) -> BlueprintExportResult:
+        """Export blueprint content directly to a caller-chosen path with artifact details.
+
+        This is used by the package-style fabrication export so the caller can
+        report the actual cut-sheet artifact. PDF is requested by default, but
+        a successful SVG fallback is a valid degraded result.
+        """
+        try:
+            svg_content = self._generate_single_large_page_blueprint(
+                part_items, mechanism_layers or {}, snapshot_png_bytes, unit_system
+            )
+            if not svg_content:
+                raise ValueError("Generated SVG content is empty")
+
+            destination = Path(file_path)
+            fmt = str(output_format).strip().lower()
+            ext = destination.suffix.lower()
+            requested_format = "svg" if fmt == "svg" or ext == ".svg" else "pdf"
+            if requested_format == "svg":
+                svg_destination = destination.with_suffix(".svg")
+                if self._save_svg_file(svg_content, str(svg_destination)):
+                    self.logger.info("Blueprint package cut sheet saved to %s", svg_destination)
+                    return BlueprintExportResult(
+                        success=True,
+                        requested_format=requested_format,
+                        actual_format="svg",
+                        path=svg_destination,
+                    )
+                return BlueprintExportResult(
+                    success=False,
+                    requested_format=requested_format,
+                    actual_format=None,
+                    path=None,
+                    error=f"Failed to save SVG cut sheet to {svg_destination}",
+                )
+
+            pdf_destination = destination.with_suffix(".pdf")
+            success = self._save_pdf_file(svg_content, str(pdf_destination))
+            if success:
+                self.logger.info("Blueprint package cut sheet saved to %s", pdf_destination)
+                return BlueprintExportResult(
+                    success=True,
+                    requested_format=requested_format,
+                    actual_format="pdf",
+                    path=pdf_destination,
+                )
+            fallback_svg = destination.with_suffix(".svg")
+            self.logger.warning(
+                "PDF package cut-sheet export unavailable; writing SVG fallback to %s",
+                fallback_svg,
+            )
+            if self._save_svg_file(svg_content, str(fallback_svg)):
+                return BlueprintExportResult(
+                    success=True,
+                    requested_format=requested_format,
+                    actual_format="svg",
+                    path=fallback_svg,
+                    fallback_path=fallback_svg,
+                    error="PDF rendering unavailable; SVG fallback generated",
+                )
+            return BlueprintExportResult(
+                success=False,
+                requested_format=requested_format,
+                actual_format=None,
+                path=None,
+                error="Failed to render PDF and failed to save SVG fallback",
+            )
+        except Exception as e:
+            self.logger.error(f"Blueprint export to path failed: {e}")
+            return BlueprintExportResult(
+                success=False,
+                requested_format=str(output_format).strip().lower() or "pdf",
+                actual_format=None,
+                path=None,
+                error=str(e),
+            )
+
     def export_blueprint_to_path(
         self,
         part_items: list[Any],
@@ -171,31 +273,20 @@ class BlueprintExportManager(QObject):
     ) -> bool:
         """Export blueprint content directly to a caller-chosen path.
 
-        This is used by the package-style fabrication export so the user chooses
-        one output folder and receives the character/mechanism cut-sheet PDF plus
-        the matching board assembly PDF package without a second save dialog.
+        Legacy callers only receive success/failure. Package export callers that
+        need the actual PDF/SVG artifact should use
+        :meth:`export_blueprint_to_path_result`.
         """
-        try:
-            svg_content = self._generate_single_large_page_blueprint(
-                part_items, mechanism_layers or {}, snapshot_png_bytes, unit_system
+        return bool(
+            self.export_blueprint_to_path_result(
+                part_items=part_items,
+                mechanism_layers=mechanism_layers,
+                file_path=file_path,
+                snapshot_png_bytes=snapshot_png_bytes,
+                unit_system=unit_system,
+                output_format=output_format,
             )
-            if not svg_content:
-                raise ValueError("Generated SVG content is empty")
-
-            destination = Path(file_path)
-            fmt = str(output_format).strip().lower()
-            ext = destination.suffix.lower()
-            if fmt == "svg" or ext == ".svg":
-                return self._save_svg_file(svg_content, str(destination.with_suffix(".svg")))
-
-            pdf_destination = destination.with_suffix(".pdf")
-            success = self._save_pdf_file(svg_content, str(pdf_destination))
-            if success:
-                self.logger.info("Blueprint package cut sheet saved to %s", pdf_destination)
-            return success
-        except Exception as e:
-            self.logger.error(f"Blueprint export to path failed: {e}")
-            return False
+        )
 
     def _get_save_file_path(
         self,

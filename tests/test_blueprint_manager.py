@@ -7,7 +7,7 @@ import pytest
 from PyQt6.QtWidgets import QApplication
 
 from automataii.application.blueprint import BlueprintCompositionResult
-from automataii.application.managers import BlueprintExportManager
+from automataii.application.managers import BlueprintExportManager, BlueprintExportResult
 
 _APP: QApplication | None = None
 
@@ -142,3 +142,164 @@ def test_save_pdf_file_removes_partial_and_stale_pdf_when_renderer_fails(
     assert fresh_manager._save_pdf_file("<svg />", str(target)) is False  # type: ignore[attr-defined]
     assert not target.exists()
     assert not (tmp_path / ".current-design-cut-sheets.tmp.pdf").exists()
+
+
+def test_export_blueprint_to_path_returns_svg_fallback_when_pdf_render_fails(
+    fresh_manager,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    import automataii.application.managers.blueprint_manager as blueprint_manager
+
+    class StubComposer:
+        def compose_single_page(self, *_args, **_kwargs):
+            return BlueprintCompositionResult(
+                svg="<svg/>",
+                width_mm=10.0,
+                height_mm=10.0,
+                item_count=0,
+            )
+
+    def fake_render(_svg_content: str, output_path: Path) -> bool:
+        output_path.write_text("partial pdf", encoding="utf-8")
+        return False
+
+    fresh_manager._composer = StubComposer()  # type: ignore[attr-defined]
+    monkeypatch.setattr(blueprint_manager, "render_svg_to_pdf", fake_render)
+    target = tmp_path / "current-design-cut-sheets.pdf"
+
+    result = fresh_manager.export_blueprint_to_path_result(
+        part_items=[],
+        mechanism_layers={},
+        file_path=target,
+        output_format="pdf",
+    )
+
+    assert isinstance(result, BlueprintExportResult)
+    assert result.success is True
+    assert result.requested_format == "pdf"
+    assert result.actual_format == "svg"
+    assert result.path == tmp_path / "current-design-cut-sheets.svg"
+    assert result.fallback_path == tmp_path / "current-design-cut-sheets.svg"
+    assert not target.exists()
+    assert result.path.is_file()
+
+
+def test_export_blueprint_to_path_reports_pdf_success(
+    fresh_manager,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    import automataii.application.managers.blueprint_manager as blueprint_manager
+
+    class StubComposer:
+        def compose_single_page(self, *_args, **_kwargs):
+            return BlueprintCompositionResult(
+                svg="<svg/>",
+                width_mm=10.0,
+                height_mm=10.0,
+                item_count=0,
+            )
+
+    def fake_render(_svg_content: str, output_path: Path) -> bool:
+        output_path.write_text("%PDF-1.4\n", encoding="utf-8")
+        return True
+
+    fresh_manager._composer = StubComposer()  # type: ignore[attr-defined]
+    monkeypatch.setattr(blueprint_manager, "render_svg_to_pdf", fake_render)
+    target = tmp_path / "current-design-cut-sheets.pdf"
+
+    result = fresh_manager.export_blueprint_to_path_result(
+        part_items=[],
+        mechanism_layers={},
+        file_path=target,
+        output_format="pdf",
+    )
+
+    assert result.success is True
+    assert result.requested_format == "pdf"
+    assert result.actual_format == "pdf"
+    assert result.path == target
+    assert result.fallback_path is None
+    assert result.error is None
+    assert target.is_file()
+
+
+def test_export_blueprint_to_path_reports_svg_success(fresh_manager, tmp_path) -> None:
+    class StubComposer:
+        def compose_single_page(self, *_args, **_kwargs):
+            return BlueprintCompositionResult(
+                svg="<svg/>",
+                width_mm=10.0,
+                height_mm=10.0,
+                item_count=0,
+            )
+
+    fresh_manager._composer = StubComposer()  # type: ignore[attr-defined]
+    target = tmp_path / "current-design-cut-sheets.svg"
+
+    result = fresh_manager.export_blueprint_to_path_result(
+        part_items=[],
+        mechanism_layers={},
+        file_path=target,
+        output_format="svg",
+    )
+
+    assert result.success is True
+    assert result.requested_format == "svg"
+    assert result.actual_format == "svg"
+    assert result.path == target
+    assert result.fallback_path is None
+    assert target.is_file()
+
+
+def test_export_blueprint_to_path_preserves_legacy_bool_contract(fresh_manager, tmp_path) -> None:
+    class StubComposer:
+        def compose_single_page(self, *_args, **_kwargs):
+            return BlueprintCompositionResult(
+                svg="<svg/>",
+                width_mm=10.0,
+                height_mm=10.0,
+                item_count=0,
+            )
+
+    fresh_manager._composer = StubComposer()  # type: ignore[attr-defined]
+    target = tmp_path / "current-design-cut-sheets.svg"
+
+    result = fresh_manager.export_blueprint_to_path(
+        part_items=[],
+        mechanism_layers={},
+        file_path=target,
+        output_format="svg",
+    )
+
+    assert result is True
+    assert target.is_file()
+
+
+def test_export_blueprint_to_path_reports_total_failure(fresh_manager, tmp_path) -> None:
+    class EmptyComposer:
+        def compose_single_page(self, *_args, **_kwargs):
+            return BlueprintCompositionResult(
+                svg="",
+                width_mm=10.0,
+                height_mm=10.0,
+                item_count=0,
+            )
+
+    fresh_manager._composer = EmptyComposer()  # type: ignore[attr-defined]
+    target = tmp_path / "current-design-cut-sheets.pdf"
+
+    result = fresh_manager.export_blueprint_to_path_result(
+        part_items=[],
+        mechanism_layers={},
+        file_path=target,
+        output_format="pdf",
+    )
+
+    assert result.success is False
+    assert result.requested_format == "pdf"
+    assert result.actual_format is None
+    assert result.path is None
+    assert result.error
+    assert not target.exists()
