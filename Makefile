@@ -64,6 +64,7 @@ PROJECT_NAME := automataii
 MACOS_SIGN_ARG := $(if $(SIGN_ID),--sign "$(SIGN_ID)")
 RELEASE_REMOTE ?= origin
 RELEASE_TAG ?= v$(shell uv run python -c 'import tomllib; print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])')
+RELEASE_REQUIRED_SECRETS := MACOS_CERT_P12 MACOS_CERT_PASSWORD KEYCHAIN_PASSWORD MACOS_SIGN_IDENTITY APPLE_ID APPLE_TEAM_ID APPLE_APP_SPECIFIC_PASSWORD WINDOWS_CERT_PFX WINDOWS_CERT_PASSWORD SPARKLE_PUBLIC_ED_KEY
 
 # ---------------------------------------------------------------------------
 # Dependencies
@@ -163,6 +164,20 @@ release-macos: build-macos
 deploy:
 	@echo "Deploying $(RELEASE_TAG) via GitHub Actions release.yml..."
 	@test "$$(git status --porcelain)" = "" || (echo "Working tree must be clean before deploy." && exit 1)
+	@command -v gh >/dev/null || (echo "GitHub CLI (gh) is required so deploy can preflight release secrets before pushing a tag." && exit 1)
+	@gh auth status >/dev/null || (echo "GitHub CLI is not authenticated; run gh auth login before public deploy." && exit 1)
+	@secrets="$$(gh secret list --json name --jq '.[].name')"; \
+	missing=""; \
+	for secret in $(RELEASE_REQUIRED_SECRETS); do \
+		if ! printf '%s\n' "$$secrets" | grep -qx "$$secret"; then \
+			missing="$$missing $$secret"; \
+		fi; \
+	done; \
+	if [ -n "$$missing" ]; then \
+		echo "Missing GitHub Actions secrets for public deploy:$$missing"; \
+		echo "Refusing to push $(RELEASE_TAG); signed Windows and notarized macOS release would fail."; \
+		exit 1; \
+	fi
 	@test -z "$$(git ls-remote --tags $(RELEASE_REMOTE) refs/tags/$(RELEASE_TAG))" || (echo "Remote tag $(RELEASE_TAG) already exists on $(RELEASE_REMOTE)." && exit 1)
 	@if git rev-parse -q --verify "refs/tags/$(RELEASE_TAG)" >/dev/null; then \
 		echo "Local tag $(RELEASE_TAG) already exists; delete or choose RELEASE_TAG explicitly."; \

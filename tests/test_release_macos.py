@@ -230,12 +230,20 @@ def test_makefile_deploy_uses_tag_triggered_strict_release_workflow():
     recipe = _makefile_target_recipe(makefile, "deploy")
 
     assert "RELEASE_TAG" in makefile
+    assert "RELEASE_REQUIRED_SECRETS" in makefile
+    assert "MACOS_CERT_P12" in makefile
+    assert "MACOS_CERT_PASSWORD" in makefile
+    assert "WINDOWS_CERT_PFX" in makefile
+    assert "WINDOWS_CERT_PASSWORD" in makefile
+    assert "gh secret list" in recipe
+    assert "Refusing to push" in recipe
     assert "git tag -a" in recipe
     assert "git push" in recipe
     assert "release.yml" in recipe
     assert "notarization/stapling" in recipe
     assert "Authenticode signing" in recipe
     assert "make deploy" in docs
+    assert "refuses to create the release tag" in docs
     assert "Unsigned local builds are development artifacts only" in docs
     assert "--notarize --verify-release --strict-distribution" in release_workflow
     assert "default: 'v0.1.0'" not in release_workflow
