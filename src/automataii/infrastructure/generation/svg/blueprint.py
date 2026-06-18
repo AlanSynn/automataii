@@ -1,8 +1,11 @@
 import logging
 import math
+from collections.abc import Sequence
 from html import escape as escape_xml
 
 from automataii.domain.generation.contour import AdvancedContourExtractor
+from automataii.domain.generation.contour.models import ManufacturingContour
+from automataii.domain.generation.layout import LayoutItem
 from automataii.infrastructure.generation.processors.png_blueprint import (
     PNGBlueprintProcessor,
 )
@@ -72,14 +75,14 @@ def _cut_sheet_handoff_panel(
 
 
 def generate_single_large_blueprint(
-    layout_items,
-    page_width_mm,
-    page_height_mm,
-    title="Manufacturing Blueprint",
-    scale_info="",
+    layout_items: Sequence[LayoutItem] | None,
+    page_width_mm: object,
+    page_height_mm: object,
+    title: object = "Manufacturing Blueprint",
+    scale_info: object = "",
     snapshot_data_uri: str | None = None,
     unit_system: str = "metric",
-):
+) -> str:
     """
     Generate a single large-format blueprint with all content.
     Uses generous spacing to ensure all parts and mechanisms are clearly visible.
@@ -104,6 +107,80 @@ def generate_single_large_blueprint(
     scale_info = _safe_svg_text(scale_info)
     snapshot_data_uri = _safe_snapshot_data_uri(snapshot_data_uri)
     unit_system = "imperial" if unit_system == "imperial" else "metric"
+
+    # Compute page geometry before the header is emitted. The previous fixed
+    # 800x600 sheet could clip current-design exports once labels, mechanisms,
+    # or snapshots pushed content below the footer.
+    part_items = [item for item in layout_items if getattr(item, "item_type", None) == "part"]
+    mechanism_items = [
+        item for item in layout_items if getattr(item, "item_type", None) == "mechanism"
+    ]
+    margin_x = 50.0
+    spacing = 40.0
+    mech_spacing = 60.0
+
+    def item_size(item: object, *, height_extra: float = 0.0) -> tuple[float, float]:
+        bounds = getattr(item, "bounds", None)
+        width = _positive_dimension(getattr(bounds, "width", 0.0), 1.0)
+        height = _positive_dimension(getattr(bounds, "height", 0.0), 1.0) + height_extra
+        return width, height
+
+    max_item_width = 0.0
+    for item in part_items:
+        max_item_width = max(max_item_width, item_size(item)[0])
+    for item in mechanism_items:
+        # Mechanism SVGs reserve a right-side parameter panel.
+        max_item_width = max(max_item_width, item_size(item)[0] + 195.0)
+    if max_item_width:
+        page_width_mm = max(page_width_mm, max_item_width + (2 * margin_x) + spacing)
+
+    def section_bottom(
+        items: list[object],
+        start_y: float,
+        *,
+        local_y: float,
+        item_spacing: float,
+        item_width_extra: float,
+        item_height_extra: float,
+        bottom_padding: float,
+    ) -> float:
+        if not items:
+            return start_y
+        x = 0.0
+        y = local_y
+        row_height = 0.0
+        row_width = max(1.0, page_width_mm - (2 * margin_x))
+        for item in items:
+            width, height = item_size(item, height_extra=item_height_extra)
+            effective_width = width + item_width_extra
+            if x > 0.0 and x + effective_width + item_spacing > row_width:
+                x = 0.0
+                y += row_height + item_spacing
+                row_height = 0.0
+            x += effective_width + item_spacing
+            row_height = max(row_height, height)
+        return start_y + y + row_height + bottom_padding
+
+    required_height = 240.0 + (280.0 if snapshot_data_uri else 0.0)
+    required_height = section_bottom(
+        part_items,
+        required_height,
+        local_y=40.0,
+        item_spacing=spacing,
+        item_width_extra=0.0,
+        item_height_extra=28.0,
+        bottom_padding=80.0,
+    )
+    required_height = section_bottom(
+        mechanism_items,
+        required_height,
+        local_y=50.0,
+        item_spacing=mech_spacing,
+        item_width_extra=195.0,
+        item_height_extra=70.0,
+        bottom_padding=80.0,
+    )
+    page_height_mm = max(page_height_mm, required_height + 100.0)
     title_clip_width = max(80.0, page_width_mm - 290.0)
 
     # Unit conversion functions
@@ -198,12 +275,6 @@ def generate_single_large_blueprint(
 '''
     svg_parts.append(svg_header)
 
-    # Separate parts and mechanisms
-    part_items = [item for item in layout_items if getattr(item, "item_type", None) == "part"]
-    mechanism_items = [
-        item for item in layout_items if getattr(item, "item_type", None) == "mechanism"
-    ]
-
     logger.info(f"Large blueprint: {len(part_items)} parts, {len(mechanism_items)} mechanisms")
     svg_parts.append(
         _cut_sheet_handoff_panel(
@@ -215,8 +286,6 @@ def generate_single_large_blueprint(
 
     # Main content area with generous spacing
     content_y: float = 240.0
-    margin_x = 50
-    spacing = 40  # Very generous spacing between items
 
     # Optional snapshot section at top-right
     if snapshot_data_uri:
@@ -261,7 +330,7 @@ def generate_single_large_blueprint(
             item_width = _positive_dimension(getattr(bounds, "width", 0.0), 1.0)
             item_height = _positive_dimension(getattr(bounds, "height", 0.0), 1.0)
             # Check if we need to start a new row
-            if parts_x + item_width + spacing > row_width:
+            if parts_x > 0.0 and parts_x + item_width + spacing > row_width:
                 parts_x = 0.0
                 parts_y += max_row_height + spacing
                 max_row_height = 0
@@ -309,15 +378,15 @@ def generate_single_large_blueprint(
         mech_y: float = 50.0
         mech_x: float = 0.0
         max_row_height = 0.0
-        mech_spacing = 60  # Extra space for mechanisms
         row_width = page_width_mm - (2 * margin_x)  # Define row_width for mechanisms section
 
         for item in mechanism_items:
             bounds = getattr(item, "bounds", None)
             item_width = _positive_dimension(getattr(bounds, "width", 0.0), 1.0)
-            item_height = _positive_dimension(getattr(bounds, "height", 0.0), 1.0)
+            item_height = _positive_dimension(getattr(bounds, "height", 0.0), 1.0) + 70.0
+            effective_width = item_width + 195.0
             # Check if we need to start a new row
-            if mech_x + item_width + mech_spacing > row_width:
+            if mech_x > 0.0 and mech_x + effective_width + mech_spacing > row_width:
                 mech_x = 0.0
                 mech_y += max_row_height + mech_spacing
                 max_row_height = 0
@@ -335,7 +404,7 @@ def generate_single_large_blueprint(
             )
 
             # Update position for next item
-            mech_x += item_width + mech_spacing
+            mech_x += effective_width + mech_spacing
             max_row_height = max(max_row_height, item_height)
 
         svg_parts.append("</g>")
@@ -359,17 +428,17 @@ def generate_single_large_blueprint(
 
 
 def _generate_single_part_page(
-    item,
-    page_num,
-    total_pages,
-    page_width_mm,
-    page_height_mm,
-    margin_mm,
-    title,
-    scale_info,
-    snapshot_data_uri,
-    unit_system="metric",
-):
+    item: LayoutItem,
+    page_num: int,
+    total_pages: int,
+    page_width_mm: float,
+    page_height_mm: float,
+    margin_mm: float,
+    title: str,
+    scale_info: str,
+    snapshot_data_uri: str | None,
+    unit_system: str = "metric",
+) -> str:
     """Generate a single page for one character part"""
 
     content_width = page_width_mm - (2 * margin_mm)
@@ -502,17 +571,17 @@ def _generate_single_part_page(
 
 
 def _generate_single_mechanism_page(
-    item,
-    page_num,
-    total_pages,
-    page_width_mm,
-    page_height_mm,
-    margin_mm,
-    title,
-    scale_info,
-    snapshot_data_uri,
-    unit_system="metric",
-):
+    item: LayoutItem,
+    page_num: int,
+    total_pages: int,
+    page_width_mm: float,
+    page_height_mm: float,
+    margin_mm: float,
+    title: str,
+    scale_info: str,
+    snapshot_data_uri: str | None,
+    unit_system: str = "metric",
+) -> str:
     """Generate a single page for one mechanism with enhanced details"""
 
     content_width = page_width_mm - (2 * margin_mm)
@@ -628,14 +697,14 @@ def _generate_single_mechanism_page(
     return page_svg
 
 
-def get_timestamp():
+def get_timestamp() -> str:
     """Get current timestamp for blueprint."""
     from datetime import datetime
 
     return datetime.now().strftime("%Y-%m-%d %H:%M")
 
 
-def generate_detailed_part_content(part_items: list, padding: float = 20.0) -> str:
+def generate_detailed_part_content(part_items: Sequence[object], padding: float = 20.0) -> str:
     """
     Generates detailed part content using PNG contour extraction for manufacturing precision.
     Uses computer vision instead of QPainterPath approximations.
@@ -706,7 +775,7 @@ def generate_detailed_part_content(part_items: list, padding: float = 20.0) -> s
 
 
 def _create_manufacturing_part_svg(
-    manufacturing_contour, x_offset: float, y_offset: float, part_name: str
+    manufacturing_contour: ManufacturingContour, x_offset: float, y_offset: float, part_name: str
 ) -> str:
     """Create manufacturing-precision SVG using extracted PNG contours"""
 
@@ -766,7 +835,9 @@ def _create_manufacturing_part_svg(
     return part_svg
 
 
-def _create_fallback_part_svg(item, x_offset: float, y_offset: float, padding: float) -> str:
+def _create_fallback_part_svg(
+    item: object, x_offset: float, y_offset: float, padding: float
+) -> str:
     """Fallback SVG creation when PNG extraction fails"""
 
     try:

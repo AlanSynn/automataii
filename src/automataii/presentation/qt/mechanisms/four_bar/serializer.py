@@ -7,7 +7,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from automataii.infrastructure.generation.pdf.svg_pdf import render_svg_to_pdf
+from automataii.infrastructure.generation.pdf.svg_pdf import is_valid_pdf_file, render_svg_to_pdf
 
 from ..interfaces.serializer import BlueprintData, BlueprintSerializer
 
@@ -154,7 +154,9 @@ class FourBarSerializer(BlueprintSerializer):
             destination.parent.mkdir(parents=True, exist_ok=True)
             if temp_destination.is_file():
                 temp_destination.unlink()
-            if render_svg_to_pdf(self.export_to_svg(blueprint_data), temp_destination):
+            if render_svg_to_pdf(self.export_to_svg(blueprint_data), temp_destination) and (
+                is_valid_pdf_file(temp_destination)
+            ):
                 temp_destination.replace(destination)
                 return True
             if temp_destination.is_file():

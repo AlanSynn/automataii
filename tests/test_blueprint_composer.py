@@ -44,6 +44,8 @@ def test_compose_single_page_empty_layout():
     result = composer.compose_single_page([], {})
     assert result.item_count == 0
     assert "No items to export" in result.svg or "svg" in result.svg
+    assert 'width="400mm"' in result.svg
+    assert 'viewBox="0 0 400 300"' in result.svg
 
 
 def test_compose_single_page_names_cut_sheet_handoff():

@@ -528,6 +528,31 @@ def test_application_exporter_falls_back_to_svg_sources_when_pdf_unavailable(
     assert (package_dir / "svg-fallback" / "parts" / "02-gear-12t.svg").is_file()
 
 
+def test_application_exporter_rejects_renderer_success_with_non_pdf_outputs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    write_fabrication_templates(tmp_path)
+
+    def fake_render(_sources: object, pdf_path: Path) -> bool:
+        pdf_path.parent.mkdir(parents=True, exist_ok=True)
+        pdf_path.write_text("not a pdf", encoding="utf-8")
+        return True
+
+    monkeypatch.setattr(assembly_export, "render_svgs_to_pdf", fake_render)
+
+    result = FabricationAssemblyGuideExporter(tmp_path).export_guides(
+        tmp_path / "exported-guides",
+        recipe_keys={"gear-train-basic"},
+    )
+
+    package_dir = tmp_path / "exported-guides" / "assembly"
+    assert not result.pdf_files
+    assert result.fallback_files
+    assert not (package_dir / "assembly-guide.pdf").exists()
+    assert not (package_dir / "kit-parts-to-cut.pdf").exists()
+
+
 def test_export_guides_without_contract_removes_stale_physical_contract(tmp_path: Path) -> None:
     write_fabrication_templates(tmp_path)
     exporter = FabricationAssemblyGuideExporter(tmp_path)

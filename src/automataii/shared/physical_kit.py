@@ -747,6 +747,9 @@ def normalize_mechanism_type(mechanism_type: object) -> str:
         "gear": "gear_train",
         "gears": "gear_train",
         "gear_train": "gear_train",
+        "gear_linkage": "gear_linkage",
+        "gear+linkage": "gear_linkage",
+        "gear_linkage_train": "gear_linkage",
         "planetary": "planetary_gear",
         "planetary_gear": "planetary_gear",
     }

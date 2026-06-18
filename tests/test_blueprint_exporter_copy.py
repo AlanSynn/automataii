@@ -134,6 +134,7 @@ def test_blueprint_package_snaps_layers_before_physical_contract(
 
     output_dir = tmp_path / "export"
     seen_params: dict[str, object] = {}
+    seen_real_world_params: dict[str, object] = {}
     captured: dict[str, str] = {}
 
     class FakeBlueprintManager:
@@ -159,7 +160,12 @@ def test_blueprint_package_snaps_layers_before_physical_contract(
 
         def build_app_physical_contract(self, mechanism_layers, *, recipe_keys):
             seen_params.update(mechanism_layers["four"]["params"])
-            return {"status": "matched", "warnings": [], "selected_recipe_keys": sorted(recipe_keys)}
+            seen_real_world_params.update(mechanism_layers["four"]["real_world_params"])
+            return {
+                "status": "matched",
+                "warnings": [],
+                "selected_recipe_keys": sorted(recipe_keys),
+            }
 
         def export_guides(self, output_dir_arg, *, recipe_keys, app_contract):
             package_dir = Path(output_dir_arg) / "assembly"
@@ -226,6 +232,11 @@ def test_blueprint_package_snaps_layers_before_physical_contract(
     assert seen_params["l2"] == 40.0
     assert seen_params["l3"] == 80.0
     assert seen_params["l4"] == 40.0
+    assert seen_real_world_params["l1_mm"] == 80.0
+    assert seen_real_world_params["l2_mm"] == 40.0
+    assert seen_real_world_params["l3_mm"] == 80.0
+    assert seen_real_world_params["l4_mm"] == 40.0
+    assert seen_real_world_params["mechanism_type"] == "4_bar_linkage"
     assert captured["title"] == "Blueprint Package Exported"
     assert "Assembly guide: assembly/assembly-guide.pdf" in captured["text"]
 
@@ -443,7 +454,11 @@ def test_blueprint_package_cleans_stale_cut_sheet_svg_before_pdf_success(
             return None
 
         def build_app_physical_contract(self, _mechanism_layers, *, recipe_keys):
-            return {"status": "matched", "warnings": [], "selected_recipe_keys": sorted(recipe_keys)}
+            return {
+                "status": "matched",
+                "warnings": [],
+                "selected_recipe_keys": sorted(recipe_keys),
+            }
 
         def clear_exported_package(self, output_dir_arg):
             package_dir = Path(output_dir_arg) / "assembly"
@@ -521,7 +536,11 @@ def test_blueprint_package_reports_svg_selected_cut_sheet(monkeypatch, tmp_path:
             return None
 
         def build_app_physical_contract(self, _mechanism_layers, *, recipe_keys):
-            return {"status": "matched", "warnings": [], "selected_recipe_keys": sorted(recipe_keys)}
+            return {
+                "status": "matched",
+                "warnings": [],
+                "selected_recipe_keys": sorted(recipe_keys),
+            }
 
         def clear_exported_package(self, output_dir_arg):
             package_dir = Path(output_dir_arg) / "assembly"
@@ -603,6 +622,35 @@ def test_recipe_selection_passes_active_part_ids_to_guide_resolver() -> None:
 
     assert recipe_keys == {"gear-linkage-crank"}
     assert seen["gear_linkage"] == ("linkages:linkage-4-cell",)
+
+
+def test_real_world_param_conversion_normalizes_fabrication_aliases() -> None:
+    exporter = BlueprintExporter.__new__(BlueprintExporter)
+
+    gear = exporter.calculate_real_world_mechanism_params(  # type: ignore[attr-defined]
+        {"gear1_radius": 18.0, "gear2_radius": 21.0},
+        2.0,
+        "gear_train",
+    )
+    cam = exporter.calculate_real_world_mechanism_params(  # type: ignore[attr-defined]
+        {"cam_radius": 20.0, "cam_offset": 4.0},
+        1.5,
+        "cam_follower",
+    )
+    gear_linkage = exporter.calculate_real_world_mechanism_params(  # type: ignore[attr-defined]
+        {"gear1_radius": 18.0, "gear2_radius": 21.0, "linkage_arm_length": 80.0},
+        1.0,
+        "gear_linkage",
+    )
+
+    assert gear["mechanism_type"] == "gear"
+    assert gear["r1_mm"] == 36.0
+    assert gear["r2_mm"] == 42.0
+    assert cam["mechanism_type"] == "cam"
+    assert cam["base_radius_mm"] == 30.0
+    assert cam["eccentricity_mm"] == 6.0
+    assert gear_linkage["mechanism_type"] == "gear_linkage"
+    assert gear_linkage["arm_length_mm"] == 80.0
 
 
 def test_cam_blueprint_instructions_are_parameter_driven() -> None:

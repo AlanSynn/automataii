@@ -14,7 +14,7 @@ from automataii.application.blueprint import BlueprintComposer, BlueprintComposi
 from automataii.infrastructure.generation.mechanism.cam import CamGenerator
 from automataii.infrastructure.generation.mechanism.gear import GearGenerator
 from automataii.infrastructure.generation.mechanism.linkage import LinkageGenerator
-from automataii.infrastructure.generation.pdf.svg_pdf import render_svg_to_pdf
+from automataii.infrastructure.generation.pdf.svg_pdf import is_valid_pdf_file, render_svg_to_pdf
 
 # Multi-page blueprint generation (future feature)
 # from automataii.generation.multi_page_blueprint import (
@@ -167,8 +167,7 @@ class BlueprintExportManager(QObject):
                     if fallback_used:
                         self.export_completed.emit(
                             True,
-                            "PDF rendering unavailable; SVG fallback saved to "
-                            f"{actual_path}",
+                            f"PDF rendering unavailable; SVG fallback saved to {actual_path}",
                         )
                     else:
                         self.export_completed.emit(
@@ -361,7 +360,9 @@ class BlueprintExportManager(QObject):
             destination.parent.mkdir(parents=True, exist_ok=True)
             if temp_destination.is_file():
                 temp_destination.unlink()
-            if render_svg_to_pdf(svg_content, temp_destination):
+            if render_svg_to_pdf(svg_content, temp_destination) and is_valid_pdf_file(
+                temp_destination
+            ):
                 temp_destination.replace(destination)
                 return True
             if temp_destination.is_file():

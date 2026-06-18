@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from PyQt6.QtCore import QObject
 from PyQt6.QtWidgets import QTabWidget, QWidget
@@ -103,6 +103,8 @@ class TabOrchestrator(QObject):
         """
         current_tab = self._tab_widget.widget(index)
         previous_tab = self._tab_widget.widget(self._previous_tab_index)
+        if current_tab is None:
+            return
 
         # Call deactivate_tab on the previous tab
         if previous_tab and hasattr(previous_tab, "deactivate_tab"):
@@ -118,10 +120,14 @@ class TabOrchestrator(QObject):
         if not camera_state_applied:
             self._apply_initial_zoom_if_needed(current_tab)
 
+        # Mechanism Design restore depends on cached skeleton data; sync before
+        # activation so the first tab switch cannot restore against an empty
+        # cache and leave body parts offset from their anchors.
+        self._sync_skeleton_data_if_needed(current_tab)
+
         # Call activate_tab on the current tab
         if current_tab and hasattr(current_tab, "activate_tab"):
             current_tab.activate_tab()
-            self._sync_skeleton_data_if_needed(current_tab)
 
         # Notify external handler
         self._on_tab_activated(current_tab, index)
@@ -158,7 +164,7 @@ class TabOrchestrator(QObject):
             _ = view.scene()  # Check if view is still valid
             camera_state = view.get_camera_state()
             self._shared_camera_state = camera_state
-            tab._last_camera_state = camera_state  # Tab-specific backup
+            cast(Any, tab)._last_camera_state = camera_state  # Tab-specific backup
             logging.info(f"Saved camera state from {tab.__class__.__name__}")
         except RuntimeError as e:
             logging.error(f"View was deleted, cannot save camera state: {e}")
@@ -181,13 +187,14 @@ class TabOrchestrator(QObject):
                 view.set_camera_state(self._shared_camera_state)
                 logging.info(f"Applied shared camera state to {tab.__class__.__name__}")
                 return True
-            elif hasattr(tab, "_last_camera_state") and tab._last_camera_state:
-                view.set_camera_state(tab._last_camera_state)
+            else:
+                last_camera_state = getattr(tab, "_last_camera_state", None)
+                if not last_camera_state:
+                    logging.debug(f"No camera state available for {tab.__class__.__name__}")
+                    return False
+                view.set_camera_state(last_camera_state)
                 logging.info(f"Applied tab-specific camera state to {tab.__class__.__name__}")
                 return True
-            else:
-                logging.debug(f"No camera state available for {tab.__class__.__name__}")
-                return False
 
         except RuntimeError as e:
             logging.error(f"View was deleted, cannot apply camera state: {e}")
@@ -216,12 +223,12 @@ class TabOrchestrator(QObject):
         if hasattr(tab, "editor_view") and tab.editor_view:
             if not hasattr(tab, "_view_initialized"):
                 tab_needs_initial_zoom = True
-                tab._view_initialized = True
+                cast(Any, tab)._view_initialized = True
         # Check mechanism_view
         elif hasattr(tab, "mechanism_view") and tab.mechanism_view:
             if not hasattr(tab, "_view_initialized"):
                 tab_needs_initial_zoom = True
-                tab._view_initialized = True
+                cast(Any, tab)._view_initialized = True
         # Image processing tab always zooms
         elif hasattr(tab, "image_proc_view"):
             tab_needs_initial_zoom = True

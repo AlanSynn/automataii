@@ -304,6 +304,10 @@ class SkeletonIKHandler(QObject):
         MAX_BONE_LENGTH_DEVIATION = 0.01  # 1% tolerance
 
         connections = self._get_connected_joints_for_part(part_item, joint_data)
+        anchor_joint_id = self._matching_joint_id(
+            getattr(part_item, "anchor_joint_id", None),
+            joint_data,
+        )
 
         for parent_joint_id, child_joint_id, expected_length in connections:
             if parent_joint_id in joint_data and child_joint_id in joint_data:
@@ -311,8 +315,16 @@ class SkeletonIKHandler(QObject):
                 child_pos = joint_data[child_joint_id].get("position", [0, 0])
 
                 if len(parent_pos) >= 2 and len(child_pos) >= 2:
-                    parent_point = QPointF(parent_pos[0], parent_pos[1])
-                    child_point = QPointF(child_pos[0], child_pos[1])
+                    parent_point = (
+                        QPointF(new_anchor_pos.x(), new_anchor_pos.y())
+                        if parent_joint_id == anchor_joint_id
+                        else QPointF(parent_pos[0], parent_pos[1])
+                    )
+                    child_point = (
+                        QPointF(new_anchor_pos.x(), new_anchor_pos.y())
+                        if child_joint_id == anchor_joint_id
+                        else QPointF(child_pos[0], child_pos[1])
+                    )
 
                     dx = child_point.x() - parent_point.x()
                     dy = child_point.y() - parent_point.y()
@@ -330,6 +342,23 @@ class SkeletonIKHandler(QObject):
         return True
 
     @staticmethod
+    def _matching_joint_id(
+        anchor_joint_id: object,
+        joint_data: dict[str, dict[str, Any]],
+    ) -> str | None:
+        if not anchor_joint_id:
+            return None
+        anchor = str(anchor_joint_id)
+        if anchor in joint_data:
+            return anchor
+        for joint_id, data in joint_data.items():
+            if data.get("name") == anchor or data.get("id") == anchor:
+                return joint_id
+            if joint_id.startswith(f"{anchor}_") or joint_id.startswith(anchor):
+                return joint_id
+        return None
+
+    @staticmethod
     def _get_connected_joints_for_part(
         part_item: CharacterPartItem,
         joint_data: dict[str, dict[str, Any]],
@@ -340,9 +369,34 @@ class SkeletonIKHandler(QObject):
         Returns:
             List of (parent_joint_id, child_joint_id, expected_length) tuples
         """
-        # Simplified implementation - returns empty to allow reset operations
-        # Full implementation would use bone hierarchy
-        return []
+        anchor_joint_id = SkeletonIKHandler._matching_joint_id(
+            getattr(part_item, "anchor_joint_id", None),
+            joint_data,
+        )
+        if not anchor_joint_id:
+            return []
+
+        connections: list[tuple[str, str, float]] = []
+        for child_id, child_data in joint_data.items():
+            parent_id = child_data.get("parent_id") or child_data.get("parent")
+            if not parent_id or parent_id not in joint_data:
+                continue
+            parent_id = str(parent_id)
+            if anchor_joint_id not in {parent_id, child_id}:
+                continue
+
+            parent_pos = joint_data[parent_id].get("position", [0, 0])
+            child_pos = child_data.get("position", [0, 0])
+            if len(parent_pos) < 2 or len(child_pos) < 2:
+                continue
+            expected_length = child_data.get("length") or child_data.get("bone_length")
+            if expected_length is None:
+                expected_length = (
+                    (float(child_pos[0]) - float(parent_pos[0])) ** 2
+                    + (float(child_pos[1]) - float(parent_pos[1])) ** 2
+                ) ** 0.5
+            connections.append((parent_id, child_id, float(expected_length)))
+        return connections
 
     # --- IK Updates ---
 

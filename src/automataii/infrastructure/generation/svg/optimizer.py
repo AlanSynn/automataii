@@ -12,6 +12,7 @@ Note: Domain logic has been extracted to:
 """
 
 import logging
+from collections.abc import Callable
 from typing import Any
 
 # Import from domain modules
@@ -28,6 +29,7 @@ from automataii.infrastructure.generation.svg.generators import (
     GearSVGGenerator,
     LinkageSVGGenerator,
 )
+from automataii.shared.physical_kit import finite_float, normalize_mechanism_type
 
 # Note: ScaleNormalizer and SmartLayoutManager have been moved to
 # automataii.domain.generation.layout and are imported above.
@@ -52,8 +54,15 @@ class EnhancedMechanismProcessor:
         # Standard mechanism sizes in real-world units (mm)
         self.standard_mechanism_sizes = {
             "gear": {"width": 60, "height": 60},
+            "gear_train": {"width": 90, "height": 70},
+            "gear_linkage": {"width": 150, "height": 90},
             "linkage": {"width": 100, "height": 30},
+            "four_bar": {"width": 120, "height": 70},
+            "4_bar_linkage": {"width": 120, "height": 70},
+            "5_bar_linkage": {"width": 160, "height": 90},
+            "6_bar_linkage": {"width": 190, "height": 100},
             "cam": {"width": 80, "height": 80},
+            "cam_follower": {"width": 120, "height": 90},
             "pulley": {"width": 50, "height": 50},
             "belt": {"width": 120, "height": 20},
             "spring": {"width": 40, "height": 80},
@@ -78,6 +87,7 @@ class EnhancedMechanismProcessor:
             mechanism_type = mech_data.get(
                 "type", "unknown"
             )  # Fixed: GUI uses 'type' not 'mechanism_type'
+            normalized_type = self._normalize_for_blueprint(mechanism_type)
 
             self.logger.info(f"[MECHANISM] Processing {mech_id}: type={mechanism_type}")
             self.logger.info(f"[MECHANISM]   Keys in mech_data: {list(mech_data.keys())}")
@@ -94,7 +104,7 @@ class EnhancedMechanismProcessor:
 
                 # Calculate actual mechanism dimensions from real parameters
                 actual_width, actual_height = self._calculate_mechanism_dimensions_from_params(
-                    real_world_params, mechanism_type
+                    self._merged_dimension_params(mech_data, real_world_params), normalized_type
                 )
 
                 self.logger.info(
@@ -112,7 +122,7 @@ class EnhancedMechanismProcessor:
                     self.logger.warning("[MECHANISM]   Missing: total_scale_factor")
 
                 standard_size = self.standard_mechanism_sizes.get(
-                    mechanism_type,
+                    normalized_type,
                     {"width": 60, "height": 60},  # Default size
                 )
 
@@ -167,34 +177,93 @@ class EnhancedMechanismProcessor:
             self.logger.error(f"[MECHANISM] Traceback: {traceback.format_exc()}")
             return None
 
+    @staticmethod
+    def _normalize_for_blueprint(mechanism_type: object) -> str:
+        normalized = str(normalize_mechanism_type(mechanism_type))
+        blueprint_aliases: dict[str, str] = {
+            "four_bar": "4_bar_linkage",
+            "cam_follower": "cam",
+            "gear_train": "gear",
+        }
+        return blueprint_aliases.get(normalized, normalized)
+
+    @staticmethod
+    def _svg_or_none(value: object) -> str | None:
+        return value if isinstance(value, str) else None
+
+    @staticmethod
+    def _merged_dimension_params(
+        mech_data: dict[str, Any], real_world_params: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Prefer fabrication-snapped params when present, keep scaled mm aliases."""
+        merged = dict(real_world_params)
+        params = mech_data.get("params", {})
+        if isinstance(params, dict):
+            for key, value in params.items():
+                merged.setdefault(key, value)
+        return merged
+
     def _calc_4bar_dimensions(self, params: dict[str, Any]) -> tuple[float, float]:
         """Calculate dimensions for 4-bar linkage."""
-        l1 = params.get("l1_mm", 50.0)
-        l2 = params.get("l2_mm", 30.0)
-        l3 = params.get("l3_mm", 40.0)
-        l4 = params.get("l4_mm", 35.0)
+        l1 = finite_float(params.get("l1_mm", params.get("l1", params.get("L1"))), 50.0)
+        l2 = finite_float(params.get("l2_mm", params.get("l2", params.get("L2"))), 30.0)
+        l3 = finite_float(params.get("l3_mm", params.get("l3", params.get("L3"))), 40.0)
+        l4 = finite_float(params.get("l4_mm", params.get("l4", params.get("L4"))), 35.0)
         max_width = l1 + max(l2, l3, l4) * 1.2
         max_height = max(l2, l3, l4) * 1.5
         return max_width, max_height
 
+    def _calc_multibar_dimensions(self, params: dict[str, Any]) -> tuple[float, float]:
+        lengths = [
+            finite_float(params.get(f"l{i}_mm", params.get(f"l{i}", params.get(f"L{i}"))), 0.0)
+            for i in range(1, 7)
+        ]
+        positive = [length for length in lengths if length > 0.0]
+        if not positive:
+            return 160.0, 90.0
+        return sum(positive[:4]) * 0.75, max(positive) * 1.8
+
     def _calc_cam_dimensions(self, params: dict[str, Any]) -> tuple[float, float]:
         """Calculate dimensions for cam mechanism."""
-        base_radius = params.get("base_radius_mm", 25.0)
-        eccentricity = params.get("eccentricity_mm", 5.0)
+        base_radius = finite_float(
+            params.get("base_radius_mm", params.get("base_radius", params.get("cam_radius"))),
+            25.0,
+        )
+        eccentricity = finite_float(
+            params.get("eccentricity_mm", params.get("eccentricity", params.get("cam_offset"))),
+            5.0,
+        )
         width = (base_radius + eccentricity) * 2.5
         height = (base_radius + eccentricity) * 2.2
         return width, height
 
     def _calc_gear_dimensions(self, params: dict[str, Any]) -> tuple[float, float]:
         """Calculate dimensions for gear mechanisms."""
-        max_radius = (
-            max(
-                (params.get(p, 0) for p in ["r1_mm", "r2_mm", "r_sun_mm", "r_planet_mm"]),
-                default=30.0,
-            )
-            or 30.0
+        radii = (
+            finite_float(
+                params.get("r1_mm", params.get("r1", params.get("gear1_radius"))),
+                0.0,
+            ),
+            finite_float(
+                params.get("r2_mm", params.get("r2", params.get("gear2_radius"))),
+                0.0,
+            ),
+            finite_float(
+                params.get("r_sun_mm", params.get("r_sun", params.get("sun_radius"))),
+                0.0,
+            ),
+            finite_float(
+                params.get("r_planet_mm", params.get("r_planet", params.get("planet_radius"))),
+                0.0,
+            ),
         )
+        max_radius = max(radii) or 30.0
         return max_radius * 3.0, max_radius * 2.2
+
+    def _calc_gear_linkage_dimensions(self, params: dict[str, Any]) -> tuple[float, float]:
+        gear_width, gear_height = self._calc_gear_dimensions(params)
+        arm = finite_float(params.get("linkage_arm_length", params.get("arm_length")), 80.0)
+        return gear_width + arm, max(gear_height, arm * 0.8)
 
     def _calc_default_dimensions(self, params: dict[str, Any]) -> tuple[float, float]:
         """Calculate default dimensions for unknown mechanism types."""
@@ -215,10 +284,13 @@ class EnhancedMechanismProcessor:
             Tuple of (width_mm, height_mm)
         """
         # Strategy dictionary for dimension calculations
-        dimension_strategies = {
+        dimension_strategies: dict[str, Callable[[dict[str, Any]], tuple[float, float]]] = {
             "4_bar_linkage": self._calc_4bar_dimensions,
+            "5_bar_linkage": self._calc_multibar_dimensions,
+            "6_bar_linkage": self._calc_multibar_dimensions,
             "cam": self._calc_cam_dimensions,
             "gear": self._calc_gear_dimensions,
+            "gear_linkage": self._calc_gear_linkage_dimensions,
             "planetary_gear": self._calc_gear_dimensions,
         }
 
@@ -258,13 +330,14 @@ class EnhancedMechanismProcessor:
                 gen_bounds = LinkageBounds(
                     x=bounds.x, y=bounds.y, width=bounds.width, height=bounds.height
                 )
-                return self._linkage_generator.generate_4bar_svg(
+                result: object = self._linkage_generator.generate_4bar_svg(
                     mech_data,
                     gen_bounds,
                     fallback_generator=lambda mid, mt, b: self._generate_standard_mechanism_svg(
                         mid, mt, bounds
                     ),
                 )
+                return self._svg_or_none(result)
 
             elif mechanism_type in ["5_bar_linkage", "6_bar_linkage"] and isinstance(
                 mech_data.get("key_points"), dict
@@ -272,31 +345,38 @@ class EnhancedMechanismProcessor:
                 gen_bounds = LinkageBounds(
                     x=bounds.x, y=bounds.y, width=bounds.width, height=bounds.height
                 )
-                return self._linkage_generator.generate_multibar_svg(mech_data, gen_bounds)
+                result = self._linkage_generator.generate_multibar_svg(mech_data, gen_bounds)
+                return self._svg_or_none(result)
 
-            elif mechanism_type == "gear":
+            elif mechanism_type in {"gear", "gear_linkage"}:
                 gen_bounds = GearBounds(
                     x=bounds.x, y=bounds.y, width=bounds.width, height=bounds.height
                 )
-                return self._gear_generator.generate_gear_mesh_svg(
+                result = self._gear_generator.generate_gear_mesh_svg(
                     mech_data, gen_bounds, mm_params_func=self._mm_params
                 )
+                gear_svg = self._svg_or_none(result)
+                if gear_svg and mechanism_type == "gear_linkage":
+                    return gear_svg + self._generate_gear_linkage_arm_svg(mech_data, bounds)
+                return gear_svg
 
             elif mechanism_type == "planetary_gear":
                 gen_bounds = GearBounds(
                     x=bounds.x, y=bounds.y, width=bounds.width, height=bounds.height
                 )
-                return self._gear_generator.generate_planetary_gear_svg(
+                result = self._gear_generator.generate_planetary_gear_svg(
                     mech_data, gen_bounds, mm_params_func=self._mm_params
                 )
+                return self._svg_or_none(result)
 
             elif mechanism_type == "cam":
                 gen_bounds = CamBounds(
                     x=bounds.x, y=bounds.y, width=bounds.width, height=bounds.height
                 )
-                return self._cam_generator.generate_cam_svg(
+                result = self._cam_generator.generate_cam_svg(
                     mech_data, gen_bounds, mm_params_func=self._mm_params
                 )
+                return self._svg_or_none(result)
 
         except Exception as e:
             self.logger.warning(f"Generator delegation failed for {mechanism_type}: {e}")
@@ -314,7 +394,8 @@ class EnhancedMechanismProcessor:
 
         Delegates to extracted SVG generators for cleaner separation of concerns.
         """
-        mechanism_type = mech_data.get("type", "unknown")
+        raw_mechanism_type = mech_data.get("type", "unknown")
+        mechanism_type = self._normalize_for_blueprint(raw_mechanism_type)
 
         # Delegate to extracted generators based on mechanism type
         base_svg = self._delegate_to_generator(mech_id, mech_data, bounds, mechanism_type)
@@ -445,6 +526,45 @@ class EnhancedMechanismProcessor:
     # NOTE: _generate_4bar_from_keypoints_svg removed - delegated to LinkageSVGGenerator
     # NOTE: _generate_multibar_from_keypoints_svg removed - delegated to LinkageSVGGenerator
 
+    def _generate_gear_linkage_arm_svg(
+        self, mech_data: dict[str, Any], bounds: ScaledBounds
+    ) -> str:
+        """Render the cuttable linkage arm required by the gear-linkage recipe."""
+        arm_mm = self._mm_params(mech_data, ["arm_length_mm"]).get("arm_length_mm", 80.0)
+        visual_length = min(max(arm_mm, 35.0), max(35.0, bounds.width - 30.0))
+        thickness = 10.0
+        hole_radius = 2.0
+        start_x = 15.0
+        center_y = max(28.0, min(bounds.height - 18.0, bounds.height * 0.82))
+        end_x = start_x + visual_length
+        slot_spacing = 20.0
+        intermediate_holes = []
+        hole_x = start_x + slot_spacing
+        while hole_x < end_x - slot_spacing * 0.5:
+            intermediate_holes.append(
+                f'<circle cx="{hole_x:.1f}" cy="{center_y:.1f}" r="{hole_radius:.1f}" '
+                'fill="white" stroke="#4b5563" stroke-width="0.8"/>'
+            )
+            hole_x += slot_spacing
+
+        return f'''
+        <g class="gear-linkage-arm" data-part-kind="gear-linkage-arm">
+            <title>Gear linkage arm - cuttable linkage part</title>
+            <rect x="{start_x:.1f}" y="{center_y - thickness / 2:.1f}"
+                  width="{visual_length:.1f}" height="{thickness:.1f}"
+                  rx="{thickness / 2:.1f}" fill="#fef3c7" stroke="#92400e" stroke-width="1.2"/>
+            <circle cx="{start_x:.1f}" cy="{center_y:.1f}" r="{hole_radius:.1f}"
+                    fill="white" stroke="#4b5563" stroke-width="0.8"/>
+            <circle cx="{end_x:.1f}" cy="{center_y:.1f}" r="{hole_radius:.1f}"
+                    fill="white" stroke="#4b5563" stroke-width="0.8"/>
+            {"".join(intermediate_holes)}
+            <text x="{(start_x + end_x) / 2:.1f}" y="{center_y + 14.0:.1f}"
+                  font-size="7" text-anchor="middle" fill="#92400e">
+                  Linkage arm: {arm_mm:.1f}mm, 4mm holes
+            </text>
+        </g>
+        '''
+
     def _mm_params(self, mech_data: dict[str, Any], names: list[str]) -> dict[str, float]:
         """Helper to fetch parameter values in mm from real_world_params or by scaling params."""
         mm = {}
@@ -456,10 +576,20 @@ class EnhancedMechanismProcessor:
         if not mm:
             factor = float(mech_data.get("total_scale_factor", 1.0))
             params = mech_data.get("params", {})
+            aliases = {
+                "r1_mm": ("r1", "gear1_radius"),
+                "r2_mm": ("r2", "gear2_radius"),
+                "r_sun_mm": ("r_sun", "sun_radius"),
+                "r_planet_mm": ("r_planet", "planet_radius"),
+                "base_radius_mm": ("base_radius", "cam_radius"),
+                "eccentricity_mm": ("eccentricity", "cam_offset"),
+                "arm_length_mm": ("arm_length", "linkage_arm_length"),
+            }
             for n in names:
-                base = n.replace("_mm", "")
-                if base in params:
-                    mm[n] = float(params[base]) * factor
+                for base in aliases.get(n, (n.replace("_mm", ""),)):
+                    if base in params:
+                        mm[n] = float(params[base]) * factor
+                        break
         return mm
 
     # NOTE: _generate_gears_from_params_svg removed - delegated to GearSVGGenerator
@@ -485,7 +615,7 @@ class EnhancedMechanismProcessor:
 
         try:
             real_world_params = mech_data.get("real_world_params", {})
-            mechanism_type = mech_data.get("type", "unknown")
+            mechanism_type = self._normalize_for_blueprint(mech_data.get("type", "unknown"))
 
             # Also try to get parametric editing results if available
             params = mech_data.get("params", {})
@@ -611,7 +741,7 @@ class EnhancedMechanismProcessor:
                     )
                     y_offset += line_height
 
-            elif mechanism_type in ["gear", "planetary_gear"]:
+            elif mechanism_type in ["gear", "gear_linkage", "planetary_gear"]:
                 gear_params = [
                     "r1_mm",
                     "r2_mm",
@@ -644,7 +774,7 @@ class EnhancedMechanismProcessor:
 
                 # Add gear ratio if applicable
                 if (
-                    mechanism_type == "gear"
+                    mechanism_type in {"gear", "gear_linkage"}
                     and "r1_mm" in real_world_params
                     and "r2_mm" in real_world_params
                 ):
@@ -688,6 +818,7 @@ class EnhancedMechanismProcessor:
         self, mechanism_type: str, real_world_params: dict[str, Any]
     ) -> int:
         """Count the number of parameters that will be displayed for a mechanism type."""
+        mechanism_type = self._normalize_for_blueprint(mechanism_type)
         if mechanism_type == "4_bar_linkage":
             count = 4  # l1, l2, l3, l4
             if "coupler_point_x_mm" in real_world_params:
@@ -698,7 +829,7 @@ class EnhancedMechanismProcessor:
             if "base_radius_mm" in real_world_params and "eccentricity_mm" in real_world_params:
                 count += 2  # max_radius, min_radius
             return count
-        elif mechanism_type in ["gear", "planetary_gear"]:
+        elif mechanism_type in ["gear", "gear_linkage", "planetary_gear"]:
             count = len(
                 [
                     p
@@ -714,7 +845,7 @@ class EnhancedMechanismProcessor:
                 ]
             )
             if (
-                mechanism_type == "gear"
+                mechanism_type in {"gear", "gear_linkage"}
                 and "r1_mm" in real_world_params
                 and "r2_mm" in real_world_params
             ):
@@ -727,6 +858,7 @@ class EnhancedMechanismProcessor:
     ) -> dict[str, Any]:
         """Calculate real-world parameters from current mechanism params and scale factor."""
         real_world_params = {}
+        mech_type = self._normalize_for_blueprint(mech_type)
 
         try:
             if mech_type == "4_bar_linkage":
@@ -742,13 +874,18 @@ class EnhancedMechanismProcessor:
                     if param_name in params:
                         real_world_params[f"{param_name}_mm"] = params[param_name] * scale_factor
 
-            elif mech_type in ["gear", "planetary_gear"]:
+            elif mech_type in ["gear", "gear_linkage", "planetary_gear"]:
                 for param_name in [
                     "r1",
                     "r2",
+                    "gear1_radius",
+                    "gear2_radius",
                     "r_sun",
                     "r_planet",
+                    "sun_radius",
+                    "planet_radius",
                     "arm_length",
+                    "linkage_arm_length",
                     "distance",
                     "tracking_radius",
                 ]:

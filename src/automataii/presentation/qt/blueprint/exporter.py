@@ -18,6 +18,7 @@ from automataii.shared.physical_kit import (
     gear_clearance_from_params,
     gear_teeth_from_params,
     grid_enabled_from_params,
+    normalize_mechanism_type,
     physical_context_from_params,
     physical_profile_from_params,
     snap_physical_params,
@@ -132,6 +133,13 @@ class BlueprintExporter:
                 profile=context.profile,
             )
             ready_layer["params"].update(context.as_params())
+            # Fabrication package cut sheets must match the snapped physical
+            # parts, not stale screen-derived dimensions from flexible editing.
+            ready_layer["real_world_params"] = self.calculate_real_world_mechanism_params(
+                ready_layer["params"],
+                1.0,
+                selection.mechanism_type,
+            )
             raw_fabrication = ready_layer.get("fabrication")
             fabrication = dict(raw_fabrication) if isinstance(raw_fabrication, dict) else {}
             fabrication["preset_snapped_for_export"] = True
@@ -840,37 +848,57 @@ class BlueprintExporter:
     ) -> dict[str, Any]:
         """Convert mechanism params to mm using total scale factor."""
         real_world_params: dict[str, Any] = {}
+        normalized_type = normalize_mechanism_type(mech_type)
+        blueprint_type = {
+            "four_bar": "4_bar_linkage",
+            "cam_follower": "cam",
+            "gear_train": "gear",
+        }.get(normalized_type, normalized_type)
         try:
-            if mech_type == "4_bar_linkage":
+            if blueprint_type == "4_bar_linkage":
                 for param_name in ["l1", "l2", "l3", "l4"]:
                     if param_name in params:
                         real_world_params[f"{param_name}_mm"] = params[param_name] * scale_factor
                 for param_name in ["coupler_point_x", "coupler_point_y"]:
                     if param_name in params:
                         real_world_params[f"{param_name}_mm"] = params[param_name] * scale_factor
-            elif mech_type == "cam":
-                for param_name in ["base_radius", "eccentricity", "follower_rod_length"]:
-                    if param_name in params:
-                        real_world_params[f"{param_name}_mm"] = params[param_name] * scale_factor
-            elif mech_type in ["gear", "planetary_gear"]:
-                for param_name in [
-                    "r1",
-                    "r2",
-                    "r_sun",
-                    "r_planet",
-                    "arm_length",
-                    "distance",
-                    "tracking_radius",
-                ]:
-                    if param_name in params:
-                        real_world_params[f"{param_name}_mm"] = params[param_name] * scale_factor
+            elif blueprint_type == "cam":
+                for source_name, target_name in (
+                    ("base_radius", "base_radius_mm"),
+                    ("cam_radius", "base_radius_mm"),
+                    ("eccentricity", "eccentricity_mm"),
+                    ("cam_offset", "eccentricity_mm"),
+                    ("follower_rod_length", "follower_rod_length_mm"),
+                ):
+                    if source_name in params:
+                        real_world_params[target_name] = params[source_name] * scale_factor
+            elif blueprint_type in ["gear", "gear_linkage", "planetary_gear"]:
+                for source_name, target_name in (
+                    ("r1", "r1_mm"),
+                    ("gear1_radius", "r1_mm"),
+                    ("r2", "r2_mm"),
+                    ("gear2_radius", "r2_mm"),
+                    ("r_sun", "r_sun_mm"),
+                    ("sun_radius", "r_sun_mm"),
+                    ("r_planet", "r_planet_mm"),
+                    ("planet_radius", "r_planet_mm"),
+                    ("arm_length", "arm_length_mm"),
+                    ("linkage_arm_length", "arm_length_mm"),
+                    ("distance", "distance_mm"),
+                    ("tracking_radius", "tracking_radius_mm"),
+                ):
+                    if source_name in params:
+                        real_world_params[target_name] = params[source_name] * scale_factor
 
             real_world_params["scale_factor_used"] = scale_factor
-            real_world_params["mechanism_type"] = mech_type
+            real_world_params["mechanism_type"] = blueprint_type
 
         except Exception as e:
             logging.warning(f"Error calculating real-world params for {mech_type}: {e}")
-            real_world_params = {"scale_factor_used": scale_factor, "mechanism_type": mech_type}
+            real_world_params = {
+                "scale_factor_used": scale_factor,
+                "mechanism_type": blueprint_type,
+            }
 
         return real_world_params
 

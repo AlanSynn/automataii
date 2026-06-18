@@ -71,6 +71,7 @@ class MotionPathManager(QObject):
 
         # Corrected paths cache (feasibility-adjusted)
         self._corrected_paths: dict[str, QPainterPath] = {}
+        self._path_closed_intent: dict[str, bool] = {}
 
         # UI references (set via configure_ui)
         self._define_btn: QPushButton | None = None
@@ -134,6 +135,7 @@ class MotionPathManager(QObject):
     def clear_corrected_paths_cache(self) -> None:
         """Clear feasibility-corrected paths that should not survive editor reset."""
         self._corrected_paths.clear()
+        self._path_closed_intent.clear()
 
     def _show_status_message(self, message: str) -> None:
         """Best-effort status message that cannot crash Qt signal handlers.
@@ -222,6 +224,7 @@ class MotionPathManager(QObject):
         if part_name in editor_items:
             target_item = editor_items[part_name]
             is_closed = self._closed_path_radio.isChecked() if self._closed_path_radio else True
+            self._path_closed_intent[part_name] = is_closed
             self._editor_view.start_define_motion_path(target_item, is_closed=is_closed)
         else:
             # Keep the view mode consistent even if the selected list item is
@@ -296,7 +299,7 @@ class MotionPathManager(QObject):
             return
 
         # Start vertex editing
-        is_closed = self._closed_path_radio.isChecked() if self._closed_path_radio else True
+        is_closed = self._closed_intent_for_part(part_name)
         success = self._editor_view.start_vertex_editing(part_name, path, is_closed)
 
         if success:
@@ -335,8 +338,10 @@ class MotionPathManager(QObject):
             part_name: Name of the part that was edited
             final_path: The final edited path
         """
+        is_closed = self._closed_intent_for_part(part_name)
+        snapped_path = self._snap_path_if_needed(part_name, final_path, is_closed)
         # Update all data structures with the final path
-        self._update_part_path(part_name, final_path)
+        self._update_part_path(part_name, snapped_path)
 
         # Reset button state
         if self._edit_vertices_btn:
@@ -392,6 +397,7 @@ class MotionPathManager(QObject):
 
         # Clear from corrected paths cache
         self._corrected_paths.pop(part_name, None)
+        self._path_closed_intent.pop(part_name, None)
 
         # Clear overlays
         if hasattr(self._editor_view, "clear_raw_overlay_for"):
@@ -441,6 +447,12 @@ class MotionPathManager(QObject):
             motion_qpath = final_path_item.path()
             logging.info(f"Retrieved final spline path for '{part_name}'")
 
+        is_closed = self._closed_path_radio.isChecked() if self._closed_path_radio else True
+        self._path_closed_intent[part_name] = is_closed
+        motion_qpath = self._snap_path_if_needed(part_name, motion_qpath, is_closed)
+        if final_path_item:
+            final_path_item.setPath(motion_qpath)
+
         # Update project data manager
         main_window = self._get_main_window()
         if main_window and hasattr(main_window, "project_data_manager"):
@@ -480,7 +492,6 @@ class MotionPathManager(QObject):
         self.handle_drawing_cancelled()
 
         # Automatically show vertex handles for the completed path
-        is_closed = self._closed_path_radio.isChecked() if self._closed_path_radio else True
         self._show_vertex_handles(part_name, motion_qpath, is_closed)
 
     def handle_drawing_cancelled(self) -> None:
@@ -541,10 +552,11 @@ class MotionPathManager(QObject):
         if not original_points or len(original_points) < 3:
             logging.warning(f"Cannot regenerate path for {part_name}: insufficient points")
             return
+        is_closed = self._closed_intent_for_part(part_name)
 
         # Smoothness 0: raw path
         if smoothness_percentage == 0:
-            raw_path = self._create_raw_path(original_points)
+            raw_path = self._create_raw_path(original_points, closed=is_closed)
             if hasattr(self._editor_view, "set_raw_overlay_path"):
                 raw_pen = QPen(
                     QColor("#6a4c93"),
@@ -557,7 +569,7 @@ class MotionPathManager(QObject):
             # Try feasibility correction
             corrected = None
             try:
-                corrected = self._apply_feasibility_snapping(part_name, raw_path)
+                corrected = self._apply_feasibility_snapping(part_name, raw_path, is_closed)
                 if corrected and hasattr(self._editor_view, "set_corrected_overlay_path"):
                     self._editor_view.set_corrected_overlay_path(part_name, corrected)
                     self._corrected_paths[part_name] = corrected
@@ -591,13 +603,13 @@ class MotionPathManager(QObject):
         try:
             tension = 0.5
             new_path = self._editor_view._create_spline_path(
-                simplified, closed_loop=True, tension=tension
+                simplified, closed_loop=is_closed, tension=tension
             )
         except Exception:
-            new_path = self._create_raw_path(simplified)
+            new_path = self._create_raw_path(simplified, closed=is_closed)
 
         # Show dual-track overlays
-        raw_overlay = self._create_raw_path(original_points)
+        raw_overlay = self._create_raw_path(original_points, closed=is_closed)
         if hasattr(self._editor_view, "set_raw_overlay_path"):
             raw_pen = QPen(QColor("#6a4c93"), 3.0, Qt.PenStyle.DashLine, Qt.PenCapStyle.RoundCap)
             self._editor_view.set_raw_overlay_path(part_name, raw_overlay, raw_pen)
@@ -605,7 +617,7 @@ class MotionPathManager(QObject):
         # Feasibility snapping
         corrected = None
         try:
-            corrected = self._apply_feasibility_snapping(part_name, new_path)
+            corrected = self._apply_feasibility_snapping(part_name, new_path, is_closed)
             if corrected and hasattr(self._editor_view, "set_corrected_overlay_path"):
                 self._editor_view.set_corrected_overlay_path(part_name, corrected)
                 self._corrected_paths[part_name] = corrected
@@ -643,10 +655,14 @@ class MotionPathManager(QObject):
             # Get the updated path after tension change
             updated_path = self._editor_view._path_vertex_editor.get_current_path()
             if updated_path:
-                self._update_part_path(part_name, updated_path)
+                is_closed = self._closed_intent_for_part(part_name)
+                corrected = self._apply_feasibility_snapping(part_name, updated_path, is_closed)
+                self._update_part_path(part_name, corrected or updated_path)
         else:
             # Fallback - just use base path
-            self._update_part_path(part_name, base_path)
+            is_closed = self._closed_intent_for_part(part_name)
+            corrected = self._apply_feasibility_snapping(part_name, base_path, is_closed)
+            self._update_part_path(part_name, corrected or base_path)
 
         # Clear overlays since we're using vertex-based path
         if hasattr(self._editor_view, "clear_overlays_for"):
@@ -757,7 +773,7 @@ class MotionPathManager(QObject):
         return [points[i] for i in final_indices]
 
     def _apply_feasibility_snapping(
-        self, part_name: str, path: QPainterPath
+        self, part_name: str, path: QPainterPath, is_closed: bool = True
     ) -> QPainterPath | None:
         """
         Apply feasibility correction based on IK constraints.
@@ -821,7 +837,7 @@ class MotionPathManager(QObject):
             # Project sampled points onto annulus
             corrected = QPainterPath()
             any_change = False
-            samples = 100
+            samples = max(24, min(240, int(max(path.length(), 1.0) / 4.0)))
 
             for i in range(samples):
                 t = i / (samples - 1) if samples > 1 else 0.0
@@ -852,7 +868,8 @@ class MotionPathManager(QObject):
                 else:
                     corrected.lineTo(cx, cy)
 
-            corrected.closeSubpath()
+            if is_closed:
+                corrected.closeSubpath()
             return corrected if any_change else None
 
         except Exception as e:
@@ -904,15 +921,35 @@ class MotionPathManager(QObject):
         return points
 
     @staticmethod
-    def _create_raw_path(points: list[QPointF]) -> QPainterPath:
+    def _create_raw_path(points: list[QPointF], closed: bool = True) -> QPainterPath:
         """Create a path from raw points connected by lines."""
         path = QPainterPath()
         if points:
             path.moveTo(points[0])
             for point in points[1:]:
                 path.lineTo(point)
-            if len(points) > 2:
+            if closed and len(points) > 2:
                 path.lineTo(points[0])
+        return path
+
+    def _closed_intent_for_part(self, part_name: str) -> bool:
+        if part_name in self._path_closed_intent:
+            return self._path_closed_intent[part_name]
+        return self._closed_path_radio.isChecked() if self._closed_path_radio else True
+
+    def _snap_path_if_needed(
+        self, part_name: str, path: QPainterPath, is_closed: bool
+    ) -> QPainterPath:
+        try:
+            corrected = self._apply_feasibility_snapping(part_name, path, is_closed)
+        except Exception as e:
+            logging.debug(f"Feasibility snapping skipped: {e}")
+            return path
+        if corrected and not corrected.isEmpty():
+            self._corrected_paths[part_name] = corrected
+            if hasattr(self._editor_view, "set_corrected_overlay_path"):
+                self._editor_view.set_corrected_overlay_path(part_name, corrected)
+            return corrected
         return path
 
     def _create_perfect_ellipse_path(self, points: list[QPointF]) -> QPainterPath:
@@ -1086,7 +1123,7 @@ class MotionPathManager(QObject):
                     logging.debug("show_vertex_handles: Got path from final_paths_map")
 
         if path and not path.isEmpty():
-            is_closed = self._closed_path_radio.isChecked() if self._closed_path_radio else True
+            is_closed = self._closed_intent_for_part(part_name)
             logging.info(
                 f"show_vertex_handles: Showing handles for '{part_name}', path length={path.length():.1f}"
             )

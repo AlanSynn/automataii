@@ -12,6 +12,7 @@ import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 from PyQt6.QtCore import QByteArray
 from PyQt6.QtGui import QGuiApplication, QPainter, QPdfWriter
@@ -44,6 +45,42 @@ def _ensure_gui_application() -> None:
     _PDF_APP = QApplication(sys.argv[:1])
 
 
+def is_valid_pdf_file(path: str | Path) -> bool:
+    """Return True only for a complete-enough PDF artifact.
+
+    Qt can report success through a mocked or platform-specific renderer while
+    leaving an empty/non-PDF file behind. Callers use this tiny guard before
+    promoting a temporary file to the user-visible export path.
+    """
+    pdf_path = Path(path)
+    try:
+        if not pdf_path.is_file() or pdf_path.stat().st_size < 12:
+            return False
+        with pdf_path.open("rb") as handle:
+            if handle.read(5) != b"%PDF-":
+                return False
+            handle.seek(max(0, pdf_path.stat().st_size - 1024))
+            return b"%%EOF" in handle.read()
+    except OSError:
+        return False
+
+
+def _unlink_quietly(path: Path) -> None:
+    try:
+        if path.is_file():
+            path.unlink()
+    except OSError:
+        LOGGER.debug("Could not remove failed PDF artifact %s", path)
+
+
+def _start_new_pdf_page(writer: QPdfWriter, destination: Path, page_number: int) -> bool:
+    """Start a new PDF page and keep the failure visible to callers/tests."""
+    if writer.newPage():
+        return True
+    LOGGER.error("Could not create PDF page %s for %s", page_number, destination)
+    return False
+
+
 def render_svgs_to_pdf(
     svg_sources: Sequence[SvgSource],
     output_path: str | Path,
@@ -59,6 +96,7 @@ def render_svgs_to_pdf(
     """
     if not svg_sources:
         LOGGER.error("PDF export requested with no SVG sources")
+        _unlink_quietly(Path(output_path))
         return False
 
     try:
@@ -70,32 +108,42 @@ def render_svgs_to_pdf(
     destination = Path(output_path)
     try:
         _ensure_gui_application()
+
+        # Preflight every page before creating/writing the PDF. Without this,
+        # a later bad SVG page can leave a partial PDF that looks successful to
+        # downstream package export code.
+        renderers: list[tuple[Any, float, float]] = []
+        for index, source in enumerate(svg_sources):
+            renderer = QSvgRenderer(QByteArray(_source_to_bytes(source)))
+            if not renderer.isValid():
+                LOGGER.error("SVG renderer failed to load page %s for %s", index + 1, destination)
+                _unlink_quietly(destination)
+                return False
+
+            view_box = renderer.viewBoxF()
+            if view_box.isEmpty():
+                size = renderer.defaultSize()
+                svg_width = float(size.width()) or 1.0
+                svg_height = float(size.height()) or 1.0
+            else:
+                svg_width = float(view_box.width()) or 1.0
+                svg_height = float(view_box.height()) or 1.0
+            renderers.append((renderer, svg_width, svg_height))
+
         destination.parent.mkdir(parents=True, exist_ok=True)
         writer = QPdfWriter(str(destination))
         writer.setResolution(resolution)
         painter = QPainter(writer)
         if not painter.isActive():
             LOGGER.error("Could not activate PDF painter for %s", destination)
+            _unlink_quietly(destination)
             return False
+        page_start_failed = False
         try:
-            for index, source in enumerate(svg_sources):
-                if index > 0:
-                    writer.newPage()
-                renderer = QSvgRenderer(QByteArray(_source_to_bytes(source)))
-                if not renderer.isValid():
-                    LOGGER.error(
-                        "SVG renderer failed to load page %s for %s", index + 1, destination
-                    )
-                    return False
-
-                view_box = renderer.viewBoxF()
-                if view_box.isEmpty():
-                    size = renderer.defaultSize()
-                    svg_width = float(size.width()) or 1.0
-                    svg_height = float(size.height()) or 1.0
-                else:
-                    svg_width = float(view_box.width()) or 1.0
-                    svg_height = float(view_box.height()) or 1.0
+            for index, (renderer, svg_width, svg_height) in enumerate(renderers):
+                if index > 0 and not _start_new_pdf_page(writer, destination, index + 1):
+                    page_start_failed = True
+                    break
 
                 page_width = float(writer.width())
                 page_height = float(writer.height())
@@ -112,9 +160,17 @@ def render_svgs_to_pdf(
                 painter.restore()
         finally:
             painter.end()
+        if page_start_failed:
+            _unlink_quietly(destination)
+            return False
+        if not is_valid_pdf_file(destination):
+            LOGGER.error("PDF renderer did not produce a valid PDF at %s", destination)
+            _unlink_quietly(destination)
+            return False
         return True
     except Exception as exc:
         LOGGER.error("Failed to render SVG PDF %s: %s", destination, exc)
+        _unlink_quietly(destination)
         return False
 
 

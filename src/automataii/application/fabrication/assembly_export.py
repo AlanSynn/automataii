@@ -13,7 +13,7 @@ from pathlib import Path
 from automataii.application.mechanism_foundry.mechanism_types import (
     canonical_mechanism_type,
 )
-from automataii.infrastructure.generation.pdf.svg_pdf import render_svgs_to_pdf
+from automataii.infrastructure.generation.pdf.svg_pdf import is_valid_pdf_file, render_svgs_to_pdf
 from automataii.shared.fabrication_assembly import ASSEMBLY_SCHEMA_VERSION, manifest_part_index
 from automataii.shared.physical_kit import (
     DEFAULT_GRID_CELL_CM,
@@ -757,9 +757,7 @@ class FabricationAssemblyGuideExporter:
             expected_parts = self._expected_part_ids_for_layer(mechanism_type, params)
             recipe_counts = self._recipe_part_counts(recipe) if recipe is not None else {}
             recipe_parts = tuple(recipe_counts)
-            snapped_adjustments = list(
-                self._snapped_parameter_adjustments(mechanism_type, params)
-            )
+            snapped_adjustments = list(self._snapped_parameter_adjustments(mechanism_type, params))
             layer_warnings = list(self._snapped_parameter_warnings(params))
             grid_cell_cm = grid_cell_cm_from_params(params, DEFAULT_GRID_CELL_CM)
             grid_pitch_mm = grid_step_mm(grid_cell_cm)
@@ -890,7 +888,9 @@ class FabricationAssemblyGuideExporter:
         temp_pdf_path = pdf_path.with_name(f".{pdf_path.stem}.tmp{pdf_path.suffix}")
         if temp_pdf_path.is_file():
             temp_pdf_path.unlink()
-        if render_svgs_to_pdf(tuple(svg_sources), temp_pdf_path):
+        if render_svgs_to_pdf(tuple(svg_sources), temp_pdf_path) and is_valid_pdf_file(
+            temp_pdf_path
+        ):
             temp_pdf_path.replace(pdf_path)
             return (pdf_path,)
         if temp_pdf_path.is_file():

@@ -27,7 +27,7 @@ def test_fourbar_serializer_pdf_uses_shared_renderer(monkeypatch, tmp_path: Path
     def fake_render(svg_source: str, output_path: Path) -> bool:
         seen["svg"] = svg_source
         seen["path"] = output_path
-        output_path.write_text("%PDF-1.4\n", encoding="utf-8")
+        output_path.write_text("%PDF-1.4\n%%EOF\n", encoding="utf-8")
         return True
 
     monkeypatch.setattr(serializer_module, "render_svg_to_pdf", fake_render)
@@ -35,7 +35,7 @@ def test_fourbar_serializer_pdf_uses_shared_renderer(monkeypatch, tmp_path: Path
     target = tmp_path / "four-bar.pdf"
     assert FourBarSerializer().export_to_pdf(_blueprint(), str(target)) is True
 
-    assert target.read_text(encoding="utf-8") == "%PDF-1.4\n"
+    assert target.read_text(encoding="utf-8") == "%PDF-1.4\n%%EOF\n"
     assert "Four-Bar Linkage Blueprint" in str(seen["svg"])
     assert Path(seen["path"]).name == ".four-bar.tmp.pdf"
     assert not (tmp_path / ".four-bar.tmp.pdf").exists()
@@ -50,6 +50,22 @@ def test_fourbar_serializer_pdf_removes_partial_output_on_renderer_failure(
     def fake_render(_svg_source: str, output_path: Path) -> bool:
         output_path.write_text("partial", encoding="utf-8")
         return False
+
+    monkeypatch.setattr(serializer_module, "render_svg_to_pdf", fake_render)
+
+    assert FourBarSerializer().export_to_pdf(_blueprint(), str(target)) is False
+    assert not target.exists()
+    assert not (tmp_path / ".four-bar.tmp.pdf").exists()
+
+
+def test_fourbar_serializer_rejects_renderer_success_with_non_pdf_output(
+    monkeypatch, tmp_path: Path
+) -> None:
+    target = tmp_path / "four-bar.pdf"
+
+    def fake_render(_svg_source: str, output_path: Path) -> bool:
+        output_path.write_text("not a pdf", encoding="utf-8")
+        return True
 
     monkeypatch.setattr(serializer_module, "render_svg_to_pdf", fake_render)
 

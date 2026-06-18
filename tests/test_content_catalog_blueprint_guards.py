@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from dataclasses import dataclass
 
 from automataii.application.blueprint import BlueprintComposer
@@ -235,6 +236,59 @@ def test_single_large_blueprint_separates_cut_sheets_from_board_assembly() -> No
     assert "Drill 4mm holes when shown" in svg
     assert "Paper fasteners are hardware, not cut parts" in svg
     assert "Fastener/spacer location is assigned in the Assembly Guide" in svg
+
+
+def test_single_large_blueprint_expands_height_for_tall_current_cut_sheet() -> None:
+    items = [
+        ScenarioLayoutItem(
+            f"Part {index}",
+            ScaledBounds(0, 0, 80.0, 80.0),
+            "<rect width='80' height='80' />",
+            "part",
+        )
+        for index in range(12)
+    ]
+
+    svg = generate_single_large_blueprint(
+        items,
+        800,
+        600,
+        title="Make Parts / Cut Sheets",
+        scale_info="Character body components + mechanisms",
+    )
+
+    height = float(re.search(r'height="([0-9.]+)mm"', svg).group(1))  # type: ignore[union-attr]
+    footer_y = float(re.search(r'<g id="footer">\s*<line x1="20" y1="([0-9.]+)"', svg).group(1))  # type: ignore[union-attr]
+    assert height > 600.0
+    assert footer_y == height - 60.0
+    assert 'viewBox="0 0 800.0 ' in svg
+
+
+def test_single_large_blueprint_wraps_mechanism_parameter_panels() -> None:
+    items = [
+        ScenarioLayoutItem(
+            f"Mechanism {index}",
+            ScaledBounds(0, 0, 100.0, 80.0),
+            "<g class='mechanism-body'><rect width='100' height='80'/></g>",
+            "mechanism",
+        )
+        for index in range(2)
+    ]
+
+    svg = generate_single_large_blueprint(
+        items,
+        400,
+        300,
+        title="Make Parts / Cut Sheets",
+        scale_info="Mechanism parameter panel wrap",
+    )
+
+    transforms = re.findall(r'<g transform="translate\(([0-9.]+),([0-9.]+)\)">', svg)
+    mechanism_transforms = [(float(x), float(y)) for x, y in transforms if float(y) >= 50.0]
+    assert len(mechanism_transforms) >= 2
+    first_y = mechanism_transforms[0][1]
+    second_y = mechanism_transforms[1][1]
+    assert second_y > first_y
 
 
 def test_png_blueprint_processor_escapes_part_names_and_invalid_metrics() -> None:

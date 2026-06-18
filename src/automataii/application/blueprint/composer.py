@@ -66,7 +66,9 @@ class BlueprintComposer:
             height_mm = self._positive_finite_float(height_mm, 600.0)
             if not layout_items:
                 svg = (
-                    '<svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">'
+                    '<svg width="400mm" height="300mm" viewBox="0 0 400 300" '
+                    'xmlns="http://www.w3.org/2000/svg">'
+                    "<title>Make Parts / Cut Sheets</title>"
                     "<text x='50' y='150'>No items to export</text></svg>"
                 )
                 span.set(status="empty")
@@ -83,9 +85,7 @@ class BlueprintComposer:
                 max(width_mm, 800),
                 max(height_mm, 600),
                 title="Make Parts / Cut Sheets",
-                scale_info=(
-                    "Cut/drill only; assembly-guide.pdf shows 15x15 board placement"
-                ),
+                scale_info=("Cut/drill only; assembly-guide.pdf shows 15x15 board placement"),
                 snapshot_data_uri=snapshot_data_uri,
                 unit_system=unit_system,
             )

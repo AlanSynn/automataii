@@ -188,6 +188,26 @@ def test_save_pdf_file_removes_partial_and_stale_pdf_when_renderer_fails(
     assert not (tmp_path / ".current-design-cut-sheets.tmp.pdf").exists()
 
 
+def test_save_pdf_file_rejects_renderer_success_with_non_pdf_output(
+    fresh_manager,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    import automataii.application.managers.blueprint_manager as blueprint_manager
+
+    target = tmp_path / "current-design-cut-sheets.pdf"
+
+    def fake_render(_svg_content: str, output_path: Path) -> bool:
+        output_path.write_text("not a pdf", encoding="utf-8")
+        return True
+
+    monkeypatch.setattr(blueprint_manager, "render_svg_to_pdf", fake_render)
+
+    assert fresh_manager._save_pdf_file("<svg />", str(target)) is False  # type: ignore[attr-defined]
+    assert not target.exists()
+    assert not (tmp_path / ".current-design-cut-sheets.tmp.pdf").exists()
+
+
 def test_export_blueprint_to_path_returns_svg_fallback_when_pdf_render_fails(
     fresh_manager,
     monkeypatch,
@@ -246,7 +266,7 @@ def test_export_blueprint_to_path_reports_pdf_success(
             )
 
     def fake_render(_svg_content: str, output_path: Path) -> bool:
-        output_path.write_text("%PDF-1.4\n", encoding="utf-8")
+        output_path.write_text("%PDF-1.4\n%%EOF\n", encoding="utf-8")
         return True
 
     fresh_manager._composer = StubComposer()  # type: ignore[attr-defined]

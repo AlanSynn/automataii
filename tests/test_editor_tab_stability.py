@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import QApplication, QGraphicsScene
 
 from automataii.domain.project.models import PartInfoModel
 from automataii.presentation.qt.models import PartInfo
+from automataii.presentation.qt.tabs.editor.components.motion_path_manager import MotionPathManager
 from automataii.presentation.qt.tabs.editor.components.skeleton_ik_handler import SkeletonIKHandler
 from automataii.presentation.qt.tabs.editor.tab import EditorTab
 
@@ -46,6 +47,71 @@ class _DummyEditorView:
     def __init__(self) -> None:
         self.set_joint_map = MagicMock()
         self.visualize_skeleton = MagicMock()
+
+
+class _PathItem:
+    def __init__(self, path: QPainterPath) -> None:
+        self._path = path
+
+    def path(self) -> QPainterPath:
+        return self._path
+
+    def setPath(self, path: QPainterPath) -> None:
+        self._path = path
+
+
+class _ReachEditorView(_DummyEditorView):
+    def __init__(self, path: QPainterPath | None = None) -> None:
+        super().__init__()
+        self.final_paths_map = {"hand": _PathItem(path or QPainterPath())}
+        self.started_vertex_editing: list[tuple[str, QPainterPath, bool]] = []
+        self.corrected_overlay: QPainterPath | None = None
+
+    def start_vertex_editing(self, part_name: str, path: QPainterPath, is_closed: bool) -> bool:
+        self.started_vertex_editing.append((part_name, path, is_closed))
+        return True
+
+    def set_corrected_overlay_path(self, _part_name: str, path: QPainterPath) -> None:
+        self.corrected_overlay = path
+
+
+class _MotionPart:
+    def __init__(self) -> None:
+        self.motion_path: QPainterPath | None = None
+
+    def set_motion_path(self, path: QPainterPath) -> None:
+        self.motion_path = path
+
+
+def _reach_constrained_manager(view: _ReachEditorView, part: _MotionPart) -> MotionPathManager:
+    manager = MotionPathManager(view, QGraphicsScene())  # type: ignore[arg-type]
+    project_part = SimpleNamespace(motion_path=None)
+    manager.configure_callbacks(
+        get_selected_part=lambda: "hand",
+        get_editor_items=lambda: {"hand": part},  # type: ignore[return-value]
+        get_parts_info=lambda: {},
+        get_main_window=lambda: SimpleNamespace(
+            project_data_manager=SimpleNamespace(parts={"hand": project_part}),
+            ik_manager=SimpleNamespace(
+                sim_selectable_components=[{"partName": "hand", "targetJointId": "eff"}],
+                sim_limb_configs={
+                    "eff": {"parentAnchor": "mid"},
+                    "mid": {"parentAnchor": "root"},
+                },
+                sim_joints_config={
+                    "root": {"position": QPointF(0, 0)},
+                    "mid": {"position": QPointF(10, 0)},
+                    "eff": {"position": QPointF(20, 0)},
+                },
+                _get_standardized_joint_id=lambda name: name,
+            ),
+            statusBar=lambda: None,
+        ),
+        update_button_states=lambda: None,
+        has_motion_path=lambda _part: True,
+        emit_path_data=lambda: None,
+    )
+    return manager
 
 
 def _make_part(tmp_path: Path, name: str = "head") -> PartInfo:
@@ -218,6 +284,95 @@ def test_completed_paths_do_not_block_parts_and_clear_with_editor_content(
     assert view.final_paths_map == {}
     assert tab._motion_path_manager.corrected_paths == {}
     assert path_item.scene() is None
+
+
+def test_feasibility_snapping_preserves_open_path_intent() -> None:
+    _ = _get_app()
+    manager = MotionPathManager(_DummyEditorView(), QGraphicsScene())  # type: ignore[arg-type]
+    manager._get_main_window = lambda: SimpleNamespace(  # type: ignore[attr-defined]
+        ik_manager=SimpleNamespace(
+            sim_selectable_components=[{"partName": "hand", "targetJointId": "eff"}],
+            sim_limb_configs={
+                "eff": {"parentAnchor": "mid"},
+                "mid": {"parentAnchor": "root"},
+            },
+            sim_joints_config={
+                "root": {"position": QPointF(0, 0)},
+                "mid": {"position": QPointF(10, 0)},
+                "eff": {"position": QPointF(20, 0)},
+            },
+            _get_standardized_joint_id=lambda name: name,
+        )
+    )
+    path = QPainterPath(QPointF(30, 0))
+    path.lineTo(QPointF(30, 10))
+
+    corrected = manager._apply_feasibility_snapping("hand", path, is_closed=False)  # type: ignore[attr-defined]
+
+    assert corrected is not None
+    assert corrected.currentPosition() != corrected.pointAtPercent(0.0)
+
+
+def test_freehand_completion_snaps_path_before_mechanism_handoff() -> None:
+    _ = _get_app()
+    raw_path = QPainterPath(QPointF(140, 0))
+    raw_path.lineTo(QPointF(140, 20))
+    view = _ReachEditorView(raw_path)
+    part = _MotionPart()
+    manager = _reach_constrained_manager(view, part)
+
+    manager.handle_freehand_path_completed(
+        [QPointF(140, 0), QPointF(140, 20)],
+        [],
+        0.0,
+    )
+
+    assert part.motion_path is not None
+    assert part.motion_path.pointAtPercent(0.0).x() <= 21.1
+    assert view.final_paths_map["hand"].path().pointAtPercent(0.0).x() <= 21.1
+    assert view.started_vertex_editing[-1][1].pointAtPercent(0.0).x() <= 21.1
+
+
+def test_vertex_edit_finish_snaps_path_before_storage() -> None:
+    _ = _get_app()
+    raw_path = QPainterPath(QPointF(120, 0))
+    raw_path.lineTo(QPointF(120, 10))
+    view = _ReachEditorView(raw_path)
+    part = _MotionPart()
+    manager = _reach_constrained_manager(view, part)
+    manager._path_closed_intent["hand"] = False  # type: ignore[attr-defined]
+
+    manager.on_vertex_editing_finished("hand", raw_path)
+
+    assert part.motion_path is not None
+    assert part.motion_path.pointAtPercent(0.0).x() <= 21.1
+    assert part.motion_path.currentPosition() != part.motion_path.pointAtPercent(0.0)
+
+
+def test_skeleton_connected_joints_validate_anchor_length_change() -> None:
+    _ = _get_app()
+    handler = SkeletonIKHandler(_DummyEditorView(), QGraphicsScene())  # type: ignore[arg-type]
+    part = SimpleNamespace(anchor_joint_id="mid")
+    joints = {
+        "root": {"position": [0.0, 0.0]},
+        "mid": {"position": [10.0, 0.0], "parent_id": "root", "length": 10.0},
+        "eff": {"position": [20.0, 0.0], "parent_id": "mid", "length": 10.0},
+    }
+
+    assert handler._get_connected_joints_for_part(part, joints) == [  # type: ignore[arg-type]
+        ("root", "mid", 10.0),
+        ("mid", "eff", 10.0),
+    ]
+    assert handler._validate_skeleton_length_preservation(  # type: ignore[arg-type]
+        part,
+        QPointF(10.0, 0.0),
+        joints,
+    )
+    assert not handler._validate_skeleton_length_preservation(  # type: ignore[arg-type]
+        part,
+        QPointF(40.0, 0.0),
+        joints,
+    )
 
 
 def test_character_parts_are_locked_against_direct_dragging(tmp_path: Path) -> None:
