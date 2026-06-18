@@ -49,10 +49,24 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
+      - name: Reject built-in OTA publish for split macOS DMGs
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_external && inputs.ota_smoke_passed }}
+        run: |
+          echo "::error::release.yml produces notarized arm64 and x86_64 DMGs. Sparkle OTA publication needs one selected, smoke-tested DMG; use publish-ota.yml for OTA after the release asset exists."
+          exit 1
+
   build-macos:
     needs: validate-release-ref
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.publish_external }}
-    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-15-arm64
+          - arch: x86_64
+            runner: macos-13
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
 
@@ -69,23 +83,9 @@ jobs:
         run: |
           python3 scripts/install_sparkle.py --output-dir .sparkle --github-output "$GITHUB_OUTPUT"
 
-      - name: Install universal2 Python
-        run: |
-          curl -L -o python-universal2.pkg "https://www.python.org/ftp/python/${MACOS_UNIVERSAL2_PYTHON_VERSION}/python-${MACOS_UNIVERSAL2_PYTHON_VERSION}-macos11.pkg"
-          sudo installer -pkg python-universal2.pkg -target /
-          /Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12 - <<'PY'
-          import subprocess
-          import sys
-
-          output = subprocess.check_output(["lipo", "-archs", sys.executable], text=True).strip()
-          if {"arm64", "x86_64"} - set(output.split()):
-              raise SystemExit(f"Python is not universal2-capable: {output}")
-          print(f"universal2 Python: {sys.executable} ({output})")
-          PY
-
       - name: Install dependencies
         run: |
-          uv sync --group build-macos --python /Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12
+          uv sync --group build-macos
 
       - name: Import signing certificate
         env:
@@ -112,7 +112,6 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           MOTIONSMITH_VERSION: ${{ needs.validate-release-ref.outputs.version }}
-          MOTIONSMITH_OTA_ENABLED: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_external && inputs.ota_smoke_passed && '1' || '' }}
           SPARKLE_PUBLIC_ED_KEY: ${{ secrets.SPARKLE_PUBLIC_ED_KEY || secrets.SPARKLE_PUBLIC_KEY }}
           SPARKLE_FRAMEWORK_PATH: ${{ steps.sparkle.outputs.sparkle_framework }}
         run: |
@@ -128,31 +127,7 @@ jobs:
             export APPLE_NOTARY_PROFILE="MotionSmithNotary"
           fi
           xcrun notarytool store-credentials "$APPLE_NOTARY_PROFILE" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD"
-          uv run python scripts/build_macos.py --arch universal2 --sign "$MACOS_SIGN_IDENTITY" --notarize --verify-release --strict-distribution
-
-      - name: Generate signed Sparkle appcast payload
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_external && inputs.ota_smoke_passed }}
-        env:
-          SPARKLE_PRIVATE_ED_KEY: ${{ secrets.SPARKLE_PRIVATE_ED_KEY || secrets.SPARKLE_PRIVATE_KEY }}
-          OTA_SMOKE_PASSED: ${{ inputs.ota_smoke_passed }}
-        run: |
-          if [[ "$OTA_SMOKE_PASSED" != "true" ]]; then
-            echo "::error::ota_smoke_passed=true is required to publish the Sparkle OTA payload."
-            exit 1
-          fi
-          if [[ -z "${SPARKLE_PRIVATE_ED_KEY:-}" ]]; then
-            echo "::error::SPARKLE_PRIVATE_ED_KEY (or SPARKLE_PRIVATE_KEY) is required to sign the production Sparkle appcast."
-            exit 1
-          fi
-          uv run python scripts/generate_appcast.py production \
-            --artifact dist/MotionSmith-macos-universal2.dmg \
-            --output-dir signed-appcast \
-            --download-url-prefix "$MOTIONSMITH_UPDATE_BASE_URL" \
-            --link "$MOTIONSMITH_UPDATE_BASE_URL" \
-            --expected-artifact MotionSmith-macos-universal2.dmg \
-            --expected-version "${{ needs.validate-release-ref.outputs.version }}" \
-            --sparkle-generate-appcast "${{ steps.sparkle.outputs.generate_appcast }}" \
-            --private-key-env SPARKLE_PRIVATE_ED_KEY
+          uv run python scripts/build_macos.py --arch "${{ matrix.arch }}" --sign "$MACOS_SIGN_IDENTITY" --notarize --verify-release --strict-distribution
 
       - name: Clean signing keychain
         if: ${{ always() }}
@@ -163,15 +138,9 @@ jobs:
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
         with:
-          name: macos-dmg
-          path: dist/MotionSmith-macos-*.dmg
-
-      - name: Upload signed Sparkle appcast payload
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_external && inputs.ota_smoke_passed }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: sparkle-appcast-payload
-          path: signed-appcast/**
+          name: macos-dmg-${{ matrix.arch }}
+          path: dist/MotionSmith-macos-${{ matrix.arch }}.dmg
+          if-no-files-found: error
 
   build-linux:
     needs: validate-release-ref
@@ -364,70 +333,16 @@ jobs:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
 
-      - name: Validate generated production appcast payload
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.ota_smoke_passed }}
-        env:
-          OTA_SMOKE_PASSED: ${{ inputs.ota_smoke_passed }}
-        run: |
-          if [[ "$OTA_SMOKE_PASSED" != "true" ]]; then
-            echo "::error::ota_smoke_passed=true is required to validate the Sparkle OTA payload."
-            exit 1
-          fi
-          python3 scripts/validate_appcast.py sparkle-appcast-payload/appcast.xml \
-            --expected-artifact MotionSmith-macos-universal2.dmg \
-            --expected-version "${{ needs.validate-release-ref.outputs.version }}" \
-            --expected-url-prefix "$MOTIONSMITH_UPDATE_BASE_URL" \
-            --payload-dir sparkle-appcast-payload
-
-      - name: Preflight MotionSmith Pages publishing access
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.ota_smoke_passed }}
-        env:
-          MOTIONSMITH_PAGES_TOKEN: ${{ secrets.MOTIONSMITH_PAGES_TOKEN }}
-          MOTIONSMITH_PAGES_DEPLOY_KEY: ${{ secrets.MOTIONSMITH_PAGES_DEPLOY_KEY }}
-          MOTIONSMITH_PAGES_DEPLOY_KEY_FINGERPRINT: ${{ vars.MOTIONSMITH_PAGES_DEPLOY_KEY_FINGERPRINT || secrets.MOTIONSMITH_PAGES_DEPLOY_KEY_FINGERPRINT }}
-        run: |
-          python3 scripts/publish_ota_pages.py preflight
-
       - name: Create Release
         if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.ota_smoke_passed) }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.validate-release-ref.outputs.version }}
           files: |
-            macos-dmg/*
+            macos-dmg-*/*
             linux-appimage/*
             windows-release/*
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create Release with OTA payload
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.ota_smoke_passed }}
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ needs.validate-release-ref.outputs.version }}
-          files: |
-            macos-dmg/*
-            linux-appimage/*
-            windows-release/*
-            sparkle-appcast-payload/**
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Publish OTA payload to MotionSmith Pages repository
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.ota_smoke_passed }}
-        env:
-          MOTIONSMITH_PAGES_TOKEN: ${{ secrets.MOTIONSMITH_PAGES_TOKEN }}
-          MOTIONSMITH_PAGES_DEPLOY_KEY: ${{ secrets.MOTIONSMITH_PAGES_DEPLOY_KEY }}
-          MOTIONSMITH_PAGES_DEPLOY_KEY_FINGERPRINT: ${{ vars.MOTIONSMITH_PAGES_DEPLOY_KEY_FINGERPRINT || secrets.MOTIONSMITH_PAGES_DEPLOY_KEY_FINGERPRINT }}
-        run: |
-          python3 scripts/publish_ota_pages.py publish \
-            --payload-dir sparkle-appcast-payload \
-            --version "${{ needs.validate-release-ref.outputs.version }}" \
-            --expected-artifact MotionSmith-macos-universal2.dmg \
-            --expected-url-prefix "$MOTIONSMITH_UPDATE_BASE_URL" \
-            --appcast-url "${MOTIONSMITH_UPDATE_BASE_URL%/}/appcast.xml" \
-            --retries 18 \
-            --delay 10 \
-            --timeout 20

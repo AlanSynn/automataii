@@ -15,10 +15,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup uv
-        uses: astral-sh/setup-uv@v1
+        uses: astral-sh/setup-uv@v4
 
       - name: Sync dependencies
-        run: uv sync
+        run: uv sync --group build-macos
 
       - name: Import signing certificate
         env:
@@ -83,10 +83,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup uv
-        uses: astral-sh/setup-uv@v1
+        uses: astral-sh/setup-uv@v4
 
       - name: Sync dependencies
-        run: uv sync
+        run: uv sync --group build-macos
 
       - name: Import signing certificate
         env:

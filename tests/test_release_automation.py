@@ -70,9 +70,8 @@ def test_release_trigger_matrix_has_one_owner_for_auto_release_modes() -> None:
         "if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.ota_smoke_passed) }}"
         in release
     )
-    assert (
-        "if: ${{ github.event_name == 'workflow_dispatch' && inputs.ota_smoke_passed }}" in release
-    )
+    assert "Reject built-in OTA publish for split macOS DMGs" in release
+    assert "use publish-ota.yml for OTA after the release asset exists" in release
 
     github_token_owner_count = int(_auto_release_dispatches_when(False)) + int(False)
     pat_owner_count = int(_auto_release_dispatches_when(True)) + int(
@@ -84,11 +83,11 @@ def test_release_trigger_matrix_has_one_owner_for_auto_release_modes() -> None:
         _release_plain_step_runs_when(
             event_name="workflow_dispatch", publish_external=True, ota_smoke_passed=True
         )
-    ) + int(_release_ota_step_runs_when(event_name="workflow_dispatch", ota_smoke_passed=True))
+    )
 
     assert github_token_owner_count == 1
     assert pat_owner_count == 1
-    assert manual_ota_owner_count == 1
+    assert manual_ota_owner_count == 0
 
 
 def test_release_workflow_separates_github_release_from_ota_publish() -> None:
@@ -103,14 +102,16 @@ def test_release_workflow_separates_github_release_from_ota_publish() -> None:
     assert "actions/setup-python@v4" not in workflow
     assert "GitHub release notarization requires APPLE_ID" in workflow
     assert "xcrun notarytool store-credentials" in workflow
-    assert "MOTIONSMITH_OTA_ENABLED" in workflow
+    assert "MOTIONSMITH_OTA_ENABLED" not in workflow
+    assert "Reject built-in OTA publish for split macOS DMGs" in workflow
+    assert "macos-dmg-*/*" in workflow
     assert "inputs.publish_external && inputs.ota_smoke_passed" in workflow
-    assert "Create Release with OTA payload" in workflow
+    assert "Create Release with OTA payload" not in workflow
     assert "Create Release" in workflow
     assert (
         "github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish_external)"
         in workflow
     )
-    assert "sparkle-appcast-payload/**" in workflow
+    assert "sparkle-appcast-payload/**" not in workflow
     assert "tag_name: ${{ needs.validate-release-ref.outputs.version }}" in workflow
-    assert "Publish OTA payload to MotionSmith Pages repository" in workflow
+    assert "Publish OTA payload to MotionSmith Pages repository" not in workflow

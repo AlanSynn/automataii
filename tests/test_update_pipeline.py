@@ -690,42 +690,45 @@ def test_pipeline_files_use_generated_appcast_and_cross_repo_pages_publish():
     assert not Path(".github/workflows/build-and-release.yml").exists()
 
     workflow = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
-    assert "scripts/generate_appcast.py production" in workflow
-    assert "scripts/validate_appcast.py sparkle-appcast-payload/appcast.xml" in workflow
-    assert "python3 scripts/publish_ota_pages.py preflight" in workflow
-    assert "python3 scripts/publish_ota_pages.py publish" in workflow
-    assert "MOTIONSMITH_PAGES_TOKEN" in workflow
-    assert "MOTIONSMITH_PAGES_DEPLOY_KEY" in workflow
-    assert "Preflight MotionSmith Pages publishing access" in workflow
-    assert "configure_pages_remote" not in workflow
-    assert "ssh-keyscan" not in workflow
-    assert "git config --global" not in workflow
-    assert "rsync -av" not in workflow
-    assert "https://github.com/AlanSynn/motionsmith.git" not in workflow
-    assert "ref: main" not in workflow
-    assert "actions/deploy-pages" not in workflow
-    assert "actions/upload-pages-artifact" not in workflow
-    assert "update-appcast" not in workflow
-    assert "MOTIONSMITH_SIGNED_APPCAST_PATH" not in workflow
+    ota_workflow = Path(".github/workflows/publish-ota.yml").read_text(encoding="utf-8")
+    assert "Reject built-in OTA publish for split macOS DMGs" in workflow
+    assert "use publish-ota.yml for OTA after the release asset exists" in workflow
+    assert "scripts/validate_appcast.py sparkle-appcast-payload/appcast.xml" not in workflow
+    assert "python3 scripts/publish_ota_pages.py preflight" not in workflow
+    assert "python3 scripts/publish_ota_pages.py publish" not in workflow
+    assert "sparkle-appcast-payload/**" not in workflow
+    assert "macos-dmg-*/*" in workflow
+    assert "MotionSmith-macos-universal2.dmg" not in workflow
+    assert "MotionSmith-macos-${{ matrix.arch }}.dmg" in workflow
+
+    assert "scripts/validate_appcast.py sparkle-appcast-payload/appcast.xml" in ota_workflow
+    assert "python3 scripts/publish_ota_pages.py preflight" in ota_workflow
+    assert "python3 scripts/publish_ota_pages.py publish" in ota_workflow
+    assert "MOTIONSMITH_PAGES_TOKEN" in ota_workflow
+    assert "MOTIONSMITH_PAGES_DEPLOY_KEY" in ota_workflow
+    assert "Preflight MotionSmith Pages publishing access" in ota_workflow
+    assert "configure_pages_remote" not in ota_workflow
+    assert "ssh-keyscan" not in ota_workflow
+    assert "git config --global" not in ota_workflow
+    assert "rsync -av" not in ota_workflow
+    assert "https://github.com/AlanSynn/motionsmith.git" not in ota_workflow
+    assert "ref: main" not in ota_workflow
+    assert "actions/deploy-pages" not in ota_workflow
+    assert "actions/upload-pages-artifact" not in ota_workflow
+    assert "update-appcast" not in ota_workflow
+    assert "MOTIONSMITH_SIGNED_APPCAST_PATH" not in ota_workflow
     assert "ota_smoke_passed" in workflow
+    assert "ota_smoke_passed" in ota_workflow
     assert "manual attestation" in workflow
-    assert "sparkle-appcast-payload/**" in workflow
-    assert "sparkle-appcast-payload/*.delta" not in workflow
-    assert "sparkle-appcast-payload/*.html" not in workflow
-    assert "MotionSmith-macos-universal2.dmg" in workflow
-    assert workflow.index("Preflight MotionSmith Pages publishing access") < workflow.index(
-        "name: Create Release"
-    )
-    assert workflow.index("name: Create Release") < workflow.index(
-        "name: Publish OTA payload to MotionSmith Pages repository"
-    )
+    assert "sparkle-appcast-payload/*.delta" not in ota_workflow
+    assert "sparkle-appcast-payload/*.html" not in ota_workflow
 
     publisher = Path("scripts/publish_ota_pages.py").read_text(encoding="utf-8")
     assert 'permissions.get("push") or permissions.get("admin")' in publisher
     assert "git@github.com:{repo}.git" in publisher
     assert '"push", "--dry-run", "origin", f"HEAD:{args.branch}"' in publisher
     assert "github.com ssh-ed25519" in publisher
-    assert "MOTIONSMITH_PAGES_DEPLOY_KEY_FINGERPRINT" in workflow
+    assert "MOTIONSMITH_PAGES_DEPLOY_KEY_FINGERPRINT" in ota_workflow
     assert "MOTIONSMITH_PAGES_DEPLOY_KEY_FINGERPRINT" in publisher
     assert "ssh-keyscan" not in publisher
     assert "GIT_CONFIG_GLOBAL" in publisher

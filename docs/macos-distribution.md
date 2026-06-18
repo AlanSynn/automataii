@@ -7,7 +7,7 @@ Apple notarization, ticket stapling, and strict release verification.
 
 - macOS with Xcode command line tools.
 - Developer ID Application certificate in the signing keychain.
-- For universal2 releases, a universal2 Python environment and universal2 binary dependencies.
+- For universal2 releases, a universal2 Python environment and universal2 binary dependencies. CI public releases currently use separate arm64/x86_64 DMGs because common scientific wheels are often thin binaries.
 - Apple notarization credentials.
 
 ## Store Notarization Credentials
@@ -67,7 +67,7 @@ macOS build targets are distribution targets. Local development should use
 to produce a Developer ID signed, notarized, stapled, strictly verified release
 artifact.
 
-The repeatable universal release entrypoint is:
+The repeatable local universal release entrypoint is:
 
 ```bash
 make build-macos          # or equivalently: make release-macos
@@ -75,9 +75,12 @@ make build-macos          # or equivalently: make release-macos
 
 `make build-macos` calls `scripts/release_macos.py`, which loads `.env`, uses
 `.venv-universal2` for child `uv` commands by default, preflights the
-`notarytool` keychain profile, builds a universal2 DMG, signs it with Developer
-ID, notarizes/staples both the app and DMG, runs strict release verification,
-mounts the DMG, copies the app out, and runs a packaged smoke scenario.
+`notarytool` keychain profile, builds a universal2 DMG when every dependency has
+both slices, signs it with Developer ID, notarizes/staples both the app and DMG,
+runs strict release verification, mounts the DMG, copies the app out, and runs a
+packaged smoke scenario. For CI public releases, `.github/workflows/release.yml`
+builds `MotionSmith-macos-arm64.dmg` and `MotionSmith-macos-x86_64.dmg` on
+native runners instead of forcing a brittle universal2 bundle.
 
 The convenience build targets route through the same notarized release
 automation:
@@ -126,7 +129,7 @@ make verify-macos-release \
   OPTS="--expected-arch universal2 --require-notarization --strict-distribution"
 ```
 
-`--strict-distribution` keeps the release failed until recursive universal2
+`--strict-distribution` keeps the release failed until recursive architecture
 Mach-O checks, dependency-closure checks, app signing, DMG container signing,
 Gatekeeper assessment, and stapled app/DMG ticket validation pass. The release
 script also writes a checksum manifest at

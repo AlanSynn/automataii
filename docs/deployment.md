@@ -26,7 +26,8 @@ without creating or pushing a tag.
 That workflow is the only supported full-public deploy path:
 
 - macOS must pass Developer ID signing, notarization/stapling, strict
-  distribution verification, and a packaged smoke scenario.
+  distribution verification, and a packaged smoke scenario for both
+  `MotionSmith-macos-arm64.dmg` and `MotionSmith-macos-x86_64.dmg`.
 - Windows must pass Authenticode signing with the production certificate and
   both build-machine and downloaded-zip smoke scenarios.
 - Unsigned local builds are development artifacts only and must not be uploaded
@@ -69,7 +70,9 @@ The fingerprint is not private material, but keeping it in Actions variables and
 
 ### Additional GitHub Actions secrets for full CI build
 
-Required only for `.github/workflows/release.yml` full build:
+Required only for `.github/workflows/release.yml` full build. The workflow produces
+separate notarized `MotionSmith-macos-arm64.dmg` and
+`MotionSmith-macos-x86_64.dmg` artifacts:
 
 - `MACOS_CERT_P12`
 - `MACOS_CERT_PASSWORD`
@@ -88,7 +91,9 @@ test-only self-signed Windows certificate. That proves the Windows build/sign/ru
 `windows-latest` and checks the Authenticode signature is present, but a self-signed certificate is not a trusted public release signature.
 Those non-publishing smoke runs skip the signed macOS DMG job so Windows evidence can be collected
 without Apple signing secrets. Tagged releases and `publish_external=true` runs still require the
-macOS signing/notarization secrets.
+macOS signing/notarization secrets. Tagged/full external releases build separate
+notarized Apple Silicon and Intel DMGs in CI because current binary dependencies
+(such as NumPy/SciPy/ONNX Runtime) are not all available as universal2 wheels.
 
 ## Local signed Windows build
 
@@ -134,7 +139,7 @@ research/test certificates can still trigger Windows SmartScreen; use a CA-issue
 
 ## Local signed/notarized macOS build
 
-Build a production DMG locally with the same Sparkle public key that will be configured in Actions:
+Build a production DMG locally with the same Sparkle public key that will be configured in Actions. CI uses thin per-architecture DMGs for public releases; local `universal2` remains available only when your Python and binary wheels contain both arm64 and x86_64 slices:
 
 ```bash
 set -a
@@ -150,13 +155,15 @@ uv run python scripts/build_macos.py \
   --strict-distribution
 ```
 
-Expected universal artifact:
+Expected artifact names:
 
 ```text
-dist/MotionSmith-macos-universal2.dmg
+dist/MotionSmith-macos-arm64.dmg
+dist/MotionSmith-macos-x86_64.dmg
+dist/MotionSmith-macos-universal2.dmg  # only when every binary dependency supports universal2
 ```
 
-If you intentionally build a different architecture, pass that exact asset name to the deploy-only workflow.
+For OTA publication, pass one exact, already smoke-tested DMG asset name to the deploy-only workflow. The full release workflow intentionally does not auto-publish Sparkle OTA metadata for split architecture DMGs until dual-architecture appcast support is implemented.
 
 ## Upload local DMG to a GitHub Release
 
@@ -164,7 +171,7 @@ GitHub Actions `workflow_dispatch` cannot directly receive a local binary upload
 
 ```bash
 VERSION=v0.1.1
-DMG=dist/MotionSmith-macos-universal2.dmg
+DMG=dist/MotionSmith-macos-arm64.dmg
 
 # Create the release if it does not exist.
 gh release create "$VERSION" "$DMG" \
@@ -188,7 +195,7 @@ After the DMG exists as a release asset, run:
 gh workflow run publish-ota.yml \
   --repo AlanSynn/automataii \
   -f version=v0.1.1 \
-  -f dmg_asset_name=MotionSmith-macos-universal2.dmg \
+  -f dmg_asset_name=MotionSmith-macos-arm64.dmg \
   -f publish_pages=true \
   -f ota_smoke_passed=true
 ```
@@ -218,7 +225,7 @@ source .env
 set +a
 
 VERSION=v0.1.1
-DMG=dist/MotionSmith-macos-universal2.dmg
+DMG=dist/MotionSmith-macos-arm64.dmg
 PAYLOAD=signed-appcast-local
 
 python3 scripts/install_sparkle.py --output-dir .sparkle > .sparkle-env
