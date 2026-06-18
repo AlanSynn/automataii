@@ -107,20 +107,64 @@ def test_save_dialog_defaults_to_pdf_and_allows_svg(fresh_manager, monkeypatch):
 
     monkeypatch.setattr(QFileDialog, "getSaveFileName", fake_get_save_file_name)
 
-    assert fresh_manager._get_save_file_path(None) == "current-design-cut-sheets.pdf"  # type: ignore[attr-defined]
-    assert (
-        fresh_manager._get_save_file_path(None, output_format="svg")
-        == "current-design-cut-sheets.svg"
-    )  # type: ignore[attr-defined]
+    pdf_path = Path(fresh_manager._get_save_file_path(None))  # type: ignore[attr-defined,arg-type]
+    svg_path = Path(
+        fresh_manager._get_save_file_path(None, output_format="svg")  # type: ignore[attr-defined,arg-type]
+    )
+
+    assert pdf_path.name == "current-design-cut-sheets.pdf"
+    assert svg_path.name == "current-design-cut-sheets.svg"
 
     assert captured[0] == (
-        "current-design-cut-sheets.pdf",
+        str(Path.home() / "Downloads" / "current-design-cut-sheets.pdf")
+        if (Path.home() / "Downloads").is_dir()
+        else str(Path.home() / "current-design-cut-sheets.pdf"),
         "PDF Files (*.pdf);;SVG Files (*.svg);;All Files (*)",
     )
     assert captured[1] == (
-        "current-design-cut-sheets.svg",
+        str(Path.home() / "Downloads" / "current-design-cut-sheets.svg")
+        if (Path.home() / "Downloads").is_dir()
+        else str(Path.home() / "current-design-cut-sheets.svg"),
         "SVG Files (*.svg);;PDF Files (*.pdf);;All Files (*)",
     )
+
+
+def test_dialog_export_reports_actual_svg_fallback_when_pdf_render_fails(
+    fresh_manager,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    import automataii.application.managers.blueprint_manager as blueprint_manager
+
+    class StubComposer:
+        def compose_single_page(self, *_args, **_kwargs):
+            return BlueprintCompositionResult(
+                svg="<svg/>",
+                width_mm=10.0,
+                height_mm=10.0,
+                item_count=0,
+            )
+
+    def fake_render(_svg_content: str, output_path: Path) -> bool:
+        output_path.write_text("partial pdf", encoding="utf-8")
+        return False
+
+    messages: list[tuple[bool, str]] = []
+    fresh_manager._composer = StubComposer()  # type: ignore[attr-defined]
+    monkeypatch.setattr(blueprint_manager, "render_svg_to_pdf", fake_render)
+    monkeypatch.setattr(
+        fresh_manager,
+        "_get_save_file_path",
+        lambda *_args, **_kwargs: str(tmp_path / "current-design-cut-sheets.pdf"),
+    )
+    fresh_manager.export_completed.connect(lambda ok, message: messages.append((ok, message)))
+
+    assert fresh_manager.export_blueprint(part_items=[], mechanism_layers={}, output_format="pdf")
+    assert messages[-1][0] is True
+    assert "PDF rendering unavailable" in messages[-1][1]
+    assert "current-design-cut-sheets.svg" in messages[-1][1]
+    assert (tmp_path / "current-design-cut-sheets.svg").is_file()
+    assert not (tmp_path / "current-design-cut-sheets.pdf").exists()
 
 
 def test_save_pdf_file_removes_partial_and_stale_pdf_when_renderer_fails(

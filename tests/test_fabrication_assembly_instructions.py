@@ -548,12 +548,11 @@ def test_fabrication_export_surface_defaults_to_integrated_pdf_package() -> None
     assert "Export Blueprint Package" in blueprint_source
     assert "PDF-first blueprint package" in blueprint_source
     assert "LEGO guide book" in blueprint_source
-    assert "Custom / Simulation-only" in blueprint_source
-    assert "assembly_contract_ready" in blueprint_source
-    assert "export_contract_report" in blueprint_source
+    assert "Blueprint Package Exported with Contract Warnings" in blueprint_source
+    assert "assembly_contract_ready" not in blueprint_source
     assert "clear_exported_package" in blueprint_source
     assert "fallback_files" in blueprint_source
-    assert "gated by physical contract warnings" in blueprint_source
+    assert "gated by physical contract warnings" not in blueprint_source
     assert "kit-parts-to-cut.pdf" in inspect.getsource(FabricationAssemblyGuideExporter)
     assert "physical-contract.json" in inspect.getsource(FabricationAssemblyGuideExporter)
     assert "index.html" not in inspect.getsource(FabricationAssemblyGuideExporter.export_guides)

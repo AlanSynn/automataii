@@ -4,7 +4,10 @@ Handles export/import of mechanism designs.
 """
 
 import logging
+from pathlib import Path
 from typing import Any
+
+from automataii.infrastructure.generation.pdf.svg_pdf import render_svg_to_pdf
 
 from ..interfaces.serializer import BlueprintData, BlueprintSerializer
 
@@ -138,9 +141,36 @@ class FourBarSerializer(BlueprintSerializer):
 
     def export_to_pdf(self, blueprint_data: BlueprintData, filepath: str) -> bool:
         """Export as PDF."""
-        # Would use reportlab or similar library
-        logging.info(f"[SERIALIZER] PDF export to {filepath} not yet implemented")
-        return False
+        valid, error = self.validate_blueprint(blueprint_data)
+        if not valid:
+            logging.warning("[SERIALIZER] Refusing invalid four-bar PDF export: %s", error)
+            return False
+
+        destination = Path(filepath)
+        temp_destination = destination.with_name(
+            f".{destination.stem}.tmp{destination.suffix or '.pdf'}"
+        )
+        try:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            if temp_destination.is_file():
+                temp_destination.unlink()
+            if render_svg_to_pdf(self.export_to_svg(blueprint_data), temp_destination):
+                temp_destination.replace(destination)
+                return True
+            if temp_destination.is_file():
+                temp_destination.unlink()
+            if destination.is_file():
+                destination.unlink()
+            return False
+        except Exception as exc:
+            logging.error("[SERIALIZER] PDF export to %s failed: %s", filepath, exc)
+            for stale_path in (temp_destination, destination):
+                try:
+                    if stale_path.is_file():
+                        stale_path.unlink()
+                except OSError:
+                    logging.debug("[SERIALIZER] Could not remove stale %s", stale_path)
+            return False
 
     def validate_blueprint(self, blueprint_data: BlueprintData) -> tuple[bool, str | None]:
         """Validate blueprint."""

@@ -44,6 +44,23 @@ def test_cache_initial_skeleton_none_clears_visualization_state(qapp: QApplicati
     assert handler.initial_skeleton_data_cache is None
 
 
+def test_cache_initial_skeleton_deep_copies_rest_pose(qapp: QApplication) -> None:
+    handler, _view = _handler()
+    skeleton = {
+        "joint_map": {"head": "joint-head"},
+        "joints": {"joint-head": {"position": [10.0, 20.0]}},
+    }
+
+    handler.cache_initial_skeleton(skeleton)
+    skeleton["joints"]["joint-head"]["position"][0] = 999.0
+
+    assert handler.initial_skeleton_data_cache is not skeleton
+    assert handler.initial_skeleton_data_cache == {
+        "joint_map": {"head": "joint-head"},
+        "joints": {"joint-head": {"position": [10.0, 20.0]}},
+    }
+
+
 def test_on_skeleton_updated_empty_data_clears_visualization(qapp: QApplication) -> None:
     handler, view = _handler()
 

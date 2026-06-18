@@ -9,6 +9,7 @@ Design Pattern: Handler (processes external events and updates state)
 
 from __future__ import annotations
 
+import copy
 import logging
 import math
 from collections.abc import Callable
@@ -659,7 +660,7 @@ class SkeletonVisualizationHandler(QObject):
             skeleton_data_dict: Skeleton data to cache
         """
         self._initial_skeleton_data_cache = (
-            skeleton_data_dict.copy() if skeleton_data_dict else None
+            copy.deepcopy(skeleton_data_dict) if skeleton_data_dict else None
         )
 
         if self._initial_skeleton_data_cache:

@@ -244,8 +244,6 @@ class BlueprintExporter:
                 if isinstance(raw_contract_warnings, list | tuple)
                 else ()
             )
-            assembly_contract_ready = bool(recipe_keys) and not contract_warnings
-
             logging.info(
                 "[BLUEPRINT] Package export request: %s parts, %s mechanisms, recipes=%s",
                 len(part_items),
@@ -289,7 +287,7 @@ class BlueprintExporter:
                 cut_sheet_error = getattr(cut_sheet_result, "error", None)
 
                 assembly_success = True
-                if assembly_contract_ready:
+                if recipe_keys:
                     assembly_result = guide_exporter.export_guides(
                         output_dir,
                         recipe_keys=recipe_keys,
@@ -297,12 +295,6 @@ class BlueprintExporter:
                     )
                     assembly_success = bool(
                         assembly_result.pdf_files or assembly_result.fallback_files
-                    )
-                elif recipe_keys:
-                    guide_exporter.export_contract_report(output_dir, physical_contract)
-                    logging.warning(
-                        "[BLUEPRINT] Board assembly PDFs gated by physical contract warnings: %s",
-                        contract_warnings,
                     )
                 else:
                     guide_exporter.clear_exported_package(output_dir)
@@ -343,20 +335,6 @@ class BlueprintExporter:
                             "editor."
                         )
                     recipe_text = ", ".join(assembly_result.recipe_keys)
-                elif recipe_keys and contract_warnings:
-                    guide_text = (
-                        "Kit parts to cut: gated by physical contract warnings\n"
-                        "Assembly guide: gated by physical contract warnings\n"
-                        "Physical contract: assembly/physical-contract.json\n"
-                        "Assembly PDFs: none\n"
-                    )
-                    recipe_text = ", ".join(sorted(recipe_keys))
-                    next_steps_text = (
-                        "Custom / Simulation-only values were exported as a cut sheet, but "
-                        "LEGO-style board assembly PDFs were not generated. Open "
-                        "physical-contract.json, then convert the design to the nearest "
-                        "fabrication-ready kit presets before assembling on the board."
-                    )
                 else:
                     guide_text = (
                         "Kit parts to cut: not generated (no matching board recipe)\n"
@@ -394,7 +372,7 @@ class BlueprintExporter:
                 if warning_count:
                     QMessageBox.warning(
                         self._parent,
-                        "Blueprint Package Exported as Custom / Simulation-only",
+                        "Blueprint Package Exported with Contract Warnings",
                         message,
                     )
                 else:

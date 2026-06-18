@@ -227,6 +227,7 @@ def test_single_large_blueprint_separates_cut_sheets_from_board_assembly() -> No
 
     assert "Current Design Cut Sheets" not in svg
     assert "Units: Metric" not in svg
+    assert 'clipPath id="title-block-title-clip"' in svg
     assert "Board preset: 15×15 holes" in svg
     assert "Make Parts / Cut Sheets boundary" in svg
     assert "this sheet is not the board assembly order" in svg

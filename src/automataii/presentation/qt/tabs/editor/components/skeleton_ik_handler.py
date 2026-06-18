@@ -9,6 +9,7 @@ Design Pattern: Handler (processes external events and updates state)
 
 from __future__ import annotations
 
+import copy
 import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
@@ -197,7 +198,7 @@ class SkeletonIKHandler(QObject):
             skeleton_data_dict: Skeleton data to cache
         """
         if skeleton_data_dict:
-            self._initial_skeleton_cache = skeleton_data_dict.copy()
+            self._initial_skeleton_cache = copy.deepcopy(skeleton_data_dict)
             logging.info("SkeletonIKHandler: Initial skeleton data cached")
 
             # Pass joint_map to editor_view

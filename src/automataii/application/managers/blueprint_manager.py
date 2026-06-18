@@ -147,6 +147,8 @@ class BlueprintExportManager(QObject):
 
                 # Save single large page
                 ext = os.path.splitext(file_path)[1].lower()
+                actual_path = file_path
+                fallback_used = False
                 if ext == ".pdf":
                     success = self._save_pdf_file(svg_content, file_path)
                     if not success:
@@ -155,15 +157,24 @@ class BlueprintExportManager(QObject):
                             "PDF export unavailable; writing SVG fallback to %s", fallback_svg
                         )
                         success = self._save_svg_file(svg_content, fallback_svg)
+                        actual_path = fallback_svg
+                        fallback_used = success
                 else:
                     success = self._save_svg_file(svg_content, file_path)
 
                 if success:
-                    unit_label = "Imperial" if unit_system == "imperial" else "Metric"
-                    self.logger.info(f"Large-format blueprint ({unit_label}) saved to {file_path}")
-                    self.export_completed.emit(
-                        True, f"Blueprint exported successfully ({unit_label} units)"
-                    )
+                    self.logger.info("Make-parts cut sheet saved to %s", actual_path)
+                    if fallback_used:
+                        self.export_completed.emit(
+                            True,
+                            "PDF rendering unavailable; SVG fallback saved to "
+                            f"{actual_path}",
+                        )
+                    else:
+                        self.export_completed.emit(
+                            True,
+                            f"Make Parts / Cut Sheets exported successfully:\n{actual_path}",
+                        )
                 else:
                     self.logger.error("Failed to save blueprint file")
                     self.export_completed.emit(False, "Failed to save blueprint file")
@@ -302,6 +313,9 @@ class BlueprintExportManager(QObject):
             default_name = (
                 "current-design-cut-sheets.pdf" if fmt == "pdf" else "current-design-cut-sheets.svg"
             )
+            downloads = Path.home() / "Downloads"
+            default_dir = downloads if downloads.is_dir() else Path.home()
+            default_path = str(default_dir / default_name)
             filters = (
                 "PDF Files (*.pdf);;SVG Files (*.svg);;All Files (*)"
                 if fmt == "pdf"
@@ -310,7 +324,7 @@ class BlueprintExportManager(QObject):
             file_path, _ = QFileDialog.getSaveFileName(
                 parent_widget,
                 "Export Make Parts / Cut Sheets",
-                default_name,
+                default_path,
                 filters,
             )
             return file_path if file_path else None

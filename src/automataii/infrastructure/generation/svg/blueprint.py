@@ -104,6 +104,7 @@ def generate_single_large_blueprint(
     scale_info = _safe_svg_text(scale_info)
     snapshot_data_uri = _safe_snapshot_data_uri(snapshot_data_uri)
     unit_system = "imperial" if unit_system == "imperial" else "metric"
+    title_clip_width = max(80.0, page_width_mm - 290.0)
 
     # Unit conversion functions
     def format_dimension(value_mm: float) -> str:
@@ -143,6 +144,9 @@ def generate_single_large_blueprint(
      viewBox="0 0 {page_width_mm} {page_height_mm}"
      xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1">
   <defs>
+    <clipPath id="title-block-title-clip">
+      <rect x="40" y="28" width="{title_clip_width}" height="28"/>
+    </clipPath>
     <style>
       .blueprint-text {{ font-family: Arial, sans-serif; }}
       .section-title {{ font-size: 20px; font-weight: bold; }}
@@ -178,7 +182,8 @@ def generate_single_large_blueprint(
   <g id="title-block">
     <rect x="20" y="20" width="{page_width_mm - 40}" height="90"
           fill="#f8f8f8" stroke="black" stroke-width="2"/>
-    <text x="40" y="50" class="section-title" font-size="20">{title}</text>
+    <text x="40" y="50" class="section-title" font-size="20"
+          clip-path="url(#title-block-title-clip)">{title}</text>
     <text x="40" y="75" class="blueprint-text" font-size="12">{scale_info}</text>
     <text x="40" y="95" class="blueprint-text" font-size="10">
       Board preset: 15×15 holes | 4mm part holes | Assembly PDF gives placement

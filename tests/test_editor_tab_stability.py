@@ -4,13 +4,15 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
+from unittest.mock import MagicMock
 
 from PyQt6.QtCore import QEvent, QPointF, Qt
 from PyQt6.QtGui import QMouseEvent, QPainterPath, QPixmap
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QGraphicsScene
 
 from automataii.domain.project.models import PartInfoModel
 from automataii.presentation.qt.models import PartInfo
+from automataii.presentation.qt.tabs.editor.components.skeleton_ik_handler import SkeletonIKHandler
 from automataii.presentation.qt.tabs.editor.tab import EditorTab
 
 _APP: QApplication | None = None
@@ -38,6 +40,12 @@ class _NoStatusMainWindow:
     def statusBar() -> None:
         # Real teardown or tests can temporarily leave no status bar object.
         return None
+
+
+class _DummyEditorView:
+    def __init__(self) -> None:
+        self.set_joint_map = MagicMock()
+        self.visualize_skeleton = MagicMock()
 
 
 def _make_part(tmp_path: Path, name: str = "head") -> PartInfo:
@@ -91,6 +99,23 @@ def test_start_drawing_tolerates_partial_project_data_manager(tmp_path: Path) ->
 
     assert tab.editor_view.current_mode == "define_motion_path"
     assert tab.define_motion_path_btn.isChecked()
+
+
+def test_editor_skeleton_handler_deep_copies_rest_pose() -> None:
+    _ = _get_app()
+    handler = SkeletonIKHandler(_DummyEditorView(), QGraphicsScene())
+    skeleton = {
+        "joint_map": {"head": "joint-head"},
+        "joints": {"joint-head": {"position": [10.0, 20.0]}},
+    }
+
+    handler.cache_initial_skeleton(skeleton)
+    skeleton["joints"]["joint-head"]["position"][1] = 999.0
+
+    assert handler._initial_skeleton_cache == {  # type: ignore[attr-defined]
+        "joint_map": {"head": "joint-head"},
+        "joints": {"joint-head": {"position": [10.0, 20.0]}},
+    }
 
 
 def test_freehand_path_completion_tolerates_missing_status_bar_and_records_timing(

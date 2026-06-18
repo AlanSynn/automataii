@@ -1,3 +1,4 @@
+import copy
 import logging
 from typing import Any
 
@@ -459,7 +460,7 @@ class EditorTab(QWidget):
         # Reset parts to original positions
         if self._initial_skeleton_data_cache:
             self._position_parts_at_anchor_joints()
-            self.on_skeleton_updated(self._initial_skeleton_data_cache.copy())
+            self.on_skeleton_updated(copy.deepcopy(self._initial_skeleton_data_cache))
             logging.info("EditorTab: Skeleton and parts reset to cached initial state.")
         else:
             logging.warning("EditorTab: No cached initial skeleton data for reset.")
@@ -967,7 +968,7 @@ class EditorTab(QWidget):
         """Caches initial skeleton data. Delegates to SkeletonIKHandler."""
         # Keep local cache for backwards compatibility with existing lambdas
         if skeleton_data_dict:
-            self._initial_skeleton_data_cache = skeleton_data_dict.copy()
+            self._initial_skeleton_data_cache = copy.deepcopy(skeleton_data_dict)
         else:
             self._initial_skeleton_data_cache = None
 
