@@ -2,12 +2,23 @@ from __future__ import annotations
 
 import inspect
 import json
+import math
+import re
 import shutil
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any, cast
 
 import pytest
+from pdf_helpers import (
+    assert_pdf_has_printable_pages,
+    assert_pdf_page_matches_svg_bbox,
+    assert_pdf_page_uses_area,
+    assert_pdf_pages_fit_standard_print_sheet,
+    nonwhite_bbox,
+    pdf_page_sizes_mm,
+    render_pdf_page,
+)
 from scripts.generate_fabrication_templates import write_fabrication_templates
 
 import automataii.application.fabrication.assembly_export as assembly_export
@@ -36,6 +47,7 @@ from automataii.shared.fabrication_assembly import (
 )
 
 SVG_NS = "{http://www.w3.org/2000/svg}"
+NUMBER_RE = re.compile(r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)")
 EXPECTED_RECIPE_KEYS = {
     "gear-train-basic",
     "cam-follower-basic",
@@ -68,6 +80,15 @@ def _svg_root(path: Path) -> ET.Element:
 
 def _text_content(root: ET.Element) -> str:
     return "\n".join(element.text or "" for element in root.iter(f"{SVG_NS}text"))
+
+
+def _svg_text_values(svg: str) -> list[str]:
+    root = ET.fromstring(svg)
+    return [element.text or "" for element in root.iter(f"{SVG_NS}text")]
+
+
+def _path_numbers(path_data: str) -> list[float]:
+    return [float(match.group(0)) for match in NUMBER_RE.finditer(path_data)]
 
 
 def _layout_boxes(root: ET.Element) -> list[tuple[int, str, float, float, float, float]]:
@@ -355,6 +376,44 @@ def test_assembly_svg_cards_have_testable_layers_and_non_overlapping_layout(
                     assert not _overlaps(first[1:], second[1:]), (first, second)
 
 
+def test_assembly_linkage_overlays_have_visible_span(tmp_path: Path) -> None:
+    write_fabrication_templates(tmp_path)
+
+    for guide_path in (tmp_path / "assembly").glob("*.svg"):
+        root = _svg_root(guide_path)
+        for element in root.iter(f"{SVG_NS}path"):
+            classes = set(element.attrib.get("class", "").split())
+            if not {"board-part", "linkage-part"} <= classes:
+                continue
+            values = _path_numbers(element.attrib["d"])
+            assert len(values) >= 4, (guide_path, ET.tostring(element))
+            start = (values[0], values[1])
+            end = (values[-2], values[-1])
+            assert math.dist(start, end) > 0.01, (guide_path, ET.tostring(element))
+
+
+def test_dynamic_pdf_cover_text_is_compacted_before_rendering(tmp_path: Path) -> None:
+    exporter = FabricationAssemblyGuideExporter(tmp_path)
+    long_title = "Gear train with linkage crank and extra descriptive classroom build title " * 5
+    checklist_svg = exporter._selected_parts_checklist_svg(
+        {"recipes": [{"title": long_title} for _ in range(4)]}
+    )
+    checklist_text = _svg_text_values(checklist_svg)
+    assert any("see recipes.json" in text for text in checklist_text)
+    assert max(map(len, checklist_text)) <= 140
+
+    long_warning = (
+        "layer-1: selected assembly guide does not include active app-selected "
+        "part(s) and this sentence is intentionally long enough to clip a PDF page "
+    ) * 3
+    contract_svg = exporter._physical_contract_svg(
+        {"status": "warning", "layers": [{}], "warnings": [long_warning]}
+    )
+    contract_text = _svg_text_values(contract_svg)
+    assert any("see physical-contract.json" in text for text in contract_text)
+    assert max(map(len, contract_text)) <= 150
+
+
 def test_application_exporter_lists_and_exports_pdf_board_guides(tmp_path: Path) -> None:
     write_fabrication_templates(tmp_path)
     exporter = FabricationAssemblyGuideExporter(tmp_path)
@@ -437,6 +496,52 @@ def test_export_guides_writes_package_for_each_recipe_key(tmp_path: Path) -> Non
         assert (package_dir / "assembly-guide.pdf").is_file()
         assert (package_dir / "kit-parts-to-cut.pdf").is_file()
         assert not (package_dir / "svg-fallback").exists()
+        assert_pdf_has_printable_pages(package_dir / "assembly-guide.pdf", expected_pages=3)
+        assert_pdf_pages_fit_standard_print_sheet(
+            package_dir / "assembly-guide.pdf", expected_pages=3
+        )
+        for page in range(3):
+            assert_pdf_page_uses_area(
+                package_dir / "assembly-guide.pdf",
+                page=page,
+                min_width_ratio=0.55,
+                min_height_ratio=0.35,
+            )
+        assert_pdf_has_printable_pages(package_dir / "kit-parts-to-cut.pdf")
+        assert_pdf_pages_fit_standard_print_sheet(package_dir / "kit-parts-to-cut.pdf")
+
+
+def test_part_cut_pdf_uses_standard_pages_without_scaling_small_parts(tmp_path: Path) -> None:
+    write_fabrication_templates(tmp_path)
+    exporter = FabricationAssemblyGuideExporter(tmp_path)
+    result = exporter.export_guides(tmp_path / "exported-guides", recipe_keys={"gear-train-basic"})
+    pdf_path = result.package_dir / "kit-parts-to-cut.pdf"
+
+    sizes = pdf_page_sizes_mm(pdf_path)
+    assert len(sizes) >= 3
+    assert all(max(width, height) <= 300.0 for width, height in sizes)
+
+    image = render_pdf_page(pdf_path, page=1)
+    bbox, _count = nonwhite_bbox(image, stride=2)
+    content_width = bbox[2] - bbox[0] + 1
+    content_height = bbox[3] - bbox[1] + 1
+    assert content_width / image.width() < 0.45
+    assert content_height / image.height() < 0.45
+    assert bbox[0] > image.width() * 0.20
+    assert bbox[1] > image.height() * 0.20
+
+
+def test_assembly_recipe_pdf_page_matches_source_svg_layout(tmp_path: Path) -> None:
+    write_fabrication_templates(tmp_path)
+    exporter = FabricationAssemblyGuideExporter(tmp_path)
+    result = exporter.export_guides(tmp_path / "exported-guides", recipe_keys={"gear-train-basic"})
+
+    assert_pdf_page_matches_svg_bbox(
+        result.package_dir / "assembly-guide.pdf",
+        tmp_path / "assembly" / "01-gear-train-basic.svg",
+        page=2,
+        margin_points=18.0,
+    )
 
 
 def test_runtime_foundry_visible_mechanisms_have_assembly_guides(tmp_path: Path) -> None:
@@ -537,7 +642,7 @@ def test_application_exporter_falls_back_to_svg_sources_when_pdf_unavailable(
 ) -> None:
     write_fabrication_templates(tmp_path)
 
-    def fake_render(_sources: object, pdf_path: Path) -> bool:
+    def fake_render(_sources: object, pdf_path: Path, **_kwargs: object) -> bool:
         pdf_path.parent.mkdir(parents=True, exist_ok=True)
         pdf_path.write_text("partial pdf", encoding="utf-8")
         return False
@@ -567,7 +672,7 @@ def test_application_exporter_rejects_renderer_success_with_non_pdf_outputs(
 ) -> None:
     write_fabrication_templates(tmp_path)
 
-    def fake_render(_sources: object, pdf_path: Path) -> bool:
+    def fake_render(_sources: object, pdf_path: Path, **_kwargs: object) -> bool:
         pdf_path.parent.mkdir(parents=True, exist_ok=True)
         pdf_path.write_text("not a pdf", encoding="utf-8")
         return True

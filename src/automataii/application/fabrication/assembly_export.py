@@ -13,7 +13,11 @@ from pathlib import Path
 from automataii.application.mechanism_foundry.mechanism_types import (
     canonical_mechanism_type,
 )
-from automataii.infrastructure.generation.pdf.svg_pdf import is_valid_pdf_file, render_svgs_to_pdf
+from automataii.infrastructure.generation.pdf.svg_pdf import (
+    PageScaleMode,
+    is_valid_pdf_file,
+    render_svgs_to_pdf,
+)
 from automataii.shared.fabrication_assembly import ASSEMBLY_SCHEMA_VERSION, manifest_part_index
 from automataii.shared.physical_kit import (
     DEFAULT_GRID_CELL_CM,
@@ -29,6 +33,9 @@ from automataii.shared.physical_kit import (
     snap_physical_params,
 )
 from automataii.utils.paths import resolve_path
+
+PRINT_PAGE_SIZE_MM = (210.0, 297.0)
+PRINT_MARGIN_POINTS = 18.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,6 +87,16 @@ def _active_part_ids_with_source(
         if extracted:
             return extracted, "fabrication.active_part_ids"
     return (), None
+
+
+def _compact_svg_text(value: object, *, max_chars: int, suffix: str = "… see JSON") -> str:
+    """Escape a single SVG text line without letting dynamic content clip the page."""
+
+    text = " ".join(str(value or "").split())
+    if len(text) > max_chars:
+        room = max(1, max_chars - len(suffix) - 1)
+        text = f"{text[:room].rstrip(' ,.;:')} {suffix}"
+    return html_escape(text)
 
 
 @dataclass(frozen=True, slots=True)
@@ -491,6 +508,7 @@ class FabricationAssemblyGuideExporter:
                 f'<text x="242" y="{y - 2}" class="item" text-anchor="end">x{count}</text>'
             )
         recipe_text = ", ".join(str(recipe.get("title", "Guide")) for recipe in recipes) or "Guide"
+        recipe_text = _compact_svg_text(recipe_text, max_chars=112, suffix="… see recipes.json")
         return f'''<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="280mm" height="{height}mm"
      viewBox="0 0 280 {height}">
@@ -508,7 +526,7 @@ class FabricationAssemblyGuideExporter:
   <rect x="8" y="8" width="264" height="{height - 16}" rx="6" fill="#ffffff" stroke="#111827" stroke-width="0.8"/>
   <text x="18" y="24" class="title">MotionSmith Board Assembly PDF</text>
   <text x="18" y="36" class="heading">Selected build(s)</text>
-  <text x="18" y="44" class="body">{html_escape(recipe_text)}</text>
+  <text x="18" y="44" class="body">{recipe_text}</text>
   <text x="18" y="58" class="heading">Use it like a LEGO guide book</text>
   <text x="18" y="67" class="body">1. Print/cut the current-design cut sheet and kit-parts-to-cut.pdf.</text>
   <text x="18" y="75" class="body">2. Open one card at a time; only the newly-added part is highlighted.</text>
@@ -903,9 +921,12 @@ class FabricationAssemblyGuideExporter:
         if shown:
             for index, warning in enumerate(shown, start=1):
                 y = 76 + (index - 1) * 12
-                rows.append(
-                    f'<text x="24" y="{y}" class="warning">{index}. {html_escape(warning)}</text>'
+                warning_text = _compact_svg_text(
+                    warning,
+                    max_chars=118,
+                    suffix="… see physical-contract.json",
                 )
+                rows.append(f'<text x="24" y="{y}" class="warning">{index}. {warning_text}</text>')
         else:
             rows.append(
                 '<text x="24" y="76" class="body">All exported mechanism layers match the selected physical kit recipes.</text>'
@@ -942,13 +963,20 @@ class FabricationAssemblyGuideExporter:
         svg_sources: Sequence[str | Path],
         pdf_path: Path,
         fallback_dir: Path,
+        page_size_mm: tuple[float, float] | None = None,
+        scale_mode: str = "fit",
     ) -> tuple[Path, ...]:
         temp_pdf_path = pdf_path.with_name(f".{pdf_path.stem}.tmp{pdf_path.suffix}")
         if temp_pdf_path.is_file():
             temp_pdf_path.unlink()
-        if render_svgs_to_pdf(tuple(svg_sources), temp_pdf_path) and is_valid_pdf_file(
-            temp_pdf_path
-        ):
+        pdf_scale_mode: PageScaleMode = "actual-size" if scale_mode == "actual-size" else "fit"
+        if render_svgs_to_pdf(
+            tuple(svg_sources),
+            temp_pdf_path,
+            margin_points=PRINT_MARGIN_POINTS if page_size_mm else 0.0,
+            page_size_mm=page_size_mm,
+            scale_mode=pdf_scale_mode,
+        ) and is_valid_pdf_file(temp_pdf_path):
             temp_pdf_path.replace(pdf_path)
             return (pdf_path,)
         if temp_pdf_path.is_file():
@@ -1095,6 +1123,7 @@ This folder is a self-contained `assembly/` package exported from Automataii.
             svg_sources=guide_sources,
             pdf_path=package_dir / "assembly-guide.pdf",
             fallback_dir=package_dir / "svg-fallback" / "assembly",
+            page_size_mm=PRINT_PAGE_SIZE_MM,
         )
         copied.extend(guide_outputs)
         pdf_files.extend(path for path in guide_outputs if path.suffix.lower() == ".pdf")
@@ -1106,6 +1135,8 @@ This folder is a self-contained `assembly/` package exported from Automataii.
                 svg_sources=(self._kit_parts_cover_svg(package), *part_sources),
                 pdf_path=package_dir / "kit-parts-to-cut.pdf",
                 fallback_dir=package_dir / "svg-fallback" / "parts",
+                page_size_mm=PRINT_PAGE_SIZE_MM,
+                scale_mode="actual-size",
             )
             copied.extend(part_outputs)
             pdf_files.extend(path for path in part_outputs if path.suffix.lower() == ".pdf")

@@ -619,7 +619,7 @@
   <g id="layer-existing-parts-step-2" data-step="2" data-app-mechanism="slider_crank">
   <circle cx="173.429" cy="226.857" r="2.9" class="score board-part spacer-part" data-step="2" data-part-key="spacers:s8" data-part-index="1"/>
   <circle cx="173.429" cy="226.857" r="1.1" class="drill board-part-hole" data-step="2" data-part-key="spacers:s8" data-part-index="1"/>
-  <path d="M 179.286 215.143 L 179.286 215.143" class="score board-part linkage-part" style="fill:none;stroke:#60a5fa;stroke-opacity:0.72;stroke-width:4.2;stroke-linecap:round" data-step="2" data-part-key="linkages:linkage-2-cell" data-part-index="2"/>
+  <path d="M 173.429 226.857 L 179.286 215.143" class="score board-part linkage-part" style="fill:none;stroke:#60a5fa;stroke-opacity:0.72;stroke-width:4.2;stroke-linecap:round" data-step="2" data-part-key="linkages:linkage-2-cell" data-part-index="2"/>
   <circle cx="173.429" cy="226.857" r="1.1" class="drill board-part-hole linkage-hole" data-step="2" data-part-key="linkages:linkage-2-cell" data-part-index="2" data-hole-index="0"/>
   <circle cx="179.286" cy="215.143" r="1.1" class="drill board-part-hole linkage-hole" data-step="2" data-part-key="linkages:linkage-2-cell" data-part-index="2" data-hole-index="1"/>
   </g>
@@ -939,7 +939,7 @@
   <g id="layer-existing-parts-step-3" data-step="3" data-app-mechanism="slider_crank">
   <circle cx="179.286" cy="337.143" r="2.9" class="score board-part spacer-part" data-step="3" data-part-key="spacers:s8" data-part-index="1"/>
   <circle cx="179.286" cy="337.143" r="1.1" class="drill board-part-hole" data-step="3" data-part-key="spacers:s8" data-part-index="1"/>
-  <path d="M 214.429 337.143 L 214.429 337.143" class="score board-part linkage-part" style="fill:none;stroke:#60a5fa;stroke-opacity:0.72;stroke-width:4.2;stroke-linecap:round" data-step="3" data-part-key="linkages:linkage-6-cell" data-part-index="2"/>
+  <path d="M 179.286 337.143 L 214.429 337.143" class="score board-part linkage-part" style="fill:none;stroke:#60a5fa;stroke-opacity:0.72;stroke-width:4.2;stroke-linecap:round" data-step="3" data-part-key="linkages:linkage-6-cell" data-part-index="2"/>
   <circle cx="179.286" cy="337.143" r="1.1" class="drill board-part-hole linkage-hole" data-step="3" data-part-key="linkages:linkage-6-cell" data-part-index="2" data-hole-index="0"/>
   <circle cx="214.429" cy="337.143" r="1.1" class="drill board-part-hole linkage-hole" data-step="3" data-part-key="linkages:linkage-6-cell" data-part-index="2" data-hole-index="1"/>
   </g>
@@ -1259,7 +1259,7 @@
   <g id="layer-existing-parts-step-4" data-step="4" data-app-mechanism="slider_crank">
   <circle cx="208.571" cy="459.143" r="2.9" class="score board-part spacer-part" data-step="4" data-part-key="spacers:s8" data-part-index="1"/>
   <circle cx="208.571" cy="459.143" r="1.1" class="drill board-part-hole" data-step="4" data-part-key="spacers:s8" data-part-index="1"/>
-  <path d="M 214.429 459.143 L 220.286 459.143" class="score board-part linkage-part" style="fill:none;stroke:#a78bfa;stroke-opacity:0.72;stroke-width:4.2;stroke-linecap:round" data-step="4" data-part-key="brackets:3-hole-straight" data-part-index="2"/>
+  <path d="M 208.571 459.143 L 220.286 459.143" class="score board-part linkage-part" style="fill:none;stroke:#a78bfa;stroke-opacity:0.72;stroke-width:4.2;stroke-linecap:round" data-step="4" data-part-key="brackets:3-hole-straight" data-part-index="2"/>
   <circle cx="208.571" cy="459.143" r="1.1" class="drill board-part-hole linkage-hole" data-step="4" data-part-key="brackets:3-hole-straight" data-part-index="2" data-hole-index="0"/>
   <circle cx="220.286" cy="459.143" r="1.1" class="drill board-part-hole linkage-hole" data-step="4" data-part-key="brackets:3-hole-straight" data-part-index="2" data-hole-index="1"/>
   </g>
@@ -1904,10 +1904,10 @@
   <path d="M 173.429 714.857 L 214.429 703.143" class="score board-part linkage-part" style="fill:none;stroke:#60a5fa;stroke-opacity:0.72;stroke-width:4.2;stroke-linecap:round" data-step="6" data-part-key="linkages:linkage-2-cell" data-part-index="1"/>
   <circle cx="173.429" cy="714.857" r="1.1" class="drill board-part-hole linkage-hole" data-step="6" data-part-key="linkages:linkage-2-cell" data-part-index="1" data-hole-index="0"/>
   <circle cx="214.429" cy="703.143" r="1.1" class="drill board-part-hole linkage-hole" data-step="6" data-part-key="linkages:linkage-2-cell" data-part-index="1" data-hole-index="1"/>
-  <path d="M 214.429 703.143 L 214.429 703.143" class="score board-part linkage-part" style="fill:none;stroke:#60a5fa;stroke-opacity:0.72;stroke-width:4.2;stroke-linecap:round" data-step="6" data-part-key="linkages:linkage-6-cell" data-part-index="2"/>
+  <path d="M 173.429 714.857 L 214.429 703.143" class="score board-part linkage-part" style="fill:none;stroke:#60a5fa;stroke-opacity:0.72;stroke-width:4.2;stroke-linecap:round" data-step="6" data-part-key="linkages:linkage-6-cell" data-part-index="2"/>
   <circle cx="173.429" cy="714.857" r="1.1" class="drill board-part-hole linkage-hole" data-step="6" data-part-key="linkages:linkage-6-cell" data-part-index="2" data-hole-index="0"/>
   <circle cx="214.429" cy="703.143" r="1.1" class="drill board-part-hole linkage-hole" data-step="6" data-part-key="linkages:linkage-6-cell" data-part-index="2" data-hole-index="1"/>
-  <path d="M 214.429 703.143 L 214.429 703.143" class="score board-part linkage-part" style="fill:none;stroke:#a78bfa;stroke-opacity:0.72;stroke-width:4.2;stroke-linecap:round" data-step="6" data-part-key="brackets:2-hole-straight" data-part-index="3"/>
+  <path d="M 173.429 714.857 L 214.429 703.143" class="score board-part linkage-part" style="fill:none;stroke:#a78bfa;stroke-opacity:0.72;stroke-width:4.2;stroke-linecap:round" data-step="6" data-part-key="brackets:2-hole-straight" data-part-index="3"/>
   <circle cx="173.429" cy="714.857" r="1.1" class="drill board-part-hole linkage-hole" data-step="6" data-part-key="brackets:2-hole-straight" data-part-index="3" data-hole-index="0"/>
   <circle cx="214.429" cy="703.143" r="1.1" class="drill board-part-hole linkage-hole" data-step="6" data-part-key="brackets:2-hole-straight" data-part-index="3" data-hole-index="1"/>
   </g>

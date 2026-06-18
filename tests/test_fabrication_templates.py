@@ -235,8 +235,8 @@ def _translated_offset(element: ET.Element, dx: float, dy: float) -> tuple[float
 
 def _assert_svg_geometry_inside_viewbox(root: ET.Element) -> None:
     _, _, width_text, height_text = root.attrib["viewBox"].split()
-    width = float(width_text)
-    height = float(height_text)
+    sheet_width = float(width_text)
+    sheet_height = float(height_text)
     tolerance = 0.001
 
     def visit(element: ET.Element, dx: float, dy: float) -> None:
@@ -255,6 +255,24 @@ def _assert_svg_geometry_inside_viewbox(root: ET.Element) -> None:
                     (float(element.attrib["x2"]) + next_dx, float(element.attrib["y2"]) + next_dy),
                 )
             )
+        elif tag in {"rect", "image"}:
+            x = float(element.attrib.get("x", 0.0)) + next_dx
+            y = float(element.attrib.get("y", 0.0)) + next_dy
+            element_width = float(element.attrib.get("width", 0.0))
+            element_height = float(element.attrib.get("height", 0.0))
+            points.extend(((x, y), (x + element_width, y + element_height)))
+        elif tag == "ellipse":
+            cx = float(element.attrib["cx"]) + next_dx
+            cy = float(element.attrib["cy"]) + next_dy
+            rx = float(element.attrib["rx"])
+            ry = float(element.attrib["ry"])
+            points.extend(((cx - rx, cy - ry), (cx + rx, cy + ry)))
+        elif tag in {"polyline", "polygon"}:
+            values = _floats(element.attrib.get("points", ""))
+            points.extend(
+                (values[idx] + next_dx, values[idx + 1] + next_dy)
+                for idx in range(0, len(values) - 1, 2)
+            )
         elif tag == "path":
             points.extend((x + next_dx, y + next_dy) for x, y in _path_points(element.attrib["d"]))
         elif tag == "text":
@@ -262,8 +280,18 @@ def _assert_svg_geometry_inside_viewbox(root: ET.Element) -> None:
                 (float(element.attrib["x"]) + next_dx, float(element.attrib["y"]) + next_dy)
             )
         for x, y in points:
-            assert -tolerance <= x <= width + tolerance, (tag, x, width, ET.tostring(element))
-            assert -tolerance <= y <= height + tolerance, (tag, y, height, ET.tostring(element))
+            assert -tolerance <= x <= sheet_width + tolerance, (
+                tag,
+                x,
+                sheet_width,
+                ET.tostring(element),
+            )
+            assert -tolerance <= y <= sheet_height + tolerance, (
+                tag,
+                y,
+                sheet_height,
+                ET.tostring(element),
+            )
         for child in element:
             visit(child, next_dx, next_dy)
 

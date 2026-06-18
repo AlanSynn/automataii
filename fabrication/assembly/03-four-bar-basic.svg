@@ -622,7 +622,7 @@
   <g id="layer-existing-parts-step-2" data-step="2" data-app-mechanism="four_bar">
   <circle cx="173.429" cy="226.857" r="2.9" class="score board-part spacer-part" data-step="2" data-part-key="spacers:s8" data-part-index="1"/>
   <circle cx="173.429" cy="226.857" r="1.1" class="drill board-part-hole" data-step="2" data-part-key="spacers:s8" data-part-index="1"/>
-  <path d="M 179.286 215.143 L 179.286 215.143" class="score board-part linkage-part" style="fill:none;stroke:#60a5fa;stroke-opacity:0.72;stroke-width:4.2;stroke-linecap:round" data-step="2" data-part-key="linkages:linkage-2-cell" data-part-index="2"/>
+  <path d="M 173.429 226.857 L 179.286 215.143" class="score board-part linkage-part" style="fill:none;stroke:#60a5fa;stroke-opacity:0.72;stroke-width:4.2;stroke-linecap:round" data-step="2" data-part-key="linkages:linkage-2-cell" data-part-index="2"/>
   <circle cx="173.429" cy="226.857" r="1.1" class="drill board-part-hole linkage-hole" data-step="2" data-part-key="linkages:linkage-2-cell" data-part-index="2" data-hole-index="0"/>
   <circle cx="179.286" cy="215.143" r="1.1" class="drill board-part-hole linkage-hole" data-step="2" data-part-key="linkages:linkage-2-cell" data-part-index="2" data-hole-index="1"/>
   </g>
@@ -942,7 +942,7 @@
   <g id="layer-existing-parts-step-3" data-step="3" data-app-mechanism="four_bar">
   <circle cx="179.286" cy="337.143" r="2.9" class="score board-part spacer-part" data-step="3" data-part-key="spacers:s8" data-part-index="1"/>
   <circle cx="179.286" cy="337.143" r="1.1" class="drill board-part-hole" data-step="3" data-part-key="spacers:s8" data-part-index="1"/>
-  <path d="M 202.714 337.143 L 202.714 337.143" class="score board-part linkage-part" style="fill:none;stroke:#60a5fa;stroke-opacity:0.72;stroke-width:4.2;stroke-linecap:round" data-step="3" data-part-key="linkages:linkage-4-cell" data-part-index="2"/>
+  <path d="M 179.286 337.143 L 202.714 337.143" class="score board-part linkage-part" style="fill:none;stroke:#60a5fa;stroke-opacity:0.72;stroke-width:4.2;stroke-linecap:round" data-step="3" data-part-key="linkages:linkage-4-cell" data-part-index="2"/>
   <circle cx="179.286" cy="337.143" r="1.1" class="drill board-part-hole linkage-hole" data-step="3" data-part-key="linkages:linkage-4-cell" data-part-index="2" data-hole-index="0"/>
   <circle cx="202.714" cy="337.143" r="1.1" class="drill board-part-hole linkage-hole" data-step="3" data-part-key="linkages:linkage-4-cell" data-part-index="2" data-hole-index="1"/>
   </g>
@@ -1262,7 +1262,7 @@
   <g id="layer-existing-parts-step-4" data-step="4" data-app-mechanism="four_bar">
   <circle cx="202.714" cy="459.143" r="2.9" class="score board-part spacer-part" data-step="4" data-part-key="spacers:s8" data-part-index="1"/>
   <circle cx="202.714" cy="459.143" r="1.1" class="drill board-part-hole" data-step="4" data-part-key="spacers:s8" data-part-index="1"/>
-  <path d="M 196.857 470.857 L 196.857 470.857" class="score board-part linkage-part" style="fill:none;stroke:#60a5fa;stroke-opacity:0.72;stroke-width:4.2;stroke-linecap:round" data-step="4" data-part-key="linkages:linkage-2-cell" data-part-index="2"/>
+  <path d="M 202.714 459.143 L 196.857 470.857" class="score board-part linkage-part" style="fill:none;stroke:#60a5fa;stroke-opacity:0.72;stroke-width:4.2;stroke-linecap:round" data-step="4" data-part-key="linkages:linkage-2-cell" data-part-index="2"/>
   <circle cx="202.714" cy="459.143" r="1.1" class="drill board-part-hole linkage-hole" data-step="4" data-part-key="linkages:linkage-2-cell" data-part-index="2" data-hole-index="0"/>
   <circle cx="196.857" cy="470.857" r="1.1" class="drill board-part-hole linkage-hole" data-step="4" data-part-key="linkages:linkage-2-cell" data-part-index="2" data-hole-index="1"/>
   </g>

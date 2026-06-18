@@ -1739,6 +1739,7 @@ def _mini_part_overlay_elements(
                     )
                 )
         elif category in {"linkages", "brackets"} and len(coord_points) >= 2:
+            x1, y1 = coord_points[0]
             x2, y2 = coord_points[-1]
             elements.append(
                 _path(

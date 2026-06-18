@@ -4,6 +4,11 @@ import json
 from pathlib import Path
 
 import pytest
+from pdf_helpers import (
+    assert_pdf_has_printable_pages,
+    assert_pdf_page_uses_area,
+    assert_pdf_pages_fit_standard_print_sheet,
+)
 
 from automataii.application.mechanism_foundry.controller import build_mechanism_configs
 from automataii.presentation.qt.blueprint.exporter import BlueprintExporter
@@ -71,14 +76,26 @@ def test_export_all_writes_real_package_for_each_supported_family(
     assert (output_dir / "current-design-cut-sheets.pdf").is_file() or (
         output_dir / "current-design-cut-sheets.svg"
     ).is_file()
+    if (output_dir / "current-design-cut-sheets.pdf").is_file():
+        assert_pdf_has_printable_pages(output_dir / "current-design-cut-sheets.pdf")
+        assert_pdf_page_uses_area(output_dir / "current-design-cut-sheets.pdf")
     assert (assembly_dir / "recipes.json").is_file()
     assert (assembly_dir / "physical-contract.json").is_file()
     assert (assembly_dir / "assembly-guide.pdf").is_file() or (
         assembly_dir / "svg-fallback" / "assembly"
     ).is_dir()
+    if (assembly_dir / "assembly-guide.pdf").is_file():
+        assert_pdf_has_printable_pages(assembly_dir / "assembly-guide.pdf")
+        assert_pdf_pages_fit_standard_print_sheet(assembly_dir / "assembly-guide.pdf")
+        assert_pdf_page_uses_area(
+            assembly_dir / "assembly-guide.pdf", min_width_ratio=0.55, min_height_ratio=0.35
+        )
     assert (assembly_dir / "kit-parts-to-cut.pdf").is_file() or (
         assembly_dir / "svg-fallback" / "parts"
     ).is_dir()
+    if (assembly_dir / "kit-parts-to-cut.pdf").is_file():
+        assert_pdf_has_printable_pages(assembly_dir / "kit-parts-to-cut.pdf")
+        assert_pdf_pages_fit_standard_print_sheet(assembly_dir / "kit-parts-to-cut.pdf")
 
     recipes = json.loads((assembly_dir / "recipes.json").read_text(encoding="utf-8"))
     assert [recipe["key"] for recipe in recipes["recipes"]] == [recipe_key]

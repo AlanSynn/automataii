@@ -1263,7 +1263,7 @@
   <g id="layer-existing-parts-step-4" data-step="4" data-app-mechanism="planetary_gear">
   <circle cx="191" cy="465" r="2.9" class="score board-part spacer-part" data-step="4" data-part-key="spacers:s8" data-part-index="1"/>
   <circle cx="191" cy="465" r="1.1" class="drill board-part-hole" data-step="4" data-part-key="spacers:s8" data-part-index="1"/>
-  <path d="M 202.714 465 L 202.714 465" class="score board-part linkage-part" style="fill:none;stroke:#60a5fa;stroke-opacity:0.72;stroke-width:4.2;stroke-linecap:round" data-step="4" data-part-key="linkages:linkage-2-cell" data-part-index="2"/>
+  <path d="M 191 465 L 202.714 465" class="score board-part linkage-part" style="fill:none;stroke:#60a5fa;stroke-opacity:0.72;stroke-width:4.2;stroke-linecap:round" data-step="4" data-part-key="linkages:linkage-2-cell" data-part-index="2"/>
   <circle cx="191" cy="465" r="1.1" class="drill board-part-hole linkage-hole" data-step="4" data-part-key="linkages:linkage-2-cell" data-part-index="2" data-hole-index="0"/>
   <circle cx="202.714" cy="465" r="1.1" class="drill board-part-hole linkage-hole" data-step="4" data-part-key="linkages:linkage-2-cell" data-part-index="2" data-hole-index="1"/>
   </g>
@@ -1922,7 +1922,7 @@
   <circle cx="202.714" cy="712.349" r="0.9" class="drill board-part-hole gear-attachment-hole" data-step="6" data-part-key="gears:g14" data-part-index="2" data-hole-index="1"/>
   <circle cx="199.365" cy="709" r="0.9" class="drill board-part-hole gear-attachment-hole" data-step="6" data-part-key="gears:g14" data-part-index="2" data-hole-index="2"/>
   <circle cx="202.714" cy="705.651" r="0.9" class="drill board-part-hole gear-attachment-hole" data-step="6" data-part-key="gears:g14" data-part-index="2" data-hole-index="3"/>
-  <path d="M 202.714 709 L 202.714 709" class="score board-part linkage-part" style="fill:none;stroke:#60a5fa;stroke-opacity:0.72;stroke-width:4.2;stroke-linecap:round" data-step="6" data-part-key="linkages:linkage-2-cell" data-part-index="3"/>
+  <path d="M 191 709 L 202.714 709" class="score board-part linkage-part" style="fill:none;stroke:#60a5fa;stroke-opacity:0.72;stroke-width:4.2;stroke-linecap:round" data-step="6" data-part-key="linkages:linkage-2-cell" data-part-index="3"/>
   <circle cx="191" cy="709" r="1.1" class="drill board-part-hole linkage-hole" data-step="6" data-part-key="linkages:linkage-2-cell" data-part-index="3" data-hole-index="0"/>
   <circle cx="202.714" cy="709" r="1.1" class="drill board-part-hole linkage-hole" data-step="6" data-part-key="linkages:linkage-2-cell" data-part-index="3" data-hole-index="1"/>
   </g>

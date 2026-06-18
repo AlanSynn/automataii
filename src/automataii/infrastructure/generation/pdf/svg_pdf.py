@@ -8,19 +8,24 @@ fabrication assembly packages.
 from __future__ import annotations
 
 import logging
+import math
 import os
+import re
 import sys
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
-from PyQt6.QtCore import QByteArray, QRectF
-from PyQt6.QtGui import QGuiApplication, QPainter, QPdfWriter
+from PyQt6.QtCore import QByteArray, QRectF, QSizeF
+from PyQt6.QtGui import QGuiApplication, QPageSize, QPainter, QPdfWriter
 from PyQt6.QtWidgets import QApplication
 
 LOGGER = logging.getLogger(__name__)
 SvgSource = str | bytes | Path
+PageScaleMode = Literal["fit", "actual-size"]
 _PDF_APP: QApplication | None = None
+_SVG_OPEN_RE = re.compile(rb"<svg\b(?P<attrs>[^>]*)>", re.IGNORECASE | re.DOTALL)
+_SVG_ATTR_RE = re.compile(rb"([A-Za-z_:][-A-Za-z0-9_:.]*)\s*=\s*(['\"])(.*?)\2", re.DOTALL)
 
 
 def _source_to_bytes(source: SvgSource) -> bytes:
@@ -81,34 +86,76 @@ def _start_new_pdf_page(writer: QPdfWriter, destination: Path, page_number: int)
     return False
 
 
-def _margin_to_device_units(margin_points: float, resolution: int) -> float:
-    """Convert PDF point margins to the device units used by ``QPdfWriter``.
+def _svg_attrs(source: bytes) -> dict[str, str]:
+    match = _SVG_OPEN_RE.search(source[:4096])
+    if match is None:
+        return {}
+    attrs: dict[str, str] = {}
+    for attr_match in _SVG_ATTR_RE.finditer(match.group("attrs")):
+        key = attr_match.group(1).decode("ascii", errors="ignore")
+        value = attr_match.group(3).decode("utf-8", errors="ignore")
+        attrs[key] = value
+    return attrs
 
-    ``QPdfWriter.width()``/``height()`` are reported in the writer's current
-    resolution units, not typographic points. Treating 20 pt as 20 device units
-    at 300 DPI left almost no real margin and made clipping harder to spot.
-    """
+
+def _svg_length_to_mm(value: str | None) -> float | None:
+    if not value:
+        return None
+    match = re.match(r"\s*(-?(?:\d+(?:\.\d*)?|\.\d+))\s*([A-Za-z%]*)", value)
+    if match is None:
+        return None
     try:
-        points = float(margin_points)
-    except (TypeError, ValueError):
-        points = 20.0
-    try:
-        dpi = float(resolution)
-    except (TypeError, ValueError):
-        dpi = 300.0
-    return max(0.0, points) * max(1.0, dpi) / 72.0
+        number = float(match.group(1))
+    except ValueError:
+        return None
+    if not math.isfinite(number) or number <= 0.0:
+        return None
+    unit = match.group(2).lower()
+    if unit in {"", "mm"}:
+        return number
+    if unit == "cm":
+        return number * 10.0
+    if unit == "in":
+        return number * 25.4
+    if unit == "pt":
+        return number * 25.4 / 72.0
+    if unit == "px":
+        return number * 25.4 / 96.0
+    return None
+
+
+def _source_page_size_mm(source: bytes, svg_width: float, svg_height: float) -> tuple[float, float]:
+    attrs = _svg_attrs(source)
+    width_mm = _svg_length_to_mm(attrs.get("width"))
+    height_mm = _svg_length_to_mm(attrs.get("height"))
+    if width_mm is not None and height_mm is not None:
+        return width_mm, height_mm
+    # Project-generated blueprint SVGs use user units as millimeters when units
+    # are omitted. Preserve that physical contract rather than shrinking to A4.
+    return max(1.0, svg_width), max(1.0, svg_height)
+
+
+def _set_writer_page_size(writer: QPdfWriter, width_mm: float, height_mm: float) -> None:
+    writer.setPageSize(
+        QPageSize(QSizeF(max(1.0, width_mm), max(1.0, height_mm)), QPageSize.Unit.Millimeter)
+    )
 
 
 def render_svgs_to_pdf(
     svg_sources: Sequence[SvgSource],
     output_path: str | Path,
     *,
-    margin_points: float = 20.0,
+    margin_points: float = 0.0,
     resolution: int = 300,
+    page_size_mm: tuple[float, float] | None = None,
+    scale_mode: PageScaleMode = "fit",
 ) -> bool:
     """Render one or more SVG sources into a single PDF document.
 
-    Each SVG is scaled to fit one PDF page while preserving aspect ratio. The
+    By default, each SVG gets a PDF page matching its declared physical size. A
+    fixed ``page_size_mm`` can be supplied for print-guide PDFs: ``fit`` scales
+    the SVG to the page, while ``actual-size`` keeps small cut parts at 1:1 and
+    only shrinks when the source is too large for the printable page. The
     function returns ``False`` when QtSvg is unavailable or a renderer cannot
     load the SVG; callers can choose whether to fall back to SVG output.
     """
@@ -130,9 +177,10 @@ def render_svgs_to_pdf(
         # Preflight every page before creating/writing the PDF. Without this,
         # a later bad SVG page can leave a partial PDF that looks successful to
         # downstream package export code.
-        renderers: list[tuple[Any, float, float]] = []
+        renderers: list[tuple[Any, float, float, float, float, float, float]] = []
         for index, source in enumerate(svg_sources):
-            renderer = QSvgRenderer(QByteArray(_source_to_bytes(source)))
+            source_bytes = _source_to_bytes(source)
+            renderer = QSvgRenderer(QByteArray(source_bytes))
             if not renderer.isValid():
                 LOGGER.error("SVG renderer failed to load page %s for %s", index + 1, destination)
                 _unlink_quietly(destination)
@@ -146,11 +194,19 @@ def render_svgs_to_pdf(
             else:
                 svg_width = float(view_box.width()) or 1.0
                 svg_height = float(view_box.height()) or 1.0
-            renderers.append((renderer, svg_width, svg_height))
+            source_width_mm, source_height_mm = _source_page_size_mm(
+                source_bytes, svg_width, svg_height
+            )
+            page_width_mm, page_height_mm = page_size_mm or (source_width_mm, source_height_mm)
+            renderers.append(
+                (renderer, svg_width, svg_height, source_width_mm, source_height_mm)
+                + (page_width_mm, page_height_mm)
+            )
 
         destination.parent.mkdir(parents=True, exist_ok=True)
         writer = QPdfWriter(str(destination))
         writer.setResolution(resolution)
+        _set_writer_page_size(writer, renderers[0][5], renderers[0][6])
         painter = QPainter(writer)
         if not painter.isActive():
             LOGGER.error("Could not activate PDF painter for %s", destination)
@@ -158,17 +214,36 @@ def render_svgs_to_pdf(
             return False
         page_start_failed = False
         try:
-            for index, (renderer, svg_width, svg_height) in enumerate(renderers):
-                if index > 0 and not _start_new_pdf_page(writer, destination, index + 1):
-                    page_start_failed = True
-                    break
+            for index, (
+                renderer,
+                svg_width,
+                svg_height,
+                source_width_mm,
+                source_height_mm,
+                page_width_mm,
+                page_height_mm,
+            ) in enumerate(renderers):
+                if index > 0:
+                    _set_writer_page_size(writer, page_width_mm, page_height_mm)
+                    if not _start_new_pdf_page(writer, destination, index + 1):
+                        page_start_failed = True
+                        break
 
                 page_width = float(writer.width())
                 page_height = float(writer.height())
-                margin_units = _margin_to_device_units(margin_points, resolution)
+                margin_units = max(0.0, float(margin_points)) * float(resolution) / 72.0
                 usable_width = max(1.0, page_width - 2.0 * margin_units)
                 usable_height = max(1.0, page_height - 2.0 * margin_units)
-                scale = min(usable_width / svg_width, usable_height / svg_height)
+                fit_scale = min(usable_width / svg_width, usable_height / svg_height)
+                scale = fit_scale
+                if scale_mode == "actual-size" and page_size_mm is not None:
+                    units_per_mm_x = page_width / max(1.0, page_width_mm)
+                    units_per_mm_y = page_height / max(1.0, page_height_mm)
+                    actual_scale = min(
+                        (source_width_mm * units_per_mm_x) / svg_width,
+                        (source_height_mm * units_per_mm_y) / svg_height,
+                    )
+                    scale = min(actual_scale, fit_scale)
                 target_width = max(1.0, svg_width * scale)
                 target_height = max(1.0, svg_height * scale)
                 x_offset = margin_units + (usable_width - target_width) / 2.0
@@ -198,6 +273,21 @@ def render_svgs_to_pdf(
         return False
 
 
-def render_svg_to_pdf(svg_source: SvgSource, output_path: str | Path) -> bool:
+def render_svg_to_pdf(
+    svg_source: SvgSource,
+    output_path: str | Path,
+    *,
+    margin_points: float = 0.0,
+    resolution: int = 300,
+    page_size_mm: tuple[float, float] | None = None,
+    scale_mode: PageScaleMode = "fit",
+) -> bool:
     """Render a single SVG source into one PDF file."""
-    return render_svgs_to_pdf((svg_source,), output_path)
+    return render_svgs_to_pdf(
+        (svg_source,),
+        output_path,
+        margin_points=margin_points,
+        resolution=resolution,
+        page_size_mm=page_size_mm,
+        scale_mode=scale_mode,
+    )

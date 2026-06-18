@@ -1262,7 +1262,7 @@
   <g id="layer-existing-parts-step-4" data-step="4" data-app-mechanism="gear_linkage">
   <circle cx="191" cy="476.714" r="2.9" class="score board-part spacer-part" data-step="4" data-part-key="spacers:s8" data-part-index="1"/>
   <circle cx="191" cy="476.714" r="1.1" class="drill board-part-hole" data-step="4" data-part-key="spacers:s8" data-part-index="1"/>
-  <path d="M 214.429 470.857 L 214.429 470.857" class="score board-part linkage-part" style="fill:none;stroke:#60a5fa;stroke-opacity:0.72;stroke-width:4.2;stroke-linecap:round" data-step="4" data-part-key="linkages:linkage-4-cell" data-part-index="2"/>
+  <path d="M 191 476.714 L 214.429 470.857" class="score board-part linkage-part" style="fill:none;stroke:#60a5fa;stroke-opacity:0.72;stroke-width:4.2;stroke-linecap:round" data-step="4" data-part-key="linkages:linkage-4-cell" data-part-index="2"/>
   <circle cx="191" cy="476.714" r="1.1" class="drill board-part-hole linkage-hole" data-step="4" data-part-key="linkages:linkage-4-cell" data-part-index="2" data-hole-index="0"/>
   <circle cx="214.429" cy="470.857" r="1.1" class="drill board-part-hole linkage-hole" data-step="4" data-part-key="linkages:linkage-4-cell" data-part-index="2" data-hole-index="1"/>
   </g>
