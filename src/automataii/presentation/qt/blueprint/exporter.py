@@ -234,7 +234,9 @@ class BlueprintExporter:
                 if actual_cut_sheet_format is None and cut_sheet_success:
                     actual_cut_sheet_format = output_format
                 actual_cut_sheet_name = (
-                    actual_cut_sheet_path.name if actual_cut_sheet_path is not None else cut_sheet_name
+                    actual_cut_sheet_path.name
+                    if actual_cut_sheet_path is not None
+                    else cut_sheet_name
                 )
                 cut_sheet_error = getattr(cut_sheet_result, "error", None)
 

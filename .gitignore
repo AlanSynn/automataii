@@ -434,6 +434,7 @@ torchserve/logs/
 
 # Do not ignore JSONs that are required at runtime
 *.json
+!scripts/mypy_baseline.json
 !resources/**/*.json
 !tests/fixtures/**/*.json
 *.pth

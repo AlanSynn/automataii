@@ -131,6 +131,10 @@ class MotionPathManager(QObject):
         self._has_motion_path = has_motion_path
         self._emit_path_data = emit_path_data
 
+    def clear_corrected_paths_cache(self) -> None:
+        """Clear feasibility-corrected paths that should not survive editor reset."""
+        self._corrected_paths.clear()
+
     def _show_status_message(self, message: str) -> None:
         """Best-effort status message that cannot crash Qt signal handlers.
 

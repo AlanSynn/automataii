@@ -1,10 +1,9 @@
 import logging
 from typing import Any
 
-from PyQt6.QtCore import QPointF, Qt, QTimer, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QItemSelectionModel, QPointF, Qt, QTimer, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QBrush, QColor, QPainterPath
 from PyQt6.QtWidgets import (
-    QGraphicsItem,
     QGraphicsScene,
     QLabel,
     QListWidget,
@@ -719,7 +718,7 @@ class EditorTab(QWidget):
             item = CharacterPartItem(
                 part_info=p_info, project_dir=project_dir, debug_mode=self.debug_mode
             )  # Pass debug_mode
-            item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+            item.set_user_movable(False)
             item.setToolTip("Select this part, then use Start Drawing Path to animate it.")
 
             # Parts are cropped images that should start at 0° rotation
@@ -840,6 +839,8 @@ class EditorTab(QWidget):
         self.update_part_properties_panel(None)
         self._update_button_states()
         self.editor_view.reset_temp_visuals()  # Clear any temporary drawing items in view
+        self.editor_view.clear_all_motion_path_visuals()
+        self._motion_path_manager.clear_corrected_paths_cache()
         self.editor_view.set_mode("select")
 
         self.parts_cleared.emit()
@@ -880,21 +881,10 @@ class EditorTab(QWidget):
             if hasattr(part_item, "original_path_points"):
                 part_item.original_path_points = []
 
-        # Clear from EditorView's final paths map
-        if hasattr(self.editor_view, "final_paths_map"):
-            for _part_name, path_item in list(self.editor_view.final_paths_map.items()):
-                if path_item and path_item.scene() == self.editor_scene:
-                    self.editor_scene.removeItem(path_item)
-            self.editor_view.final_paths_map.clear()
-
-        # Clear overlays if method exists
-        if hasattr(self.editor_view, "clear_all_overlays"):
-            self.editor_view.clear_all_overlays()
+        self.editor_view.clear_all_motion_path_visuals()
 
         # Clear corrected paths from motion path manager
-        if hasattr(self, "_motion_path_manager") and self._motion_path_manager:
-            if hasattr(self._motion_path_manager, "_corrected_paths"):
-                self._motion_path_manager._corrected_paths.clear()
+        self._motion_path_manager.clear_corrected_paths_cache()
 
         # Update UI
         self._update_button_states()
@@ -1245,7 +1235,7 @@ class EditorTab(QWidget):
             list_item = self.parts_list.item(i)
             if list_item.data(Qt.ItemDataRole.UserRole) == part_name:
                 self.parts_list.setCurrentItem(
-                    list_item, Qt.ItemSelectionModel.SelectionFlag.ClearAndSelect
+                    list_item, QItemSelectionModel.SelectionFlag.ClearAndSelect
                 )
                 break
 

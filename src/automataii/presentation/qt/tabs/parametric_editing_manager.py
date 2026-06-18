@@ -396,7 +396,7 @@ class ParametricEditingManager:
                     for item in item_list:
                         if hasattr(item, "setFlag"):
                             item.setFlag(item.GraphicsItemFlag.ItemIsSelectable, True)
-                            item.setFlag(item.GraphicsItemFlag.ItemIsMovable, True)
+                            item.setFlag(item.GraphicsItemFlag.ItemIsMovable, False)
         except Exception as e:
             self._logger.error("Error enabling mechanism visual interaction: %s", e)
 

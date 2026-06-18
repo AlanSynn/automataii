@@ -135,6 +135,74 @@ def test_freehand_path_completion_tolerates_missing_status_bar_and_records_timin
     assert not tab.define_motion_path_btn.isChecked()
 
 
+def test_completed_paths_do_not_block_parts_and_clear_with_editor_content(
+    tmp_path: Path,
+) -> None:
+    tab = _loaded_editor_tab(tmp_path)
+    tab.define_motion_path_btn.setChecked(True)
+    view = tab.editor_view
+
+    view.mousePressEvent(
+        _mouse_event(QEvent.Type.MouseButtonPress, 20, 20, Qt.MouseButton.LeftButton)
+    )
+    view.mouseMoveEvent(
+        _mouse_event(
+            QEvent.Type.MouseMove,
+            80,
+            30,
+            Qt.MouseButton.NoButton,
+            Qt.MouseButton.LeftButton,
+        )
+    )
+    view.mouseMoveEvent(
+        _mouse_event(
+            QEvent.Type.MouseMove,
+            120,
+            90,
+            Qt.MouseButton.NoButton,
+            Qt.MouseButton.LeftButton,
+        )
+    )
+    view.mouseReleaseEvent(
+        _mouse_event(QEvent.Type.MouseButtonRelease, 160, 120, Qt.MouseButton.LeftButton)
+    )
+
+    path_item = view.final_paths_map["head"]
+    assert path_item.acceptedMouseButtons() == Qt.MouseButton.NoButton
+
+    clicked_parts: list[str] = []
+    view.part_item_clicked.connect(lambda item: clicked_parts.append(item.name()))
+    view.set_mode("select")
+    part_item = tab.current_editor_items["head"]
+    part_center = view.mapFromScene(part_item.sceneBoundingRect().center())
+    view.mousePressEvent(
+        _mouse_event(
+            QEvent.Type.MouseButtonPress,
+            part_center.x(),
+            part_center.y(),
+            Qt.MouseButton.LeftButton,
+        )
+    )
+
+    assert clicked_parts == ["head"]
+    assert part_item.isSelected()
+
+    tab._motion_path_manager.corrected_paths["head"] = QPainterPath(path_item.path())
+    tab.clear_editor_content()
+
+    assert view.final_paths_map == {}
+    assert tab._motion_path_manager.corrected_paths == {}
+    assert path_item.scene() is None
+
+
+def test_character_parts_are_locked_against_direct_dragging(tmp_path: Path) -> None:
+    tab = _loaded_editor_tab(tmp_path)
+
+    item = tab.current_editor_items["head"]
+
+    assert not item.is_user_movable()
+
+
 def test_right_click_cancels_motion_path_instead_of_starting_pan(tmp_path: Path) -> None:
     tab = _loaded_editor_tab(tmp_path)
     tab.define_motion_path_btn.setChecked(True)

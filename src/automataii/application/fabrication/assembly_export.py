@@ -66,7 +66,9 @@ def _normalize_part_ids(raw_value: object) -> tuple[str, ...]:
     return tuple(seen)
 
 
-def _active_part_ids_with_source(layer_data: Mapping[str, object]) -> tuple[tuple[str, ...], str | None]:
+def _active_part_ids_with_source(
+    layer_data: Mapping[str, object],
+) -> tuple[tuple[str, ...], str | None]:
     for key in ("active_part_ids", "app_highlight_ids", "fabrication_part_ids", "part_ids"):
         extracted = _normalize_part_ids(layer_data.get(key))
         if extracted:

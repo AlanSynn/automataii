@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import math
+from types import SimpleNamespace
 
 import numpy as np
+from PyQt6.QtWidgets import QGraphicsItem, QGraphicsPathItem
 
 from automataii.application.mechanism_design.parametric_service import (
     ParametricContext,
@@ -302,6 +304,28 @@ def test_parametric_manager_regenerate_gear_honors_string_false_grid_flag() -> N
     assert params["gear1_teeth"] == 12
     assert params["gear2_teeth"] == 18
     assert "gear_data" in layer_data["full_simulation_data"]
+
+
+def test_parametric_mode_does_not_leave_mechanism_visuals_draggable() -> None:
+    import logging
+
+    from automataii.presentation.qt.tabs.parametric_editing_manager import (
+        ParametricEditingManager,
+    )
+
+    visual = QGraphicsPathItem()
+    manager = ParametricEditingManager.__new__(ParametricEditingManager)
+    manager.parent_tab = SimpleNamespace(
+        mechanism_layers={"m1": {}},
+        mechanism_path_items={"m1": [visual]},
+        path_visual_items={},
+    )
+    manager._logger = logging.getLogger("test")
+
+    manager._enable_mechanism_visual_interaction()
+
+    assert bool(visual.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
+    assert not bool(visual.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
 
 
 def test_parameter_mapper_uses_valid_gear_radius_alias_when_primary_is_bad() -> None:

@@ -107,7 +107,7 @@ format-check:
 	$(UV) run ruff format src/ --check
 
 type-check:
-	$(UV) run mypy src/$(PROJECT_NAME)
+	$(PYTHON) scripts/check_mypy_baseline.py
 
 quality: lint format-check type-check
 

@@ -646,7 +646,7 @@ class MechanismDesignTab(QWidget):
                     part_info=p_info, project_dir=project_dir, debug_mode=self.debug_mode
                 )
                 item.setZValue(Z_PART_DEFAULT)
-                item.setFlag(item.GraphicsItemFlag.ItemIsMovable, False)
+                item.set_user_movable(False)
                 item.setFlag(item.GraphicsItemFlag.ItemIsSelectable, True)
                 item.setOpacity(1.0)
                 self.mechanism_scene.addItem(item)

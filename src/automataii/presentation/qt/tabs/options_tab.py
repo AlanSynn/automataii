@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
 from automataii.shared.physical_kit import (
     DEFAULT_GRID_CELL_CM,
     GRID_PITCH_CHOICES,
+    PhysicalKitContext,
     grid_cell_cm_for_pitch_choice,
     nearest_pitch_choice,
     physical_context_from_settings,
@@ -43,7 +44,11 @@ class OptionsTab(QWidget):
     physicalContextChanged = pyqtSignal(object)
     blueprintExportFormatChanged = pyqtSignal(str)
 
-    def __init__(self, initial_anim_duration: float = 2.0, parent=None):
+    def __init__(
+        self,
+        initial_anim_duration: float = 2.0,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self._initial_anim_duration = initial_anim_duration
         self._scroll_area: QScrollArea | None = None
@@ -51,7 +56,7 @@ class OptionsTab(QWidget):
         self._grid_pitch_syncing = False
         self._init_ui()
 
-    def _init_ui(self):
+    def _init_ui(self) -> None:
         root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
@@ -310,7 +315,7 @@ class OptionsTab(QWidget):
         group.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         parent_layout.addWidget(group)
 
-    def _on_unit_changed(self, unit_text: str):
+    def _on_unit_changed(self, unit_text: str) -> None:
         """Emits signals when the unit system selection changes."""
         self.unitChanged.emit(unit_text)
         self.setting_changed.emit("unit_system", unit_text)  # Also emit through generic signal
@@ -371,7 +376,7 @@ class OptionsTab(QWidget):
         if emit:
             self.physicalContextChanged.emit(self._current_physical_context())
 
-    def _current_physical_context(self):
+    def _current_physical_context(self) -> PhysicalKitContext:
         return physical_context_from_settings(
             self.grid_system_check.isChecked(),
             self.grid_cell_size_spin.value(),
@@ -382,7 +387,7 @@ class OptionsTab(QWidget):
         choice = nearest_pitch_choice(value_cm)
         self._set_pitch_choice(choice.key, emit=False)
 
-    def _on_timing_profile_changed(self, text: str):
+    def _on_timing_profile_changed(self, text: str) -> None:
         # Normalize to code-friendly names
         mapping = {
             "Linear": "linear",
@@ -392,11 +397,11 @@ class OptionsTab(QWidget):
         }
         self.timingProfileChanged.emit(mapping.get(text, "linear"))
 
-    def _on_performance_preset_changed(self, preset_text: str):
+    def _on_performance_preset_changed(self, preset_text: str) -> None:
         # Normalize to code-friendly names if needed; emit raw for now
         self.performancePresetChanged.emit(preset_text)
 
-    def _on_physics_snap_mode_changed(self, text: str):
+    def _on_physics_snap_mode_changed(self, text: str) -> None:
         # Emit normalized lowercase string (fast | balanced | high)
         mode = str(text).strip().lower()
         if mode not in ("fast", "balanced", "high"):
@@ -419,15 +424,15 @@ class OptionsTab(QWidget):
         if index >= 0:
             self.blueprint_export_format_combo.setCurrentIndex(index)
 
-    def set_debug_mode(self, enabled: bool):
+    def set_debug_mode(self, enabled: bool) -> None:
         """Sets the 'Enable Debug Visuals' checkbox state."""
         self.debug_mode_check.setChecked(enabled)
 
-    def set_animation_duration_input(self, duration_seconds: float):
+    def set_animation_duration_input(self, duration_seconds: float) -> None:
         """Sets the value of the animation duration spin box."""
         self.anim_duration_spin.setValue(duration_seconds)
 
-    def set_physics_snap_mode_input(self, mode: str):
+    def set_physics_snap_mode_input(self, mode: str) -> None:
         """Sets the Physics Snap Mode combo selection from external code."""
         mapping = {
             "fast": "Fast",

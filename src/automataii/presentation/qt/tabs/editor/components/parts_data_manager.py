@@ -13,9 +13,9 @@ import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from PyQt6.QtCore import QObject, QPointF, Qt, pyqtSignal
+from PyQt6.QtCore import QItemSelectionModel, QObject, QPointF, Qt, pyqtSignal
 from PyQt6.QtGui import QBrush, QColor
-from PyQt6.QtWidgets import QGraphicsItem, QListWidgetItem, QMessageBox
+from PyQt6.QtWidgets import QListWidgetItem, QMessageBox
 
 if TYPE_CHECKING:
     from PyQt6.QtWidgets import QGraphicsScene, QListWidget
@@ -243,7 +243,7 @@ class PartsDataManager(QObject):
             list_item = self._parts_list.item(i)
             if list_item and list_item.data(Qt.ItemDataRole.UserRole) == part_name:
                 self._parts_list.setCurrentItem(
-                    list_item, Qt.ItemSelectionModel.SelectionFlag.ClearAndSelect
+                    list_item, QItemSelectionModel.SelectionFlag.ClearAndSelect
                 )
                 break
 
@@ -320,7 +320,7 @@ class PartsDataManager(QObject):
                 project_dir=project_dir,
                 debug_mode=debug_mode,
             )
-            item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+            item.set_user_movable(False)
             item.setToolTip("Select this part, then use Start Drawing Path to animate it.")
 
             self._editor_scene.addItem(item)
@@ -402,6 +402,7 @@ class PartsDataManager(QObject):
 
         # Reset view state
         self._editor_view.reset_temp_visuals()
+        self._editor_view.clear_all_motion_path_visuals()
         self._editor_view.set_mode("select")
 
         self.parts_cleared.emit()

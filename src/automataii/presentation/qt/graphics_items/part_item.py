@@ -62,7 +62,7 @@ class CharacterPartItem(QGraphicsPixmapItem):
         self.is_active = False  # For special highlighting
         self.setAcceptHoverEvents(True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+        self.set_user_movable(False)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
 
         self.part_pixmap: QPixmap | None = None
@@ -255,6 +255,14 @@ class CharacterPartItem(QGraphicsPixmapItem):
 
     def name(self) -> str:
         return self.part_info.name
+
+    def set_user_movable(self, movable: bool) -> None:
+        """Allow direct dragging only when a tool explicitly opts in."""
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, movable)
+
+    def is_user_movable(self) -> bool:
+        """Return whether the user can drag this body part directly."""
+        return bool(self.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
 
     @property
     def is_fixed(self) -> bool:

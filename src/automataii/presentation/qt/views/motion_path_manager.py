@@ -200,6 +200,7 @@ class MotionPathDrawer(QObject):
         final_path_item.setPen(final_pen)
         final_path_item.setPath(final_path_data)
         final_path_item.setZValue(Z_MOTION_PATH_PREVIEW - 1)
+        final_path_item.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
 
         # Determine the component key
         if not component_key and self._current_target_item:
@@ -288,6 +289,7 @@ class MotionPathDrawer(QObject):
             pen = QPen(QColor("#6a4c93"), 3.0, Qt.PenStyle.DashLine, Qt.PenCapStyle.RoundCap)
         item.setPen(pen)
         item.setZValue(Z_MOTION_PATH_LINE)
+        item.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
         self._scene.addItem(item)
         self._raw_paths_map[key] = item
 
@@ -319,6 +321,7 @@ class MotionPathDrawer(QObject):
             )
         item.setPen(pen)
         item.setZValue(Z_MOTION_PATH_LINE)
+        item.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
         self._scene.addItem(item)
         self._corrected_paths_map[key] = item
 
@@ -382,6 +385,24 @@ class MotionPathDrawer(QObject):
             return True
         return False
 
+    def clear_all_visuals(self) -> None:
+        """Remove every path/overlay/preview item owned by this drawer."""
+        for key in list(self.final_paths_map):
+            self._remove_final_path(key)
+        for key in list(self._raw_paths_map):
+            item = self._raw_paths_map.pop(key)
+            if item.scene():
+                self._scene.removeItem(item)
+        for key in list(self._corrected_paths_map):
+            item = self._corrected_paths_map.pop(key)
+            if item.scene():
+                self._scene.removeItem(item)
+        self._cleanup_preview()
+        self._motion_path_points.clear()
+        self._timed_path_points.clear()
+        self._is_drawing_freehand = False
+        self._current_target_item = None
+
     def _update_preview(self) -> None:
         """Update the visual preview of the current drawing."""
         if not self._is_drawing_freehand or not self._motion_path_points:
@@ -406,6 +427,7 @@ class MotionPathDrawer(QObject):
             pen.setCosmetic(True)
             self._motion_preview_path_item.setPen(pen)
             self._motion_preview_path_item.setZValue(Z_MOTION_PATH_PREVIEW)
+            self._motion_preview_path_item.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
             self._scene.addItem(self._motion_preview_path_item)
 
         self._motion_preview_path_item.setPath(path)

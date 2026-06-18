@@ -117,6 +117,7 @@ class MotionPathController(QObject):
         pen.setStyle(Qt.PenStyle.DashLine)
         self._path_preview_item.setPen(pen)
         self._path_preview_item.setZValue(1000)
+        self._path_preview_item.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
         self._scene.addItem(self._path_preview_item)
 
         self._show_status("Click to add path points. Right-click or press Escape to finish.")

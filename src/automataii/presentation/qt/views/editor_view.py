@@ -11,6 +11,7 @@ from typing import Any
 from PyQt6.QtCore import (
     QEvent,
     QLineF,
+    QPoint,
     QPointF,
     QRectF,
     Qt,
@@ -166,6 +167,7 @@ class EditorView(QGraphicsView):
             None  # CharacterPartItem for which path is being defined
         )
         self.current_path_is_closed = True  # Default to closed path
+        self._canceling_motion_path = False
 
         # Old motion path attributes (to be phased out or repurposed if needed)
         # self._motion_path = QPainterPath() # No longer primary storage here
@@ -420,7 +422,7 @@ class EditorView(QGraphicsView):
         if previous_mode == "define_motion_path" and mode != "define_motion_path":
             # Skip cancel when transitioning to edit_vertices - path is complete, not cancelled
             if mode != "edit_vertices":
-                self._cancel_motion_path_drawing()  # This will clear previews etc.
+                self._cancel_motion_path_drawing(switch_to_select=False)
             else:
                 # Just clean up preview visuals without emitting cancel signals
                 self._cleanup_motion_path_visuals()
@@ -610,9 +612,16 @@ class EditorView(QGraphicsView):
                 #    clicked_part_item = selected_items[0]
                 #    self.part_item_clicked.emit(clicked_part_item)
                 # Check item directly under cursor AFTER super call if super() doesn't select
-                final_item_at_click = self.itemAt(event.pos())  # item after super call
-                if isinstance(final_item_at_click, CharacterPartItem):
-                    self.part_item_clicked.emit(final_item_at_click)
+                clicked_part_item = (
+                    self._character_part_at_view_pos(event.pos())
+                    if self.current_mode == "select"
+                    else None
+                )
+                if clicked_part_item is not None:
+                    if self.scene():
+                        self.scene().clearSelection()
+                    clicked_part_item.setSelected(True)
+                    self.part_item_clicked.emit(clicked_part_item)
                 # else: # Click was on background or non-CharacterPartItem
                 # super().mousePressEvent(event) was already called
         elif event.button() == Qt.MouseButton.RightButton:
@@ -785,6 +794,22 @@ class EditorView(QGraphicsView):
         global_pos = self.mapToGlobal(pos)
         menu.exec(global_pos)
 
+    def _character_part_at_view_pos(self, view_pos: QPoint) -> CharacterPartItem | None:
+        """Return the top-most character part under a view point.
+
+        Decorative path/overlay items use ``NoButton`` so Qt will not dispatch
+        mouse events to them, but ``itemAt()`` still returns those items.  Use
+        ``items()`` and explicitly pick the first CharacterPartItem so completed
+        paths remain visually above parts without blocking selection.
+        """
+        for item in self.items(view_pos):
+            candidate = item
+            while candidate is not None:
+                if isinstance(candidate, CharacterPartItem):
+                    return candidate
+                candidate = candidate.parentItem()
+        return None
+
     # --- View Control (delegated to ViewportController) ---
 
     def reset_view(self):
@@ -802,11 +827,11 @@ class EditorView(QGraphicsView):
 
     # --- Joint Definition --- #
 
-    def _handle_joint_definition_click(self, scene_pos: QPointF, view_pos: QPointF):
-        item_at_click = self.itemAt(view_pos)  # Use view_pos for itemAt
+    def _handle_joint_definition_click(self, scene_pos: QPointF, view_pos: QPoint):
+        item_at_click = self._character_part_at_view_pos(view_pos)
 
         # Ensure a CharacterPartItem is clicked
-        if not isinstance(item_at_click, CharacterPartItem):
+        if item_at_click is None:
             logging.debug("Joint definition click missed a character part.")
             # Optionally show a status message
             # self._show_status_message("Please click on a character part.")
@@ -926,19 +951,25 @@ class EditorView(QGraphicsView):
             return self.current_target_item_for_path.part_info.name
         return None
 
-    def _cancel_motion_path_drawing(self):
+    def _cancel_motion_path_drawing(self, switch_to_select: bool = True):
         """Cancels the current motion path drawing operation and cleans up."""
+        if self._canceling_motion_path:
+            return
         logging.debug("Motion path drawing cancelled.")
-        # Delegate to MotionPathManager - it handles cleanup and emits drawing_cancelled
-        self._motion_path_drawer.cancel_drawing()
-        # Also reset EditorView state for compatibility
-        self.current_target_item_for_path = None
-        self._is_drawing_freehand = False
-        self._motion_path_points.clear()
-        self._cleanup_motion_path_visuals()
-        if self.current_mode == "define_motion_path":
-            self.set_mode("select")
-        self._show_status_message("Motion path definition cancelled.")
+        self._canceling_motion_path = True
+        try:
+            # Delegate to MotionPathManager - it handles cleanup and emits drawing_cancelled
+            self._motion_path_drawer.cancel_drawing()
+            # Also reset EditorView state for compatibility
+            self.current_target_item_for_path = None
+            self._is_drawing_freehand = False
+            self._motion_path_points.clear()
+            self._cleanup_motion_path_visuals()
+            if switch_to_select and self.current_mode == "define_motion_path":
+                self.set_mode("select")
+            self._show_status_message("Motion path definition cancelled.")
+        finally:
+            self._canceling_motion_path = False
 
     def _cleanup_motion_path_visuals(self, _keep_target: bool = False) -> None:
         """Clears temporary visuals used for motion path definition (preview path)."""
@@ -1494,6 +1525,11 @@ class EditorView(QGraphicsView):
         # Delegate to MotionPathManager - it handles final path, overlays, and emits signal
         self._motion_path_drawer.clear_visual_path_for_component(component_key)
         self._show_status_message(f"Path cleared for {component_key}.")
+
+    def clear_all_motion_path_visuals(self) -> None:
+        """Remove all final paths, overlays, and active drawing previews."""
+        self._motion_path_drawer.clear_all_visuals()
+        self._cleanup_motion_path_visuals()
 
     # ---- Vertex Editing Methods ----
 

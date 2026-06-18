@@ -205,6 +205,7 @@ class PathDrawingHandler:
             pen.setCosmetic(True)
             self._motion_preview_path_item.setPen(pen)
             self._motion_preview_path_item.setZValue(self._z_path_preview)
+            self._motion_preview_path_item.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
             self._scene.addItem(self._motion_preview_path_item)
 
         self._motion_preview_path_item.setPath(path)
@@ -235,6 +236,7 @@ class PathDrawingHandler:
             pen.setCosmetic(True)
         path_item.setPen(pen)
         path_item.setZValue(self._z_path_preview - 1)
+        path_item.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
 
         self._scene.addItem(path_item)
         self.final_paths_map[component_key] = path_item
@@ -276,6 +278,7 @@ class PathDrawingHandler:
             pen = QPen(QColor("#6a4c93"), 3.0, Qt.PenStyle.DashLine, Qt.PenCapStyle.RoundCap)
         item.setPen(pen)
         item.setZValue(self._z_path_line)
+        item.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
         self._scene.addItem(item)
         self._raw_paths_map[key] = item
 
@@ -303,6 +306,7 @@ class PathDrawingHandler:
             )
         item.setPen(pen)
         item.setZValue(self._z_path_line)
+        item.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
         self._scene.addItem(item)
         self._corrected_paths_map[key] = item
 

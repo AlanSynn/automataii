@@ -435,6 +435,7 @@ class PathVertexEditor(QObject):
             self._preview_path_item = QGraphicsPathItem()
             self._preview_path_item.setPen(self._preview_pen)
             self._preview_path_item.setZValue(Z_VERTEX_HANDLE - 1)
+            self._preview_path_item.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
             self._scene.addItem(self._preview_path_item)
 
         self._preview_path_item.setPath(path)
