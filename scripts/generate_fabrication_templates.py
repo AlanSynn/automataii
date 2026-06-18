@@ -719,6 +719,7 @@ def _linkage_elements(
     if label:
         elements.append(_text((x1 + x2) / 2.0, y + radius + 6.0, f"{cells}-cell linkage"))
     metadata: dict[str, object] = {
+        "key": f"linkage-{cells}-cell",
         "cells": cells,
         "label": f"{cells}-cell linkage",
         "length_mm": round(length, 3),
@@ -1369,7 +1370,9 @@ def _build_sheets(spec: FabricationSpec) -> list[SvgTemplate]:
         "09 Planetary ring gear",
         "Fixed internal ring gear for the board-mounted planetary guide",
     )
-    ring_template = _ring_gear_template(spec.profile.gear_presets[0], spec.profile.gear_presets[1], spec)
+    ring_template = _ring_gear_template(
+        spec.profile.gear_presets[0], spec.profile.gear_presets[1], spec
+    )
     ring_sheet.extend(_translate(element, 12.0, 28.0) for element in ring_template.elements)
     sheets.append(
         _sheet_template(
@@ -1678,7 +1681,9 @@ def _mini_part_overlay_elements(
         if category == "ring_gears":
             ring_cx = sum(point[0] for point in coord_points) / len(coord_points)
             ring_cy = sum(point[1] for point in coord_points) / len(coord_points)
-            ring_radius = max(9.0, max(math.dist((ring_cx, ring_cy), point) for point in coord_points))
+            ring_radius = max(
+                9.0, max(math.dist((ring_cx, ring_cy), point) for point in coord_points)
+            )
             elements.append(
                 _circle(
                     ring_cx,
@@ -2346,14 +2351,17 @@ the 15x15 hole board (15 rows x 15 columns = 225 board holes).
 
 ## How to use
 
-1. Open `board-15x15.svg` to identify the 225 row-letter/column-number holes.
-2. Export **Make Parts / Cut Sheets** first when you need to fabricate character or mechanism
-   components.
-3. Open `index.html` for the print-first / place-next visual sequence and stack order.
-4. Pick one guide SVG.
-5. Follow one step card at a time: place the fastener at the called-out hole, then add spacers
+1. In the app, use **Export Blueprint Package** for the normal PDF-first flow. It writes
+   `current-design-cut-sheets.pdf`, `assembly/assembly-guide.pdf`, and
+   `assembly/kit-parts-to-cut.pdf` into the folder you choose.
+2. Use this committed `fabrication/assembly/` folder as the source template set only:
+   `board-15x15.svg`, `index.html`, and per-mechanism SVGs are generator/debug inputs for
+   the PDF package.
+3. Open `board-15x15.svg` only when you need to inspect the 225 row-letter/column-number
+   holes directly.
+4. Follow one step card at a time: place the fastener at the called-out hole, then add spacers
    and parts in the exact `Stack` row order before running the check.
-6. Keep paper fasteners loose enough for rotation or sliding before flattening the tabs.
+5. Keep paper fasteners loose enough for rotation or sliding before flattening the tabs.
 
 ## Character attachment
 
@@ -2665,7 +2673,9 @@ def write_fabrication_templates(
     spec = _fabrication_spec(grid_cell_cm, profile)
 
     gear_templates = [_gear_template(preset, spec) for preset in profile.gear_presets]
-    ring_gear_templates = [_ring_gear_template(profile.gear_presets[0], profile.gear_presets[1], spec)]
+    ring_gear_templates = [
+        _ring_gear_template(profile.gear_presets[0], profile.gear_presets[1], spec)
+    ]
     linkage_templates = [_linkage_template(cells, spec) for cells in profile.linkage_length_cells]
     cam_templates = [_cam_template(preset, spec) for preset in profile.cam_presets]
     follower_templates = [_follower_template(preset, spec) for preset in profile.follower_presets]

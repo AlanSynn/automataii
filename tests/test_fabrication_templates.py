@@ -415,6 +415,7 @@ def test_fabrication_generator_inventory_svg_contract_and_idempotence(tmp_path: 
     for linkage in linkages:
         cells = int(linkage["cells"])
         required = {
+            "key",
             "cells",
             "label",
             "path",
@@ -424,6 +425,7 @@ def test_fabrication_generator_inventory_svg_contract_and_idempotence(tmp_path: 
             "hole_count",
         }
         assert required <= set(linkage)
+        assert linkage["key"] == f"linkage-{cells}-cell"
         assert linkage["length_mm"] == round(cells * pitch_mm, 3)
         assert linkage["pitch_mm"] == round(pitch_mm, 3)
         assert linkage["hole_diameter_mm"] == DEFAULT_HOLE_DIAMETER_MM

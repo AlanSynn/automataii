@@ -5,14 +5,17 @@ the 15x15 hole board (15 rows x 15 columns = 225 board holes).
 
 ## How to use
 
-1. Open `board-15x15.svg` to identify the 225 row-letter/column-number holes.
-2. Export **Make Parts / Cut Sheets** first when you need to fabricate character or mechanism
-   components.
-3. Open `index.html` for the print-first / place-next visual sequence and stack order.
-4. Pick one guide SVG.
-5. Follow one step card at a time: place the fastener at the called-out hole, then add spacers
+1. In the app, use **Export Blueprint Package** for the normal PDF-first flow. It writes
+   `current-design-cut-sheets.pdf`, `assembly/assembly-guide.pdf`, and
+   `assembly/kit-parts-to-cut.pdf` into the folder you choose.
+2. Use this committed `fabrication/assembly/` folder as the source template set only:
+   `board-15x15.svg`, `index.html`, and per-mechanism SVGs are generator/debug inputs for
+   the PDF package.
+3. Open `board-15x15.svg` only when you need to inspect the 225 row-letter/column-number
+   holes directly.
+4. Follow one step card at a time: place the fastener at the called-out hole, then add spacers
    and parts in the exact `Stack` row order before running the check.
-6. Keep paper fasteners loose enough for rotation or sliding before flattening the tabs.
+5. Keep paper fasteners loose enough for rotation or sliding before flattening the tabs.
 
 ## Character attachment
 

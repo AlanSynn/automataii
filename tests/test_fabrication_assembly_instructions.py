@@ -110,6 +110,12 @@ def test_assembly_recipe_package_schema_references_and_bidirectionality(tmp_path
 
     part_index = manifest_part_index(manifest)
     assert "linkages:linkage-2-cell" in part_index
+    raw_part_index = {
+        f"{category}:{item['key']}"
+        for category, raw_items in cast(dict[str, Any], manifest["parts"]).items()
+        for item in cast(list[dict[str, Any]], raw_items)
+        if isinstance(item.get("key"), str)
+    }
     recipes = cast(list[dict[str, Any]], package["recipes"])
     assert {recipe["key"] for recipe in recipes} == EXPECTED_RECIPE_KEYS
     recipe_types = {recipe["mechanism_type"] for recipe in recipes}
@@ -148,6 +154,7 @@ def test_assembly_recipe_package_schema_references_and_bidirectionality(tmp_path
             assert highlight_ids <= physical_parts
             for part in physical_parts:
                 assert part in part_index
+                assert part in raw_part_index
 
     gear_recipe = next(recipe for recipe in recipes if recipe["key"] == "gear-train-basic")
     compat = gear_recipe["compatibility"][0]
