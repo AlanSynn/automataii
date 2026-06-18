@@ -228,12 +228,13 @@ class FabricationAssemblyGuideExporter:
         mechanism_type: object,
         *,
         active_part_ids: Iterable[str] | None = None,
+        required_part_ids: Iterable[str] | None = None,
     ) -> FabricationGuideSummary | None:
         """Map an app-level mechanism selection back to the closest board guide."""
         candidates = self.find_guides_for_mechanism(mechanism_type)
         if not candidates:
             return None
-        requested_parts = set(active_part_ids or ())
+        requested_parts = set(active_part_ids or ()) | set(required_part_ids or ())
         if not requested_parts:
             return candidates[0]
         exact_matches = [
@@ -243,10 +244,18 @@ class FabricationAssemblyGuideExporter:
         ]
         if exact_matches:
             return exact_matches[0]
-        return max(
-            candidates,
-            key=lambda candidate: len(requested_parts & set(candidate.app_highlight_ids)),
-        )
+        # Do not silently downgrade an app-selected physical part to a different
+        # board guide.  A near recipe is still shown in the physical contract as
+        # a warning, but assembly PDFs must be selected-parts-only.
+        return None
+
+    def expected_part_ids_for_layer(
+        self,
+        mechanism_type: str,
+        params: Mapping[str, object],
+    ) -> tuple[str, ...]:
+        """Infer app-selected fabrication part IDs for recipe matching."""
+        return self._expected_part_ids_for_layer(mechanism_type, params)
 
     def _selected_package(
         self,
@@ -501,7 +510,7 @@ class FabricationAssemblyGuideExporter:
   <text x="18" y="36" class="heading">Selected build(s)</text>
   <text x="18" y="44" class="body">{html_escape(recipe_text)}</text>
   <text x="18" y="58" class="heading">Use it like a LEGO guide book</text>
-  <text x="18" y="67" class="body">1. Print/cut current-design-cut-sheets.pdf and kit-parts-to-cut.pdf.</text>
+  <text x="18" y="67" class="body">1. Print/cut the current-design cut sheet and kit-parts-to-cut.pdf.</text>
   <text x="18" y="75" class="body">2. Open one card at a time; only the newly-added part is highlighted.</text>
   <text x="18" y="83" class="body">3. Follow every fastener/spacer stack before moving to the next card.</text>
   <text x="18" y="96" class="heading">Needed parts and hardware only</text>
@@ -578,6 +587,32 @@ class FabricationAssemblyGuideExporter:
     def _part_id_for_gear_teeth(teeth: int) -> str:
         return f"gears:g{int(teeth)}"
 
+    @staticmethod
+    def _follower_part_id_for_params(params: Mapping[str, object]) -> str:
+        raw_key = params.get("follower_preset_key") or params.get("follower_key")
+        if isinstance(raw_key, str):
+            key = raw_key.strip()
+            if key.startswith("followers:"):
+                return key
+            if key in {"f3-round", "f4-roller", "f5-flat", "f6-linkage-output"}:
+                return f"followers:{key}"
+
+        raw_type = str(params.get("follower_type", "")).strip().lower().replace("-", "_")
+        aliases = {
+            "": "followers:f3-round",
+            "round": "followers:f3-round",
+            "round_nose": "followers:f3-round",
+            "knife": "followers:f3-round",
+            "knife_edge": "followers:f3-round",
+            "roller": "followers:f4-roller",
+            "roller_pin": "followers:f4-roller",
+            "flat": "followers:f5-flat",
+            "flat_shoe": "followers:f5-flat",
+            "linkage": "followers:f6-linkage-output",
+            "linkage_output": "followers:f6-linkage-output",
+        }
+        return aliases.get(raw_type, "followers:f3-round")
+
     def _expected_part_ids_for_layer(
         self,
         mechanism_type: str,
@@ -639,7 +674,7 @@ class FabricationAssemblyGuideExporter:
         elif mechanism_type == "cam_follower":
             cam_preset = nearest_cam_preset(snapped, grid_cell_cm, profile=profile)
             add(f"cams:{cam_preset.key}")
-            add("followers:f3-round")
+            add(self._follower_part_id_for_params(params))
         elif mechanism_type == "four_bar":
             for key_group in (
                 ("input_link", "l2", "L2"),
@@ -749,12 +784,13 @@ class FabricationAssemblyGuideExporter:
             selection = FabricationLayerSelection.from_layer_data(raw_layer)
             mechanism_type = selection.mechanism_type
             params = self._layer_params(raw_layer)
+            expected_parts = self._expected_part_ids_for_layer(mechanism_type, params)
             summary = self.resolve_app_state_to_guide(
                 mechanism_type,
                 active_part_ids=selection.active_part_ids,
+                required_part_ids=expected_parts,
             )
             recipe = recipes.get(summary.key) if summary is not None else None
-            expected_parts = self._expected_part_ids_for_layer(mechanism_type, params)
             recipe_counts = self._recipe_part_counts(recipe) if recipe is not None else {}
             recipe_parts = tuple(recipe_counts)
             snapped_adjustments = list(self._snapped_parameter_adjustments(mechanism_type, params))
@@ -772,22 +808,43 @@ class FabricationAssemblyGuideExporter:
                 )
             if recipe is None:
                 layer_warnings.append(f"no board assembly recipe for {mechanism_type}")
+            active_parts = tuple(selection.active_part_ids)
+            unknown_active_parts = tuple(
+                part for part in active_parts if part not in manifest_index
+            )
+            active_parts_missing_recipe = tuple(
+                part for part in active_parts if part not in recipe_counts
+            )
             missing_template_parts = tuple(
                 part for part in expected_parts if part not in manifest_index
             )
             missing_recipe_parts = tuple(
                 part for part in expected_parts if part not in recipe_counts
             )
+            if unknown_active_parts:
+                layer_warnings.append(
+                    "no fabrication template for active app-selected part(s): "
+                    + ", ".join(unknown_active_parts)
+                )
+            if active_parts_missing_recipe:
+                active_prefix = (
+                    "no board assembly recipe contains active app-selected part(s): "
+                    if recipe is None
+                    else "selected assembly guide does not include active app-selected part(s): "
+                )
+                layer_warnings.append(active_prefix + ", ".join(active_parts_missing_recipe))
             if missing_template_parts:
                 layer_warnings.append(
                     "no fabrication template for expected part(s): "
                     + ", ".join(missing_template_parts)
                 )
             if missing_recipe_parts:
-                layer_warnings.append(
-                    "selected assembly guide does not include expected app part(s): "
-                    + ", ".join(missing_recipe_parts)
+                recipe_prefix = (
+                    "no board assembly recipe contains expected app part(s): "
+                    if recipe is None
+                    else "selected assembly guide does not include expected app part(s): "
                 )
+                layer_warnings.append(recipe_prefix + ", ".join(missing_recipe_parts))
             warnings.extend(f"{layer_id}: {warning}" for warning in layer_warnings)
             layer_reports.append(
                 {
@@ -799,6 +856,7 @@ class FabricationAssemblyGuideExporter:
                     "active_part_ids_source": selection.active_part_ids_source,
                     "expected_part_ids_from_app": list(expected_parts),
                     "recipe_part_ids": list(recipe_parts),
+                    "active_part_ids_missing_from_recipe": list(active_parts_missing_recipe),
                     "snapped_parameter_adjustments": snapped_adjustments,
                     "status": "warning" if layer_warnings else "matched",
                     "warnings": layer_warnings,
@@ -948,8 +1006,8 @@ This folder is a self-contained `assembly/` package exported from Automataii.
 
 ## How to use
 
-1. Export **Make Parts / Cut Sheets** first when you need to fabricate character or mechanism
-   components.
+1. Print/cut the current-design cut sheet generated beside this folder for character and
+   mechanism components.
 2. Open `assembly-guide.pdf` to identify board coordinates and follow the LEGO-style step cards.
 3. Open `kit-parts-to-cut.pdf` for only the fabricated kit parts used by these guides.
 4. Follow one step card at a time: place the fastener at the called-out hole, then add spacers

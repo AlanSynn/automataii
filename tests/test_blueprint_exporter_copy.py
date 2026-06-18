@@ -372,12 +372,19 @@ def test_blueprint_package_clears_stale_assembly_when_no_recipe_matches(
                 "selected_recipe_keys": sorted(recipe_keys),
             }
 
-        def clear_exported_package(self, output_dir_arg):
+        def export_contract_report(self, output_dir_arg, _contract):
             package_dir = Path(output_dir_arg) / "assembly"
-            captured["clear_called"] = "yes"
+            captured["contract_report_called"] = "yes"
             for path in package_dir.glob("*"):
                 if path.is_file():
                     path.unlink()
+            contract_path = package_dir / "physical-contract.json"
+            contract_path.write_text("{}", encoding="utf-8")
+            return contract_path
+
+        def clear_exported_package(self, output_dir_arg):
+            package_dir = Path(output_dir_arg) / "assembly"
+            captured["clear_called"] = "yes"
             return package_dir
 
     monkeypatch.setattr(
@@ -413,10 +420,11 @@ def test_blueprint_package_clears_stale_assembly_when_no_recipe_matches(
 
     exporter.export_all()
 
-    assert captured["clear_called"] == "yes"
+    assert captured["contract_report_called"] == "yes"
     assert not stale_pdf.exists()
     assert captured["title"] == "Blueprint Package Exported"
     assert "Assembly guide: not generated" in captured["text"]
+    assert "Physical contract: assembly/physical-contract.json" in captured["text"]
 
 
 def test_blueprint_package_cleans_stale_cut_sheet_svg_before_pdf_success(
@@ -459,6 +467,13 @@ def test_blueprint_package_cleans_stale_cut_sheet_svg_before_pdf_success(
                 "warnings": [],
                 "selected_recipe_keys": sorted(recipe_keys),
             }
+
+        def export_contract_report(self, output_dir_arg, _contract):
+            package_dir = Path(output_dir_arg) / "assembly"
+            package_dir.mkdir(parents=True, exist_ok=True)
+            contract_path = package_dir / "physical-contract.json"
+            contract_path.write_text("{}", encoding="utf-8")
+            return contract_path
 
         def clear_exported_package(self, output_dir_arg):
             package_dir = Path(output_dir_arg) / "assembly"
@@ -541,6 +556,13 @@ def test_blueprint_package_reports_svg_selected_cut_sheet(monkeypatch, tmp_path:
                 "warnings": [],
                 "selected_recipe_keys": sorted(recipe_keys),
             }
+
+        def export_contract_report(self, output_dir_arg, _contract):
+            package_dir = Path(output_dir_arg) / "assembly"
+            package_dir.mkdir(parents=True, exist_ok=True)
+            contract_path = package_dir / "physical-contract.json"
+            contract_path.write_text("{}", encoding="utf-8")
+            return contract_path
 
         def clear_exported_package(self, output_dir_arg):
             package_dir = Path(output_dir_arg) / "assembly"

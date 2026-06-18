@@ -639,6 +639,8 @@
   <text x="308" y="216.5" class="tiny" text-anchor="start">R40 internal ring gear</text>
   <rect x="268" y="220.5" width="34" height="5" class="score stack-layer" data-step="2" data-stack-layer="5" data-stack-role="fastener-tabs" data-part-key=""/>
   <text x="308" y="226" class="tiny" text-anchor="start">Loose tabs</text>
+  <rect x="268" y="230" width="34" height="5" class="score stack-layer" data-step="2" data-stack-layer="6" data-stack-role="repeat-fastener-sites" data-part-key=""/>
+  <text x="308" y="235.5" class="tiny" text-anchor="start">Repeat this stack at D8, H4, H12, L8</text>
   </g>
   <g id="layer-labels-step-2" data-step="2" data-board-coord="D8, H4, H12, L8" data-part-key="S8 G12/G14 Ring">
   <text x="376" y="181" class="small" text-anchor="start">Board holes: D8, H4, H12, L8</text>

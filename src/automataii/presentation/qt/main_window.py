@@ -942,6 +942,9 @@ class AutomataDesigner(QMainWindow):
         self.action_manager.connect_action("save_project", self.save_project_dialog)
         self.action_manager.connect_action("save_project_as", self.save_project_as_dialog)
         self.action_manager.connect_action("export", self.export_project_dialog)
+        self.action_manager.connect_action(
+            "export_blueprint_package", self.export_blueprint_package_dialog
+        )
         self.action_manager.connect_action("exit", self.close)
         self.action_manager.connect_action("zoom_in", lambda: self._invoke_active_zoom("zoom_in"))
         self.action_manager.connect_action("zoom_out", lambda: self._invoke_active_zoom("zoom_out"))
@@ -2382,9 +2385,24 @@ class AutomataDesigner(QMainWindow):
     @pyqtSlot()
     def generate_blueprint_impl(self):
         logging.info("MainWindow: Received request to generate blueprint.")
-        # Call actual blueprint generation logic here
-        # Example: generate_blueprint_svg(self.parts, self.editor_items, "blueprint.svg")
-        self.statusBar().showMessage("Blueprint generation requested.")
+        self.export_blueprint_package_dialog()
+
+    @pyqtSlot()
+    def export_blueprint_package_dialog(self) -> bool:
+        """Export cut sheets + board assembly guide through the Design tab pipeline."""
+        export_method = getattr(self.mechanism_design_tab, "export_blueprint_package", None)
+        if not callable(export_method):
+            QMessageBox.warning(
+                self,
+                "Blueprint Export",
+                "Blueprint package export is not available until the Mechanism Design tab is loaded.",
+            )
+            return False
+        export_method()
+        status_bar = self.statusBar()
+        if status_bar is not None:
+            status_bar.showMessage("Blueprint package export requested.", 3000)
+        return True
 
     @pyqtSlot()
     def save_character_alignment_impl(self):

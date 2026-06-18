@@ -17,7 +17,10 @@ from automataii.application.fabrication import (
     active_part_ids_from_layer,
 )
 from automataii.application.managers.blueprint_manager import BlueprintExportManager
-from automataii.application.mechanism_foundry.controller import build_mechanism_configs
+from automataii.application.mechanism_foundry.controller import (
+    MechanismFoundryController,
+    build_mechanism_configs,
+)
 from automataii.application.mechanism_foundry.mechanism_types import (
     VISIBLE_FOUNDRY_MECHANISM_TYPES,
 )
@@ -27,6 +30,7 @@ from automataii.shared.fabrication_assembly import (
     ASSEMBLY_SCHEMA_VERSION,
     BOARD_COLUMNS,
     BOARD_ROWS,
+    AssemblyValidationError,
     manifest_part_index,
     validate_assembly_package,
 )
@@ -418,6 +422,35 @@ def test_application_exporter_lists_and_exports_pdf_board_guides(tmp_path: Path)
     assert not (package_dir / "svg-fallback").exists()
 
 
+def test_export_guides_writes_package_for_each_recipe_key(tmp_path: Path) -> None:
+    write_fabrication_templates(tmp_path)
+    exporter = FabricationAssemblyGuideExporter(tmp_path)
+
+    for recipe_key in EXPECTED_RECIPE_KEYS:
+        output_dir = tmp_path / f"exported-{recipe_key}"
+        result = exporter.export_guides(output_dir, recipe_keys={recipe_key})
+        package_dir = output_dir / "assembly"
+        selected_recipes = _load_json(package_dir / "recipes.json")
+
+        assert [recipe["key"] for recipe in selected_recipes["recipes"]] == [recipe_key]
+        assert result.recipe_keys == (recipe_key,)
+        assert (package_dir / "assembly-guide.pdf").is_file()
+        assert (package_dir / "kit-parts-to-cut.pdf").is_file()
+        assert not (package_dir / "svg-fallback").exists()
+
+
+def test_runtime_foundry_visible_mechanisms_have_assembly_guides(tmp_path: Path) -> None:
+    write_fabrication_templates(tmp_path)
+    exporter = FabricationAssemblyGuideExporter(tmp_path)
+    controller = MechanismFoundryController()
+
+    visible_types = {item.mechanism_type for item in controller.list_mechanisms()}
+
+    assert visible_types == VISIBLE_FOUNDRY_MECHANISM_TYPES
+    for mechanism_type in visible_types:
+        assert exporter.find_guides_for_mechanism(mechanism_type), mechanism_type
+
+
 def test_application_exporter_writes_contract_report_without_board_pdfs(tmp_path: Path) -> None:
     write_fabrication_templates(tmp_path)
     exporter = FabricationAssemblyGuideExporter(tmp_path)
@@ -634,6 +667,14 @@ def test_physical_contract_flags_when_app_parts_do_not_match_recipe(tmp_path: Pa
     write_fabrication_templates(tmp_path)
     exporter = FabricationAssemblyGuideExporter(tmp_path)
 
+    assert (
+        exporter.resolve_app_state_to_guide(
+            "four_bar",
+            required_part_ids={"linkages:linkage-2-cell", "linkages:linkage-6-cell"},
+        )
+        is None
+    )
+
     contract = exporter.build_app_physical_contract(
         {
             "four-bar-default": {
@@ -656,7 +697,89 @@ def test_physical_contract_flags_when_app_parts_do_not_match_recipe(tmp_path: Pa
     assert "linkages:linkage-6-cell" in warnings
     layers = cast(list[dict[str, Any]], contract["layers"])
     assert layers[0]["status"] == "warning"
+    assert layers[0]["recipe_key"] is None
     assert "linkages:linkage-6-cell" in layers[0]["expected_part_ids_from_app"]
+
+
+def test_physical_contract_warns_when_active_part_ids_are_not_in_selected_recipe(
+    tmp_path: Path,
+) -> None:
+    write_fabrication_templates(tmp_path)
+    exporter = FabricationAssemblyGuideExporter(tmp_path)
+
+    assert (
+        exporter.resolve_app_state_to_guide(
+            "cam_follower",
+            active_part_ids={"followers:f4-roller"},
+        )
+        is None
+    )
+
+    contract = exporter.build_app_physical_contract(
+        {
+            "cam": {
+                "type": "cam_follower",
+                "active_part_ids": ["followers:f4-roller"],
+                "params": {
+                    "grid_system_enabled": True,
+                    "grid_cell_cm": 2.0,
+                    "cam_shape": "eccentric",
+                    "follower_type": "roller",
+                },
+            }
+        },
+        recipe_keys={"cam-follower-basic"},
+    )
+
+    assert contract["status"] == "warning"
+    warnings = "\n".join(cast(list[str], contract["warnings"]))
+    assert "followers:f4-roller" in warnings
+    layers = cast(list[dict[str, Any]], contract["layers"])
+    assert layers[0]["status"] == "warning"
+    assert layers[0]["recipe_key"] is None
+    assert layers[0]["active_part_ids_missing_from_recipe"] == ["followers:f4-roller"]
+
+
+def test_physical_contract_warns_when_cam_follower_params_need_unmatched_follower(
+    tmp_path: Path,
+) -> None:
+    write_fabrication_templates(tmp_path)
+    exporter = FabricationAssemblyGuideExporter(tmp_path)
+    params = {
+        "grid_system_enabled": True,
+        "grid_cell_cm": 2.0,
+        "cam_shape": "eccentric",
+        "base_radius": 15.0,
+        "eccentricity": 5.0,
+        "follower_type": "roller",
+    }
+
+    assert exporter.expected_part_ids_for_layer("cam_follower", params) == (
+        "cams:eccentric",
+        "followers:f4-roller",
+    )
+    assert (
+        exporter.resolve_app_state_to_guide(
+            "cam_follower",
+            required_part_ids=exporter.expected_part_ids_for_layer("cam_follower", params),
+        )
+        is None
+    )
+
+    contract = exporter.build_app_physical_contract(
+        {"cam": {"type": "cam_follower", "params": params}},
+        recipe_keys={"cam-follower-basic"},
+    )
+
+    assert contract["status"] == "warning"
+    warnings = "\n".join(cast(list[str], contract["warnings"]))
+    assert "followers:f4-roller" in warnings
+    layers = cast(list[dict[str, Any]], contract["layers"])
+    assert layers[0]["recipe_key"] is None
+    assert layers[0]["expected_part_ids_from_app"] == [
+        "cams:eccentric",
+        "followers:f4-roller",
+    ]
 
 
 def test_physical_contract_records_snap_adjustments_without_gating_recipe(
@@ -793,6 +916,85 @@ def test_exported_guides_include_physical_contract_and_quantity_aware_part_pdf(
     assert (package_dir / "kit-parts-to-cut.pdf").is_file()
     assert package_dir / "kit-parts-to-cut.pdf" in result.pdf_files
     assert result.contract_warnings == ()
+
+
+def test_export_guides_surfaces_active_part_recipe_mismatch_in_contract_report(
+    tmp_path: Path,
+) -> None:
+    write_fabrication_templates(tmp_path)
+    exporter = FabricationAssemblyGuideExporter(tmp_path)
+    contract = exporter.build_app_physical_contract(
+        {
+            "cam": {
+                "type": "cam_follower",
+                "active_part_ids": ["followers:f4-roller"],
+                "params": {"grid_system_enabled": True, "grid_cell_cm": 2.0},
+            }
+        },
+        recipe_keys={"cam-follower-basic"},
+    )
+
+    result = exporter.export_guides(
+        tmp_path / "exported-guides",
+        recipe_keys={"cam-follower-basic"},
+        app_contract=contract,
+    )
+
+    exported_contract = _load_json(result.package_dir / "physical-contract.json")
+    assert exported_contract["status"] == "warning"
+    assert any("followers:f4-roller" in warning for warning in result.contract_warnings)
+
+
+def test_multi_hole_fixed_steps_call_out_every_fastener_site(tmp_path: Path) -> None:
+    manifest = write_fabrication_templates(tmp_path)
+    package = _load_json(tmp_path / "assembly" / "recipes.json")
+
+    validate_assembly_package(package, manifest)
+    recipes = cast(list[dict[str, Any]], package["recipes"])
+    for recipe in recipes:
+        for step in cast(list[dict[str, Any]], recipe["steps"]):
+            coords = cast(list[str], step["coords"])
+            coord_roles = cast(list[str], step["coord_roles"])
+            stack = cast(list[dict[str, Any]], step["stack"])
+            stack_text = " ".join(str(layer.get("label", "")) for layer in stack)
+            board_sites = [
+                coord for coord, role in zip(coords, coord_roles, strict=False) if role == "board"
+            ]
+            if (
+                step["action"] != "test-motion"
+                and len(board_sites) > 1
+                and any(layer["role"] == "paper-fastener" for layer in stack)
+            ):
+                for coord in board_sites:
+                    assert coord in stack_text
+
+    guide_text = "\n".join(
+        path.read_text(encoding="utf-8") for path in (tmp_path / "assembly").glob("*.svg")
+    )
+    assert "Repeat this stack at I5, I9" in guide_text
+    assert "Repeat this stack at D8, H4, H12, L8" in guide_text
+    assert "Repeat this stack at G11, G12, G13" in guide_text
+
+
+def test_validate_assembly_package_rejects_multi_hole_fixed_step_without_all_stack_sites(
+    tmp_path: Path,
+) -> None:
+    manifest = write_fabrication_templates(tmp_path)
+    package = _load_json(tmp_path / "assembly" / "recipes.json")
+    recipe = next(
+        recipe
+        for recipe in cast(list[dict[str, Any]], package["recipes"])
+        if recipe["key"] == "four-bar-basic"
+    )
+    step = cast(list[dict[str, Any]], recipe["steps"])[0]
+    step["stack"] = [
+        layer
+        for layer in cast(list[dict[str, Any]], step["stack"])
+        if layer["role"] != "repeat-fastener-sites"
+    ]
+
+    with pytest.raises(AssemblyValidationError, match="omits board site"):
+        validate_assembly_package(package, manifest)
 
 
 def test_committed_assembly_package_exists_and_matches_generator(tmp_path: Path) -> None:

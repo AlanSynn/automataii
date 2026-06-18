@@ -366,6 +366,24 @@ def _step(
     roles = tuple(coord_roles or ("board",) * len(board_coords))
     if len(roles) != len(board_coords):
         raise AssemblyValidationError("Step coordinate roles must match coordinates")
+    stack_layers = tuple(stack)
+    fixed_board_sites = tuple(
+        coord.label for coord, role in zip(board_coords, roles, strict=False) if role == "board"
+    )
+    has_fastener = any(layer.role == "paper-fastener" for layer in stack_layers)
+    if action != "test-motion" and has_fastener and len(fixed_board_sites) > 1:
+        stack_text = " ".join(layer.label for layer in stack_layers)
+        missing_sites = tuple(site for site in fixed_board_sites if site not in stack_text)
+        if missing_sites:
+            next_order = max((layer.order for layer in stack_layers), default=0) + 1
+            stack_layers = (
+                *stack_layers,
+                StackLayer(
+                    next_order,
+                    "repeat-fastener-sites",
+                    "Repeat this stack at " + ", ".join(fixed_board_sites),
+                ),
+            )
     part_ids = tuple(part.part_id for part in parts)
     return AssemblyStep(
         n=n,
@@ -375,7 +393,7 @@ def _step(
         coords=board_coords,
         coord_roles=roles,
         parts=tuple(parts),
-        stack=tuple(stack),
+        stack=stack_layers,
         visual_state=VisualState(part_ids, tuple(ghosts), board_coords),
         app_mapping=AppMapping(mechanism_type, component_role, part_ids),
         check=check,
@@ -1166,7 +1184,28 @@ def validate_assembly_package(
             stack = step.get("stack")
             if not isinstance(stack, Sequence):
                 raise AssemblyValidationError(f"Step {raw_n} has invalid stack")
+            stack_text = " ".join(
+                str(layer.get("label", "")) for layer in stack if isinstance(layer, Mapping)
+            )
+            board_coord_labels = tuple(
+                str(coord)
+                for coord, role in zip(raw_coords, raw_coord_roles, strict=False)
+                if str(role) == "board"
+            )
+            has_fastener = any(
+                isinstance(layer, Mapping) and layer.get("role") == "paper-fastener"
+                for layer in stack
+            )
             action = str(step.get("action", ""))
+            if action != "test-motion" and has_fastener and len(board_coord_labels) > 1:
+                missing_sites = tuple(
+                    coord for coord in board_coord_labels if coord not in stack_text
+                )
+                if missing_sites:
+                    raise AssemblyValidationError(
+                        f"Step {raw_n} fastener stack omits board site(s): "
+                        + ", ".join(missing_sites)
+                    )
             if action in {"add-part", "add-linkage", "add-guide", "test-motion"}:
                 roles = {
                     str(layer.get("role"))

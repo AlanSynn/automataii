@@ -65,6 +65,21 @@ def test_load_project_from_file_reads_standardized_supplemental_char_cfg(tmp_pat
     assert ids == {"root", "torso"}
 
 
+def test_legacy_yaml_joint_list_accepts_position_alias() -> None:
+    manager = ProjectDataManager()
+
+    joints = manager._parse_yaml_joints(
+        [
+            {"name": "root", "position": [10.0, 20.0], "parent": None},
+            {"name": "head", "position": [10.0, 5.0], "parent": "root"},
+        ]
+    )
+
+    assert [joint.id for joint in joints] == ["root", "head"]
+    assert joints[0].position == [10.0, 20.0]
+    assert joints[1].parent == "root"
+
+
 def test_load_project_from_file_reads_primary_skeleton_joints_without_clear_signal(
     tmp_path: Path,
 ) -> None:

@@ -320,6 +320,8 @@
   <text x="308" y="75.5" class="tiny" text-anchor="start">Fastener</text>
   <rect x="268" y="79.5" width="34" height="5" class="score stack-layer" data-step="1" data-stack-layer="3" data-stack-role="fastener-tabs" data-part-key=""/>
   <text x="308" y="85" class="tiny" text-anchor="start">Loose tabs</text>
+  <rect x="268" y="89" width="34" height="5" class="score stack-layer" data-step="1" data-stack-layer="4" data-stack-role="repeat-fastener-sites" data-part-key=""/>
+  <text x="308" y="94.5" class="tiny" text-anchor="start">Repeat this stack at I5, I9</text>
   </g>
   <g id="layer-labels-step-1" data-step="1" data-board-coord="I5, I9" data-part-key="">
   <text x="376" y="59" class="small" text-anchor="start">Board holes: I5, I9</text>

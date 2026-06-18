@@ -1275,6 +1275,8 @@
   <text x="308" y="460.5" class="tiny" text-anchor="start">3-hole bracket</text>
   <rect x="268" y="464.5" width="34" height="5" class="score stack-layer" data-step="4" data-stack-layer="5" data-stack-role="fastener-tabs" data-part-key=""/>
   <text x="308" y="470" class="tiny" text-anchor="start">Loose tabs</text>
+  <rect x="268" y="474" width="34" height="5" class="score stack-layer" data-step="4" data-stack-layer="6" data-stack-role="repeat-fastener-sites" data-part-key=""/>
+  <text x="308" y="479.5" class="tiny" text-anchor="start">Repeat this stack at G11, G12, G13</text>
   </g>
   <g id="layer-labels-step-4" data-step="4" data-board-coord="G11, G12, G13" data-part-key="S8 3 Hole Straight">
   <text x="376" y="425" class="small" text-anchor="start">Board holes: G11, G12, G13</text>

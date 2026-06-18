@@ -233,6 +233,8 @@ def generate_single_large_blueprint(
       .dimension-line {{ stroke: #666; stroke-width: 0.75; stroke-dasharray: 3,3; }}
       .dimension-text {{ font-family: Arial, sans-serif; font-size: 10px; fill: #333; }}
       .cutting-path {{ stroke: red; stroke-width: 0.5; stroke-dasharray: 2,2; fill: none; }}
+      .pivot-drill-hole {{ fill: none; stroke: #2563eb; stroke-width: 0.75; }}
+      .drill-hole-label {{ font-family: Arial, sans-serif; font-size: 7px; fill: #1d4ed8; }}
       .manufacturing-note {{ font-family: Arial, sans-serif; font-size: 9px; fill: #555; }}
       .gear-mechanism {{ }}
       .linkage-mechanism {{ }}

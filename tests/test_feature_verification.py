@@ -180,6 +180,7 @@ class TestMenuActions:
             "about",
             "new_project",
             "export",
+            "export_blueprint_package",
             "check_updates",
             "preferences",
         ]
@@ -261,6 +262,31 @@ class TestMenuActions:
         assert manager.get_action("save_project_as").isEnabled() is True
         assert manager.get_action("save_project").isEnabled() is False
         assert manager.get_action("export").isEnabled() is False
+        assert manager.get_action("export_blueprint_package").isEnabled() is False
+        assert app is not None
+
+    def test_blueprint_export_action_routes_to_mechanism_design_pipeline(self):
+        from PyQt6.QtWidgets import QApplication
+
+        from automataii.presentation.qt.main_window import AutomataDesigner
+
+        app = QApplication.instance() or QApplication([])
+        window = AutomataDesigner.__new__(AutomataDesigner)
+        calls: list[str] = []
+
+        class _DesignTab:
+            def export_blueprint_package(self) -> None:
+                calls.append("export")
+
+        class _Status:
+            def showMessage(self, *_args, **_kwargs) -> None:
+                calls.append("status")
+
+        window.mechanism_design_tab = _DesignTab()
+        window.statusBar = lambda: _Status()
+
+        assert AutomataDesigner.export_blueprint_package_dialog(window) is True
+        assert calls == ["export", "status"]
         assert app is not None
 
 

@@ -197,10 +197,18 @@ class ActionManager(QObject):
 
         self.create_action(
             action_id="export",
-            text="Export",
+            text="Export Project Copy",
             icon=self._get_standard_icon(QStyle.StandardPixmap.SP_ArrowRight),
-            tooltip="Export the current project",
-            status_tip="Export the current project",
+            tooltip="Export a copy of the current project file",
+            status_tip="Export a copy of the current project file",
+        )
+
+        self.create_action(
+            action_id="export_blueprint_package",
+            text="Export Blueprint Package",
+            icon=self._get_standard_icon(QStyle.StandardPixmap.SP_DriveHDIcon),
+            tooltip="Export fabrication cut sheets, kit parts, and board assembly guide",
+            status_tip="Export fabrication cut sheets, kit parts, and board assembly guide",
         )
 
     def create_action(
@@ -333,6 +341,7 @@ class ActionManager(QObject):
         toolbar.addAction(self.get_action("new_project"))
         toolbar.addAction(self.get_action("load_parts"))
         toolbar.addAction(self.get_action("save_project"))
+        toolbar.addAction(self.get_action("export_blueprint_package"))
         toolbar.addAction(self.get_action("export"))
 
     def setup_menus(self, menubar: QMenuBar) -> None:
@@ -354,6 +363,7 @@ class ActionManager(QObject):
         file_menu.addAction(self.get_action("save_project"))
         file_menu.addAction(self.get_action("save_project_as"))
         file_menu.addSeparator()
+        file_menu.addAction(self.get_action("export_blueprint_package"))
         file_menu.addAction(self.get_action("export"))
         file_menu.addSeparator()
         file_menu.addAction(self.get_action("exit"))
@@ -401,6 +411,7 @@ class ActionManager(QObject):
         project_dependent_actions = [
             "save_project",
             "export",
+            "export_blueprint_package",
             # Add other action IDs here that depend on a project being loaded
             # e.g., "add_part", "define_mechanism", etc.
         ]

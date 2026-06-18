@@ -823,6 +823,11 @@
               "label": "Open tabs behind board",
               "order": 3,
               "role": "fastener-tabs"
+            },
+            {
+              "label": "Repeat this stack at I5, I9",
+              "order": 4,
+              "role": "repeat-fastener-sites"
             }
           ],
           "title": "Set ground pivots",
@@ -1817,6 +1822,11 @@
               "label": "Open tabs behind board",
               "order": 5,
               "role": "fastener-tabs"
+            },
+            {
+              "label": "Repeat this stack at D8, H4, H12, L8",
+              "order": 6,
+              "role": "repeat-fastener-sites"
             }
           ],
           "title": "Mount R40 internal ring gear",
@@ -2528,6 +2538,11 @@
               "label": "Open tabs behind board",
               "order": 5,
               "role": "fastener-tabs"
+            },
+            {
+              "label": "Repeat this stack at G11, G12, G13",
+              "order": 6,
+              "role": "repeat-fastener-sites"
             }
           ],
           "title": "Fix slider guide",

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
+from pathlib import Path
 
 import cv2
 import numpy as np
 
+from automataii.infrastructure.generation.svg.optimizer import BlueprintLayoutOptimizer
 from automataii.presentation.qt.main_window import (
     AutomataDesigner,
     _align_parts_bbox_to_skeleton_in_place,
@@ -117,6 +120,75 @@ def test_normalize_character_scale_prefers_parts_bbox_height() -> None:
     assert abs(parts["torso"].roi[2] - 400.0) < 1e-6
     normalized_bbox = _calculate_skeleton_bbox(skeleton)
     assert normalized_bbox is not None
+
+
+def test_blueprint_character_parts_use_assembled_bbox_and_emit_pivot_drill_holes() -> None:
+    dummy_dir = Path("resources/presets/characters/dummy")
+    torso = _PartStub(
+        roi=[610.0, 230.0, 316.0, 372.0],
+        image_path=str(dummy_dir / "torso.png"),
+        x=610.0,
+        y=230.0,
+        local_pivot_offset=[158.0, 140.0],
+    )
+    head = _PartStub(
+        roi=[686.0, 54.0, 164.0, 190.0],
+        image_path=str(dummy_dir / "head.png"),
+        x=686.0,
+        y=54.0,
+        local_pivot_offset=[82.0, 186.0],
+    )
+    torso.name = "torso"  # type: ignore[attr-defined]
+    head.name = "head"  # type: ignore[attr-defined]
+    part_items = [
+        type("PartItem", (), {"part_info": torso})(),
+        type("PartItem", (), {"part_info": head})(),
+    ]
+
+    optimizer = BlueprintLayoutOptimizer(target_character_height_mm=300.0)
+    layout_items = optimizer._process_character_parts(part_items)
+    by_name = {item.name: item for item in layout_items}
+
+    assert "pivot-drill-hole" in by_name["torso"].svg_content
+    assert 'data-hole-diameter-mm="4"' in by_name["torso"].svg_content
+    # If the scale is computed from isolated torso bounds, torso becomes almost
+    # 300mm tall.  The assembled character bbox keeps it proportional.
+    assert by_name["torso"].bounds.height < 240.0
+
+
+def test_blueprint_pivot_holes_use_roi_coordinate_space_for_resized_png(
+    tmp_path: Path,
+) -> None:
+    img = np.zeros((100, 100, 4), dtype=np.uint8)
+    img[:, :, :3] = 255
+    img[:, :, 3] = 255
+    part_path = tmp_path / "square.png"
+    cv2.imwrite(str(part_path), img)
+
+    part = _PartStub(
+        roi=[0.0, 0.0, 200.0, 200.0],
+        image_path=str(part_path),
+        local_pivot_offset=[100.0, 100.0],
+    )
+    part.name = "square"  # type: ignore[attr-defined]
+    part_item = type("PartItem", (), {"part_info": part})()
+
+    optimizer = BlueprintLayoutOptimizer(target_character_height_mm=300.0)
+    layout_items = optimizer._process_character_parts([part_item])
+
+    assert len(layout_items) == 1
+    item = layout_items[0]
+    assert abs(item.bounds.width - 300.0) < 3.0
+    assert abs(item.bounds.height - 300.0) < 3.0
+    assert 'class="pivot-drill-hole"' in item.svg_content
+    cx_match = re.search(r'cx="([0-9.]+)"', item.svg_content)
+    cy_match = re.search(r'cy="([0-9.]+)"', item.svg_content)
+    assert cx_match is not None
+    assert cy_match is not None
+    assert abs(float(cx_match.group(1)) - 150.0) < 2.0
+    assert abs(float(cy_match.group(1)) - 150.0) < 2.0
+    assert abs(float(cx_match.group(1)) - 300.0) > 100.0
+    assert abs(float(cy_match.group(1)) - 300.0) > 100.0
 
 
 def test_align_parts_bbox_to_skeleton_upscales_when_parts_too_small() -> None:

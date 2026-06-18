@@ -391,15 +391,15 @@ class ProjectDataManager(QObject):
             return None
 
         joint_name = joint_data.get("name")
-        joint_loc = joint_data.get("loc")
+        joint_loc = joint_data.get("loc") or joint_data.get("position")
         joint_parent = joint_data.get("parent")
 
         if not joint_name:
             logging.warning(f"Skipping joint with missing name: {joint_data}")
             return None
 
-        if not joint_loc or not (isinstance(joint_loc, list) and len(joint_loc) == 2):
-            logging.warning(f"Skipping joint '{joint_name}' with invalid 'loc': {joint_loc}")
+        if not joint_loc or not (isinstance(joint_loc, list | tuple) and len(joint_loc) == 2):
+            logging.warning(f"Skipping joint '{joint_name}' with invalid loc/position: {joint_loc}")
             return None
 
         try:

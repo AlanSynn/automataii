@@ -88,10 +88,30 @@ class BlueprintExporter:
             if not isinstance(layer_data, dict):
                 continue
             selection = FabricationLayerSelection.from_layer_data(layer_data)
-            summary = guide_exporter.resolve_app_state_to_guide(
-                selection.mechanism_type,
-                active_part_ids=selection.active_part_ids,
-            )
+            params = layer_data.get("params")
+            expected_part_ids: tuple[str, ...] = ()
+            if isinstance(params, dict):
+                expected_part_ids_for_layer = getattr(
+                    guide_exporter,
+                    "expected_part_ids_for_layer",
+                    None,
+                )
+                if callable(expected_part_ids_for_layer):
+                    expected_part_ids = expected_part_ids_for_layer(
+                        selection.mechanism_type,
+                        params,
+                    )
+            try:
+                summary = guide_exporter.resolve_app_state_to_guide(
+                    selection.mechanism_type,
+                    active_part_ids=selection.active_part_ids,
+                    required_part_ids=expected_part_ids,
+                )
+            except TypeError:
+                summary = guide_exporter.resolve_app_state_to_guide(
+                    selection.mechanism_type,
+                    active_part_ids=selection.active_part_ids,
+                )
             if summary is not None:
                 recipe_keys.add(summary.key)
         return recipe_keys
@@ -242,6 +262,7 @@ class BlueprintExporter:
             guide_exporter = FabricationAssemblyGuideExporter("fabrication")
             recipe_keys = self._assembly_recipe_keys_for_layers(guide_exporter, mechanism_layers)
             assembly_result = None
+            contract_report_path: Path | None = None
             physical_contract = guide_exporter.build_app_physical_contract(
                 mechanism_layers,
                 recipe_keys=recipe_keys,
@@ -305,11 +326,16 @@ class BlueprintExporter:
                         assembly_result.pdf_files or assembly_result.fallback_files
                     )
                 else:
-                    guide_exporter.clear_exported_package(output_dir)
                     if mechanism_layers:
+                        contract_report_path = guide_exporter.export_contract_report(
+                            output_dir,
+                            physical_contract,
+                        )
                         logging.warning(
                             "[BLUEPRINT] No matching board assembly recipe for current mechanisms"
                         )
+                    else:
+                        guide_exporter.clear_exported_package(output_dir)
 
                 success = cut_sheet_success and assembly_success
                 span.set(status="success" if success else "failure")
@@ -344,16 +370,23 @@ class BlueprintExporter:
                         )
                     recipe_text = ", ".join(assembly_result.recipe_keys)
                 else:
+                    contract_text = (
+                        "assembly/physical-contract.json"
+                        if contract_report_path is not None
+                        else "not written (no matching board recipe)"
+                    )
                     guide_text = (
                         "Kit parts to cut: not generated (no matching board recipe)\n"
                         "Assembly guide: not generated (no matching board recipe)\n"
-                        "Physical contract: not written (no matching board recipe)\n"
+                        f"Physical contract: {contract_text}\n"
                         "Assembly PDFs: none\n"
                     )
                     recipe_text = "none"
                     next_steps_text = (
-                        "Only the current-design cut sheet was exported; add a supported "
-                        "board mechanism to generate LEGO-style assembly PDFs."
+                        "Only the current-design cut sheet was exported. Open "
+                        "physical-contract.json to see which simulation/app-selected parts need "
+                        "nearest fabrication-ready kit presets before board assembly PDFs can be "
+                        "generated."
                     )
                 warning_count = (
                     len(assembly_result.contract_warnings)

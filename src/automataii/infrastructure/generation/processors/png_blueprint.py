@@ -16,6 +16,7 @@ from automataii.domain.generation.contour import (
     AdvancedContourExtractor,
     ManufacturingContour,
 )
+from automataii.utils.paths import resolve_path
 
 __all__ = [
     "PNGBlueprintProcessor",
@@ -83,8 +84,13 @@ class PNGBlueprintProcessor:
             # 2) Relative to project_dir
             elif raw_path and project_dir and (project_dir / raw_path).exists():
                 png_path_str = str(project_dir / raw_path)
-            # 3) Fallback: project_dir/name.png
-            elif project_dir and hasattr(part_item.part_info, "name"):
+            # 3) Repo/app-resource relative path (dummy/example character assets).
+            elif raw_path:
+                resolved = resolve_path(str(raw_path))
+                if resolved.exists():
+                    png_path_str = str(resolved)
+            # 4) Fallback: project_dir/name.png
+            if not png_path_str and project_dir and hasattr(part_item.part_info, "name"):
                 fallback = project_dir / f"{part_item.part_info.name}.png"
                 if fallback.exists():
                     png_path_str = str(fallback)
@@ -200,7 +206,7 @@ class PNGBlueprintProcessor:
   <!-- Blueprint Title -->
   <rect x="5" y="5" width="{total_width - 10}" height="40" fill="none" stroke="black" stroke-width="2"/>
   <text x="20" y="25" class="part-label" font-size="14">Character Parts Manufacturing Blueprint</text>
-  <text x="20" y="35" class="manufacturing-note">Scale: 1:1 | Units: mm | Material: 3mm Plywood/Acrylic | Extracted from PNG Contours</text>
+  <text x="20" y="35" class="manufacturing-note">Cut/drill character body parts; board placement and fastener stacks are in the assembly guide</text>
 
   <!-- Parts Content -->
   <g transform="translate(0,50)">

@@ -12,7 +12,10 @@ Note: Domain logic has been extracted to:
 """
 
 import logging
+import math
+import re
 from collections.abc import Callable
+from html import escape as escape_xml
 from typing import Any
 
 # Import from domain modules
@@ -34,6 +37,11 @@ from automataii.shared.physical_kit import finite_float, normalize_mechanism_typ
 # Note: ScaleNormalizer and SmartLayoutManager have been moved to
 # automataii.domain.generation.layout and are imported above.
 # LayoutItem and ScaledBounds are also imported from the domain module.
+
+_SVG_COORD_PATTERN = re.compile(
+    r"([ML])\s+([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?)"
+    r"[\s,]+([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?)"
+)
 
 
 class EnhancedMechanismProcessor:
@@ -1249,11 +1257,15 @@ class BlueprintLayoutOptimizer:
         layout_items = []
 
         # CRITICAL FIX: Calculate scale based on TOTAL CHARACTER HEIGHT, not individual parts
-        total_character_height = 0
-        total_character_width = 0
+        total_character_height = 0.0
+        total_character_width = 0.0
         all_contours = []
 
         # First pass: collect all contours and calculate total character bounds
+        # in assembled-character coordinates.  Contour bounds are local to each
+        # cropped part PNG; using them directly made every body piece look like
+        # it occupied almost the full 30cm character.  The PartInfo ROI anchors
+        # each cropped PNG back into the character canvas.
         for item in part_items:
             try:
                 # Validate item before processing
@@ -1264,7 +1276,7 @@ class BlueprintLayoutOptimizer:
                 processor = PNGBlueprintProcessor()
                 contour = processor.process_part_png(item)
                 if contour:
-                    all_contours.append((item, contour))
+                    all_contours.append((item, self._contour_in_part_roi_space(item, contour)))
             except Exception as e:
                 self.logger.error(f"Error processing part item: {e}")
                 import traceback
@@ -1274,7 +1286,9 @@ class BlueprintLayoutOptimizer:
 
         if all_contours:
             # Calculate total character bounding box
-            all_bounds = [contour.bounding_rect for _, contour in all_contours]
+            all_bounds = [
+                self._assembled_part_bounds(item, contour) for item, contour in all_contours
+            ]
             min_x = min(x for x, y, w, h in all_bounds)
             max_x = max(x + w for x, y, w, h in all_bounds)
             min_y = min(y for x, y, w, h in all_bounds)
@@ -1320,7 +1334,13 @@ class BlueprintLayoutOptimizer:
             )  # Position will be set by layout manager
 
             # Generate scaled SVG content
-            svg_content = self._generate_scaled_part_svg(scaled_contour, part_name, bounds)
+            pivot = self._scaled_pivot_for_part(item, contour, scale_factor, scaled_contour)
+            svg_content = self._generate_scaled_part_svg(
+                scaled_contour,
+                part_name,
+                bounds,
+                pivot=pivot,
+            )
 
             # Create layout item
             layout_item = LayoutItem(
@@ -1343,8 +1363,141 @@ class BlueprintLayoutOptimizer:
 
         return layout_items
 
+    @staticmethod
+    def _source_to_roi_scale(item: Any, contour: Any) -> tuple[float, float]:
+        """Return source-PNG-pixel to displayed-ROI-pixel scale for a character part."""
+        part_info = getattr(item, "part_info", None)
+        roi = getattr(part_info, "roi", None)
+        if not isinstance(roi, list | tuple) or len(roi) < 4:
+            return (1.0, 1.0)
+        try:
+            roi_w = float(roi[2])
+            roi_h = float(roi[3])
+        except (TypeError, ValueError):
+            return (1.0, 1.0)
+        if not (math.isfinite(roi_w) and math.isfinite(roi_h)) or roi_w <= 0.0 or roi_h <= 0.0:
+            return (1.0, 1.0)
+
+        source_path = getattr(contour, "source_image_path", None) or getattr(
+            part_info, "image_path", None
+        )
+        if not source_path:
+            return (1.0, 1.0)
+        try:
+            import cv2
+
+            image = cv2.imread(str(source_path), cv2.IMREAD_UNCHANGED)
+        except Exception:
+            image = None
+        if image is None or len(getattr(image, "shape", ())) < 2:
+            return (1.0, 1.0)
+        source_h, source_w = image.shape[:2]
+        if source_w <= 0 or source_h <= 0:
+            return (1.0, 1.0)
+        scale_x = roi_w / float(source_w)
+        scale_y = roi_h / float(source_h)
+        if not (math.isfinite(scale_x) and math.isfinite(scale_y)):
+            return (1.0, 1.0)
+        return (scale_x if scale_x > 0.0 else 1.0, scale_y if scale_y > 0.0 else 1.0)
+
+    @staticmethod
+    def _scale_svg_path_xy(svg_path: str, scale_x: float, scale_y: float) -> str:
+        if not isinstance(svg_path, str) or not svg_path:
+            return ""
+
+        def scale_coords(match: re.Match[str]) -> str:
+            command = match.group(1)
+            try:
+                x = float(match.group(2)) * scale_x
+                y = float(match.group(3)) * scale_y
+            except ValueError:
+                return match.group(0)
+            if not (math.isfinite(x) and math.isfinite(y)):
+                return match.group(0)
+            return f"{command} {x:.2f} {y:.2f}"
+
+        return _SVG_COORD_PATTERN.sub(scale_coords, svg_path)
+
+    def _contour_in_part_roi_space(self, item: Any, contour: Any) -> Any:
+        """Convert contour geometry from source PNG pixels into displayed ROI pixels."""
+        scale_x, scale_y = self._source_to_roi_scale(item, contour)
+        if math.isclose(scale_x, 1.0, abs_tol=1e-9) and math.isclose(scale_y, 1.0, abs_tol=1e-9):
+            return contour
+        try:
+            import numpy as np
+
+            from automataii.domain.generation.contour import ManufacturingContour
+
+            def scaled_array(raw_array: Any) -> Any:
+                array = np.asarray(raw_array, dtype=np.float32)
+                if array.size == 0:
+                    return array
+                points = array.reshape(-1, 2).copy()
+                points[:, 0] *= scale_x
+                points[:, 1] *= scale_y
+                return points.reshape(-1, 1, 2).astype(np.float32)
+
+            scaled = ManufacturingContour(
+                contour=scaled_array(contour.contour),
+                simplified_contour=scaled_array(contour.simplified_contour),
+                svg_path=self._scale_svg_path_xy(contour.svg_path, scale_x, scale_y),
+            )
+            scaled.source_image_path = getattr(contour, "source_image_path", None)
+            return scaled
+        except Exception:
+            self.logger.debug("Could not convert contour to ROI coordinate space", exc_info=True)
+            return contour
+
+    @staticmethod
+    def _assembled_part_bounds(item: Any, contour: Any) -> tuple[float, float, float, float]:
+        x, y, w, h = contour.bounding_rect
+        part_info = getattr(item, "part_info", None)
+        roi = getattr(part_info, "roi", None)
+        if isinstance(roi, list | tuple) and len(roi) >= 2:
+            try:
+                return (float(roi[0]) + float(x), float(roi[1]) + float(y), float(w), float(h))
+            except (TypeError, ValueError):
+                pass
+        part_x = getattr(part_info, "x", getattr(item, "x", 0.0))
+        part_y = getattr(part_info, "y", getattr(item, "y", 0.0))
+        try:
+            return (float(part_x) + float(x), float(part_y) + float(y), float(w), float(h))
+        except (TypeError, ValueError):
+            return (float(x), float(y), float(w), float(h))
+
+    @staticmethod
+    def _scaled_pivot_for_part(
+        item: Any,
+        contour: Any,
+        scale_factor: float,
+        scaled_contour: Any,
+    ) -> tuple[float, float] | None:
+        part_info = getattr(item, "part_info", None)
+        pivot = getattr(part_info, "local_pivot_offset", None)
+        if not isinstance(pivot, list | tuple) or len(pivot) < 2:
+            return None
+        try:
+            pivot_x = float(pivot[0]) * scale_factor
+            pivot_y = float(pivot[1]) * scale_factor
+        except (TypeError, ValueError):
+            return None
+        x, y, _w, _h = scaled_contour.bounding_rect
+        local_x = pivot_x - float(x)
+        local_y = pivot_y - float(y)
+        if not (math.isfinite(local_x) and math.isfinite(local_y)):
+            return None
+        # The pivot can intentionally sit just outside the visible PNG contour
+        # (for example at a transparent joint pad).  The cut sheet still needs
+        # to show that drill location instead of dropping it silently.
+        return (local_x, local_y)
+
     def _generate_scaled_part_svg(
-        self, scaled_contour: Any, part_name: str, bounds: ScaledBounds
+        self,
+        scaled_contour: Any,
+        part_name: str,
+        bounds: ScaledBounds,
+        *,
+        pivot: tuple[float, float] | None = None,
     ) -> str:
         """Generate SVG content for scaled part with texture image clipped to contour."""
 
@@ -1422,6 +1575,18 @@ class BlueprintLayoutOptimizer:
         # Outline and cutting path on top
         parts.append(f'  <path d="{offset_path}" class="part-outline"/>')
         parts.append(f'  <path d="{offset_path}" class="cutting-path"/>')
+        if pivot is not None:
+            pivot_x, pivot_y = pivot
+            part_name_attr = escape_xml(part_name, quote=True)
+            parts.append(
+                f'  <circle cx="{pivot_x:.1f}" cy="{pivot_y:.1f}" r="2.0" '
+                'class="pivot-drill-hole" data-hole-diameter-mm="4" '
+                f'data-hole-role="pivot" data-part-name="{part_name_attr}"/>'
+            )
+            parts.append(
+                f'  <text x="{pivot_x + 4.0:.1f}" y="{pivot_y - 4.0:.1f}" '
+                'class="drill-hole-label">4mm pivot</text>'
+            )
 
         # Part label
         parts.append(

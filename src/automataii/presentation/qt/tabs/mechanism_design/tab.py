@@ -1831,6 +1831,10 @@ class MechanismDesignTab(QWidget):
             self.reset_btn.setEnabled(True)
 
     def _on_export_blueprint(self):
+        self.export_blueprint_package()
+
+    def export_blueprint_package(self) -> None:
+        """Export the current design as the full fabrication blueprint package."""
         self.blueprint_exporter.export_all()
 
     @property
