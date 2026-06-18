@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import inspect
+from pathlib import Path
 
+from automataii.application.fabrication import FabricationGuideExportResult, FabricationGuideSummary
 from automataii.presentation.qt.blueprint.exporter import BlueprintExporter
 
 
@@ -12,6 +14,196 @@ def test_blueprint_export_success_copy_is_production_facing() -> None:
     assert "screen-calculated dimensions instead of defaults" not in source
     assert "Blueprint exported successfully" in source
     assert "Units:" in source
+
+
+def test_blueprint_package_gates_board_assembly_for_custom_simulation_only() -> None:
+    source = inspect.getsource(BlueprintExporter)
+
+    assert "assembly_contract_ready" in source
+    assert "export_contract_report" in source
+    assert "fallback_files" in source
+    assert "Custom / Simulation-only" in source
+    assert "gated by physical contract warnings" in source
+
+
+def test_blueprint_package_accepts_svg_fallback_assembly_export(
+    monkeypatch, tmp_path: Path
+) -> None:
+    from PyQt6 import QtWidgets
+
+    import automataii.application.fabrication as fabrication_pkg
+    from automataii.application.managers import BlueprintExportManager
+
+    captured: dict[str, str] = {}
+
+    def fake_directory(*_args, **_kwargs) -> str:
+        return str(tmp_path / "export")
+
+    def fake_information(_parent, title: str, text: str) -> None:
+        captured["kind"] = "information"
+        captured["title"] = title
+        captured["text"] = text
+
+    def fake_warning(_parent, title: str, text: str) -> None:
+        captured["kind"] = "warning"
+        captured["title"] = title
+        captured["text"] = text
+
+    class FakeBlueprintManager:
+        def export_blueprint_to_path(self, *, file_path: Path, **_kwargs) -> bool:
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            file_path.write_text("%PDF-1.4\n", encoding="utf-8")
+            return True
+
+    class FakeGuideExporter:
+        def __init__(self, _root: str) -> None:
+            pass
+
+        def resolve_app_state_to_guide(self, _mechanism_type):
+            return FabricationGuideSummary(
+                key="gear-train-basic",
+                title="Gear train",
+                mechanism_type="gear_train",
+                guide_svg="assembly/01-gear-train-basic.svg",
+                step_count=4,
+                app_mechanism_type="gear_train",
+                app_highlight_ids=("gears:g12",),
+            )
+
+        def build_app_physical_contract(self, _mechanism_layers, *, recipe_keys):
+            return {
+                "status": "matched",
+                "warnings": [],
+                "selected_recipe_keys": sorted(recipe_keys),
+            }
+
+        def export_guides(self, output_dir, *, recipe_keys, app_contract):
+            package_dir = Path(output_dir) / "assembly"
+            fallback = package_dir / "svg-fallback" / "assembly" / "01-checklist.svg"
+            fallback.parent.mkdir(parents=True, exist_ok=True)
+            fallback.write_text("<svg />", encoding="utf-8")
+            return FabricationGuideExportResult(
+                output_dir=Path(output_dir),
+                package_dir=package_dir,
+                copied_files=(fallback,),
+                recipe_keys=tuple(sorted(recipe_keys)),
+                pdf_files=(),
+                fallback_files=(fallback,),
+                contract_warnings=(),
+            )
+
+    monkeypatch.setattr(QtWidgets.QFileDialog, "getExistingDirectory", fake_directory)
+    monkeypatch.setattr(QtWidgets.QMessageBox, "information", fake_information)
+    monkeypatch.setattr(QtWidgets.QMessageBox, "warning", fake_warning)
+    monkeypatch.setattr(
+        BlueprintExportManager, "get_instance", staticmethod(lambda: FakeBlueprintManager())
+    )
+    monkeypatch.setattr(fabrication_pkg, "FabricationAssemblyGuideExporter", FakeGuideExporter)
+
+    layer = {"gear": {"type": "gear_train", "params": {"grid_system_enabled": True}}}
+    exporter = BlueprintExporter(
+        parent=None,
+        mechanism_view=None,
+        get_mechanism_layers=lambda: layer,
+        get_current_editor_items=lambda: {},
+        get_scene_transform_function=lambda _layer: None,
+    )
+    monkeypatch.setattr(exporter, "_collect_part_items", lambda: [])
+    monkeypatch.setattr(
+        exporter,
+        "calculate_screen_to_blueprint_scale",
+        lambda: {"mechanism_scale_factors": {}, "mm_per_pixel": 1.0},
+    )
+    monkeypatch.setattr(exporter, "enhance_mechanism_layers_with_scale_info", lambda _info: layer)
+
+    exporter.export_all()
+
+    assert captured["kind"] == "information"
+    assert captured["title"] == "Blueprint Package Exported"
+    assert "SVG fallback generated" in captured["text"]
+    assert "Blueprint Package Export Failed" not in captured["title"]
+
+
+def test_blueprint_package_clears_stale_assembly_when_no_recipe_matches(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from PyQt6 import QtWidgets
+
+    import automataii.application.fabrication as fabrication_pkg
+    from automataii.application.managers import BlueprintExportManager
+
+    output_dir = tmp_path / "export"
+    stale_pdf = output_dir / "assembly" / "assembly-guide.pdf"
+    stale_pdf.parent.mkdir(parents=True, exist_ok=True)
+    stale_pdf.write_text("stale", encoding="utf-8")
+    captured: dict[str, str] = {}
+
+    class FakeBlueprintManager:
+        def export_blueprint_to_path(self, *, file_path: Path, **_kwargs) -> bool:
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            file_path.write_text("%PDF-1.4\n", encoding="utf-8")
+            return True
+
+    class FakeGuideExporter:
+        def __init__(self, _root: str) -> None:
+            pass
+
+        def resolve_app_state_to_guide(self, _mechanism_type):
+            return None
+
+        def build_app_physical_contract(self, _mechanism_layers, *, recipe_keys):
+            return {
+                "status": "matched",
+                "warnings": [],
+                "selected_recipe_keys": sorted(recipe_keys),
+            }
+
+        def clear_exported_package(self, output_dir_arg):
+            package_dir = Path(output_dir_arg) / "assembly"
+            captured["clear_called"] = "yes"
+            for path in package_dir.glob("*"):
+                if path.is_file():
+                    path.unlink()
+            return package_dir
+
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog,
+        "getExistingDirectory",
+        lambda *_args, **_kwargs: str(output_dir),
+    )
+    monkeypatch.setattr(
+        QtWidgets.QMessageBox,
+        "information",
+        lambda _parent, title, text: captured.update({"title": title, "text": text}),
+    )
+    monkeypatch.setattr(
+        BlueprintExportManager, "get_instance", staticmethod(lambda: FakeBlueprintManager())
+    )
+    monkeypatch.setattr(fabrication_pkg, "FabricationAssemblyGuideExporter", FakeGuideExporter)
+
+    layer = {"unsupported": {"type": "unsupported_custom", "params": {}}}
+    exporter = BlueprintExporter(
+        parent=None,
+        mechanism_view=None,
+        get_mechanism_layers=lambda: layer,
+        get_current_editor_items=lambda: {},
+        get_scene_transform_function=lambda _layer: None,
+    )
+    monkeypatch.setattr(exporter, "_collect_part_items", lambda: [])
+    monkeypatch.setattr(
+        exporter,
+        "calculate_screen_to_blueprint_scale",
+        lambda: {"mechanism_scale_factors": {}, "mm_per_pixel": 1.0},
+    )
+    monkeypatch.setattr(exporter, "enhance_mechanism_layers_with_scale_info", lambda _info: layer)
+
+    exporter.export_all()
+
+    assert captured["clear_called"] == "yes"
+    assert not stale_pdf.exists()
+    assert captured["title"] == "Blueprint Package Exported"
+    assert "Assembly guide: not generated" in captured["text"]
 
 
 def test_cam_blueprint_instructions_are_parameter_driven() -> None:

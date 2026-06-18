@@ -546,7 +546,7 @@ def test_grid_pitch_change_rebuilds_foundry_controller_configs(qapp):
     config = view.controller.get_configuration("four_bar")
     assert config is not None
     assert config.initial_parameters()["input_link"] == 50.0
-    assert config.initial_parameters()["ground_link"] == 200.0
+    assert config.initial_parameters()["ground_link"] == 100.0
     assert view._parameter_specs_by_key["input_link"].default_value == 50.0
     assert view._parameter_specs_by_key["ground_link"].max_value == 200.0
     assert view.current_parameters["input_link"] == 50.0

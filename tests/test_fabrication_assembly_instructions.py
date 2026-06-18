@@ -208,7 +208,9 @@ def test_assembly_recipe_package_schema_references_and_bidirectionality(tmp_path
         for layer in cast(list[dict[str, Any]], ring_step["stack"])
     )
 
-    gear_linkage_recipe = next(recipe for recipe in recipes if recipe["key"] == "gear-linkage-crank")
+    gear_linkage_recipe = next(
+        recipe for recipe in recipes if recipe["key"] == "gear-linkage-crank"
+    )
     output_link_step = next(
         step
         for step in cast(list[dict[str, Any]], gear_linkage_recipe["steps"])
@@ -316,7 +318,9 @@ def test_assembly_svg_cards_have_testable_layers_and_non_overlapping_layout(
             if "active-board-hole" in classes and "data-board-coord" in element.attrib:
                 active_holes_by_step.setdefault(step, set()).add(element.attrib["data-board-coord"])
             if "new-part-highlight" in classes and "data-board-coord" in element.attrib:
-                new_highlights_by_step.setdefault(step, set()).add(element.attrib["data-board-coord"])
+                new_highlights_by_step.setdefault(step, set()).add(
+                    element.attrib["data-board-coord"]
+                )
             if "reference-marker" in classes and "data-reference-coord" in element.attrib:
                 reference_markers_by_step.setdefault(step, set()).add(
                     element.attrib["data-reference-coord"]
@@ -336,7 +340,7 @@ def test_assembly_svg_cards_have_testable_layers_and_non_overlapping_layout(
                     assert not _overlaps(first[1:], second[1:]), (first, second)
 
 
-def test_application_exporter_lists_and_copies_board_guides(tmp_path: Path) -> None:
+def test_application_exporter_lists_and_exports_pdf_board_guides(tmp_path: Path) -> None:
     write_fabrication_templates(tmp_path)
     exporter = FabricationAssemblyGuideExporter(tmp_path)
 
@@ -363,34 +367,92 @@ def test_application_exporter_lists_and_copies_board_guides(tmp_path: Path) -> N
     output_dir = tmp_path / "exported-guides"
     result = exporter.export_guides(output_dir, recipe_keys={"gear-train-basic"})
 
+    package_dir = output_dir / "assembly"
     assert result.recipe_keys == ("gear-train-basic",)
     assert result.output_dir == output_dir
-    assert result.package_dir == output_dir / "assembly"
-    assert (output_dir / "assembly" / "recipes.json").is_file()
-    assert (output_dir / "assembly" / "README.md").is_file()
-    assert (output_dir / "assembly" / "index.html").is_file()
-    assert (output_dir / "assembly" / "board-15x15.svg").is_file()
-    assert (output_dir / "assembly" / "parts-overview.svg").is_file()
-    assert (output_dir / "assembly" / "01-gear-train-basic.svg").is_file()
-    assert (output_dir / "assembly" / "parts" / "gears").is_dir()
-    exported_index = (output_dir / "assembly" / "index.html").read_text(encoding="utf-8")
-    assert 'href="parts/gears/gear-' in exported_index
-    assert 'href="parts/spacers/spacer-s8.svg"' in exported_index
-    assert len(result.copied_files) > 4
-    reloaded = FabricationAssemblyGuideExporter(output_dir)
-    reloaded_summaries = reloaded.list_guides()
-    assert [summary.key for summary in reloaded_summaries] == ["gear-train-basic"]
-    for summary in reloaded_summaries:
-        assert (output_dir / summary.guide_svg).is_file()
-    assert reloaded.find_guides_for_mechanism("gear_train")[0].key == "gear-train-basic"
+    assert result.package_dir == package_dir
+    assert (package_dir / "recipes.json").is_file()
+    assert (package_dir / "README.md").is_file()
+    assert (package_dir / "assembly-guide.pdf").is_file()
+    assert (package_dir / "kit-parts-to-cut.pdf").is_file()
+    assert not (package_dir / "index.html").exists()
+    assert not (package_dir / "parts").exists()
+    assert not (package_dir / "01-gear-train-basic.svg").exists()
+    assert set(result.pdf_files) == {
+        package_dir / "assembly-guide.pdf",
+        package_dir / "kit-parts-to-cut.pdf",
+    }
+    assert all(path.stat().st_size > 1000 for path in result.pdf_files)
+    assert len(result.copied_files) >= 4
+    exported_recipes = _load_json(package_dir / "recipes.json")
+    assert [
+        recipe["key"] for recipe in cast(list[dict[str, Any]], exported_recipes["recipes"])
+    ] == ["gear-train-basic"]
+    readme = (package_dir / "README.md").read_text(encoding="utf-8")
+    assert "assembly-guide.pdf" in readme
+    assert "kit-parts-to-cut.pdf" in readme
+    assert "physical-contract.json" in readme
+    assert "LEGO-style step cards" in readme
 
     exporter.export_guides(output_dir)
-    assert (output_dir / "assembly" / "04-gear-linkage-crank.svg").is_file()
+    all_recipes = _load_json(package_dir / "recipes.json")
+    assert {
+        recipe["key"] for recipe in cast(list[dict[str, Any]], all_recipes["recipes"])
+    } == EXPECTED_RECIPE_KEYS
     exporter.export_guides(output_dir, recipe_keys={"cam-follower-basic"})
-    assert not (output_dir / "assembly" / "04-gear-linkage-crank.svg").exists()
+    selected_recipes = _load_json(package_dir / "recipes.json")
     assert [
-        summary.key for summary in FabricationAssemblyGuideExporter(output_dir).list_guides()
+        recipe["key"] for recipe in cast(list[dict[str, Any]], selected_recipes["recipes"])
     ] == ["cam-follower-basic"]
+    assert not (package_dir / "svg-fallback").exists()
+
+
+def test_application_exporter_writes_contract_report_without_board_pdfs(tmp_path: Path) -> None:
+    write_fabrication_templates(tmp_path)
+    exporter = FabricationAssemblyGuideExporter(tmp_path)
+    output_dir = tmp_path / "exported-guides"
+    ready_result = exporter.export_guides(output_dir, recipe_keys={"gear-train-basic"})
+    assert (ready_result.package_dir / "assembly-guide.pdf").is_file()
+    assert (ready_result.package_dir / "kit-parts-to-cut.pdf").is_file()
+
+    contract = {
+        "schema_version": ASSEMBLY_SCHEMA_VERSION,
+        "status": "warning",
+        "warnings": ["custom gear teeth do not match fabrication preset"],
+    }
+
+    path = exporter.export_contract_report(output_dir, contract)
+
+    package_dir = tmp_path / "exported-guides" / "assembly"
+    assert path == package_dir / "physical-contract.json"
+    assert _load_json(path)["warnings"] == ["custom gear teeth do not match fabrication preset"]
+    assert not (package_dir / "assembly-guide.pdf").exists()
+    assert not (package_dir / "kit-parts-to-cut.pdf").exists()
+    assert not (package_dir / "svg-fallback").exists()
+    assert not (package_dir / "recipes.json").exists()
+    assert not (package_dir / "README.md").exists()
+
+
+def test_application_exporter_clears_stale_package_when_no_recipe_matches(
+    tmp_path: Path,
+) -> None:
+    write_fabrication_templates(tmp_path)
+    exporter = FabricationAssemblyGuideExporter(tmp_path)
+    output_dir = tmp_path / "exported-guides"
+    ready_result = exporter.export_guides(output_dir, recipe_keys={"gear-train-basic"})
+    package_dir = ready_result.package_dir
+    assert (package_dir / "assembly-guide.pdf").is_file()
+    (package_dir / "physical-contract.json").write_text("{}", encoding="utf-8")
+
+    cleared_dir = exporter.clear_exported_package(output_dir)
+
+    assert cleared_dir == package_dir
+    assert not (package_dir / "assembly-guide.pdf").exists()
+    assert not (package_dir / "kit-parts-to-cut.pdf").exists()
+    assert not (package_dir / "physical-contract.json").exists()
+    assert not (package_dir / "recipes.json").exists()
+    assert not (package_dir / "README.md").exists()
+    assert not (package_dir / "svg-fallback").exists()
 
 
 def test_application_exporter_resolves_relative_root_through_packaged_base(
@@ -425,72 +487,197 @@ def test_application_exporter_rejects_recipe_path_traversal(tmp_path: Path) -> N
         exporter.export_guides(tmp_path / "exported-guides", recipe_keys={"gear-train-basic"})
 
 
-def test_fabrication_export_surface_splits_board_guide_from_cut_sheets() -> None:
+def test_application_exporter_falls_back_to_svg_sources_when_pdf_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    write_fabrication_templates(tmp_path)
+
+    def fake_render(_sources: object, pdf_path: Path) -> bool:
+        pdf_path.parent.mkdir(parents=True, exist_ok=True)
+        pdf_path.write_text("partial pdf", encoding="utf-8")
+        return False
+
+    monkeypatch.setattr(assembly_export, "render_svgs_to_pdf", fake_render)
+
+    result = FabricationAssemblyGuideExporter(tmp_path).export_guides(
+        tmp_path / "exported-guides",
+        recipe_keys={"gear-train-basic"},
+    )
+
+    package_dir = tmp_path / "exported-guides" / "assembly"
+    assert not result.pdf_files
+    assert result.fallback_files
+    assert not (package_dir / "assembly-guide.pdf").exists()
+    assert not (package_dir / "kit-parts-to-cut.pdf").exists()
+    assert not any(path.name.startswith(".assembly-guide.tmp") for path in package_dir.iterdir())
+    assert (package_dir / "svg-fallback" / "assembly" / "01-checklist.svg").is_file()
+    assert (package_dir / "svg-fallback" / "assembly" / "02-board-15x15.svg").is_file()
+    assert (package_dir / "svg-fallback" / "assembly" / "03-01-gear-train-basic.svg").is_file()
+    assert (package_dir / "svg-fallback" / "parts" / "02-gear-12t.svg").is_file()
+
+
+def test_export_guides_without_contract_removes_stale_physical_contract(tmp_path: Path) -> None:
+    write_fabrication_templates(tmp_path)
+    exporter = FabricationAssemblyGuideExporter(tmp_path)
+    output_dir = tmp_path / "exported-guides"
+    package_dir = output_dir / "assembly"
+    package_dir.mkdir(parents=True)
+    (package_dir / "physical-contract.json").write_text('{"status":"stale"}', encoding="utf-8")
+
+    exporter.export_guides(output_dir, recipe_keys={"gear-train-basic"})
+
+    assert not (package_dir / "physical-contract.json").exists()
+
+
+def test_fabrication_export_surface_defaults_to_integrated_pdf_package() -> None:
     blueprint_source = inspect.getsource(BlueprintExporter)
     manager_source = inspect.getsource(BlueprintExportManager._get_save_file_path)
 
-    assert "Board Assembly Guide" in blueprint_source
-    assert "Make Parts / Cut Sheets" in blueprint_source
-    assert "character + mechanism parts + hardware list" in blueprint_source
-    assert "15x15 coordinates + fastener/spacer stack" in blueprint_source
-    assert "FabricationAssemblyGuideExporter" in blueprint_source
+    assert "Export Blueprint Package" in blueprint_source
+    assert "PDF-first blueprint package" in blueprint_source
+    assert "LEGO guide book" in blueprint_source
+    assert "Custom / Simulation-only" in blueprint_source
+    assert "assembly_contract_ready" in blueprint_source
+    assert "export_contract_report" in blueprint_source
+    assert "clear_exported_package" in blueprint_source
+    assert "fallback_files" in blueprint_source
+    assert "gated by physical contract warnings" in blueprint_source
+    assert "kit-parts-to-cut.pdf" in inspect.getsource(FabricationAssemblyGuideExporter)
+    assert "physical-contract.json" in inspect.getsource(FabricationAssemblyGuideExporter)
+    assert "index.html" not in inspect.getsource(FabricationAssemblyGuideExporter.export_guides)
+    assert "Choose what you want to export" not in blueprint_source
     assert "Export Make Parts / Cut Sheets" in manager_source
-    assert "cut-sheets.pdf" in manager_source
+    assert "current-design-cut-sheets.pdf" in manager_source
     assert "PDF Files (*.pdf);;SVG Files (*.svg);;All Files (*)" in manager_source
     assert "SVG Files (*.svg);;PDF Files (*.pdf);;All Files (*)" in manager_source
 
 
-def test_assembly_export_html_and_readme_explain_character_attachment(tmp_path: Path) -> None:
+def test_assembly_export_readme_and_pdf_cover_explain_character_attachment(tmp_path: Path) -> None:
     exporter = FabricationAssemblyGuideExporter(tmp_path)
-    html = exporter._export_index_html(
-        {
-            "recipes": [
-                {
-                    "title": "Four-bar",
-                    "guide_svg": "03-four-bar-basic.svg",
-                    "steps": [
-                        {
-                            "n": 1,
-                            "title": "Pin character arm",
-                            "coords": ["H6"],
-                            "coord_roles": ["board"],
-                            "instruction": "Place the output linkage.",
-                            "stack": [
-                                {"label": "fastener head", "order": 1, "role": "paper-fastener"},
-                                {"label": "character arm", "order": 2, "role": "moving-part"},
-                                {"label": "spacer", "order": 3, "role": "spacer"},
-                                {"label": "board", "order": 4, "role": "board"},
-                            ],
-                        },
-                        {
-                            "n": 2,
-                            "title": "Attach carrier-only joint",
-                            "coords": ["H10"],
-                            "coord_roles": ["carrier_reference"],
-                            "instruction": "Attach to the moving carrier hole, not the board.",
-                            "stack": [
-                                {"label": "carrier hole", "order": 1, "role": "carrier-hole"},
-                                {"label": "paper fastener", "order": 2, "role": "paper-fastener"},
-                            ],
-                        }
-                    ],
-                }
-            ]
-        }
-    )
+    package = {
+        "recipes": [
+            {
+                "title": "Four-bar",
+                "guide_svg": "03-four-bar-basic.svg",
+                "steps": [
+                    {
+                        "n": 1,
+                        "title": "Pin character arm",
+                        "coords": ["H6"],
+                        "coord_roles": ["board"],
+                        "instruction": "Place the output linkage.",
+                        "parts": [{"part": "linkages:linkage-2-cell"}],
+                        "stack": [
+                            {"label": "fastener head", "order": 1, "role": "paper-fastener"},
+                            {"label": "character arm", "order": 2, "role": "moving-part"},
+                            {"label": "spacer", "order": 3, "role": "spacer", "part": "spacers:s8"},
+                            {"label": "board", "order": 4, "role": "board"},
+                        ],
+                    },
+                ],
+            }
+        ]
+    }
+    cover = exporter._selected_parts_checklist_svg(package)
     readme = exporter._export_readme(())
 
-    assert "not the cut sheet" in html
-    assert "Character attachment rule" in html
-    assert "Do not introduce a separate Example Character template" in html
-    assert "board hole → paper fastener → spacer → character part or linkage →" in html
-    assert "Stack: fastener head → character arm → spacer → board" in html
-    assert "Board holes: H6" in html
-    assert "Carrier ref: H10" in html
-    assert "Board holes: H10" not in html
-    assert "Make Parts / Cut Sheets" in readme
+    assert "Use it like a LEGO guide book" in cover
+    assert "Needed parts and hardware only" in cover
+    assert "linkages:linkage-2-cell" in cover
+    assert "spacers:s8" in cover
+    assert "x1" in cover
+    assert "Paper Fastener" in cover
+    assert "assembly-guide.pdf" in readme
+    assert "kit-parts-to-cut.pdf" in readme
     assert "There is no" in readme
     assert "per-step stack order" in readme
+
+
+def test_physical_contract_flags_when_app_parts_do_not_match_recipe(tmp_path: Path) -> None:
+    write_fabrication_templates(tmp_path)
+    exporter = FabricationAssemblyGuideExporter(tmp_path)
+
+    contract = exporter.build_app_physical_contract(
+        {
+            "four-bar-default": {
+                "type": "four_bar",
+                "params": {
+                    "grid_system_enabled": True,
+                    "grid_cell_cm": 2.0,
+                    "ground_link": 160.0,
+                    "input_link": 40.0,
+                    "coupler_link": 120.0,
+                    "output_link": 120.0,
+                },
+            }
+        },
+        recipe_keys={"four-bar-basic"},
+    )
+
+    assert contract["status"] == "warning"
+    warnings = "\n".join(cast(list[str], contract["warnings"]))
+    assert "linkages:linkage-6-cell" in warnings
+    layers = cast(list[dict[str, Any]], contract["layers"])
+    assert layers[0]["status"] == "warning"
+    assert "linkages:linkage-6-cell" in layers[0]["expected_part_ids_from_app"]
+
+
+def test_foundry_default_mechanisms_match_physical_recipe_parts(tmp_path: Path) -> None:
+    write_fabrication_templates(tmp_path)
+    exporter = FabricationAssemblyGuideExporter(tmp_path)
+    configs = build_mechanism_configs()
+
+    for summary in exporter.list_guides():
+        params = dict(configs[summary.mechanism_type].initial_parameters())
+        params["grid_system_enabled"] = True
+        params["grid_cell_cm"] = 2.0
+        contract = exporter.build_app_physical_contract(
+            {
+                summary.key: {
+                    "type": summary.mechanism_type,
+                    "params": params,
+                }
+            },
+            recipe_keys={summary.key},
+        )
+
+        assert contract["status"] == "matched", (summary.key, contract["warnings"])
+
+
+def test_exported_guides_include_physical_contract_and_quantity_aware_part_pdf(
+    tmp_path: Path,
+) -> None:
+    write_fabrication_templates(tmp_path)
+    exporter = FabricationAssemblyGuideExporter(tmp_path)
+    contract = exporter.build_app_physical_contract(
+        {
+            "gear": {
+                "type": "gear_train",
+                "params": {
+                    "grid_system_enabled": True,
+                    "grid_cell_cm": 2.0,
+                    "gear1_teeth": 12,
+                    "gear2_teeth": 16,
+                },
+            }
+        },
+        recipe_keys={"gear-train-basic"},
+    )
+
+    result = exporter.export_guides(
+        tmp_path / "exported-guides",
+        recipe_keys={"gear-train-basic"},
+        app_contract=contract,
+    )
+
+    package_dir = result.package_dir
+    assert (package_dir / "physical-contract.json").is_file()
+    exported_contract = _load_json(package_dir / "physical-contract.json")
+    assert exported_contract["status"] == "matched"
+    assert (package_dir / "kit-parts-to-cut.pdf").is_file()
+    assert package_dir / "kit-parts-to-cut.pdf" in result.pdf_files
+    assert result.contract_warnings == ()
 
 
 def test_committed_assembly_package_exists_and_matches_generator(tmp_path: Path) -> None:

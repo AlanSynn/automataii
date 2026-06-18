@@ -236,8 +236,8 @@ class OptionsTab(QWidget):
 
         self._add_group(layout, fabrication_group)
 
-        # --- Display Unit Settings ---
-        unit_settings_group = QGroupBox("Grid & Display Units")
+        # --- Fabrication preset / display settings ---
+        unit_settings_group = QGroupBox("Fabrication Presets & Display Units")
         unit_settings_layout = self._create_group_form_layout(unit_settings_group)
 
         self.unit_combo = QComboBox()
@@ -247,11 +247,23 @@ class OptionsTab(QWidget):
         self.unit_combo.setToolTip("Select the unit system for grid display in editor views.")
         unit_settings_layout.addRow("Grid Unit System:", self.unit_combo)
 
-        self.grid_system_check = QCheckBox("Enable Grid System")
+        self.grid_system_check = QCheckBox("Fabrication-ready preset mode")
         self.grid_system_check.setChecked(True)
         self.grid_system_check.toggled.connect(self._on_grid_system_toggled)
-        self.grid_system_check.setToolTip("Enable grid snapping for Foundry and Mechanism Design.")
+        self.grid_system_check.setToolTip(
+            "Default on: snap mechanisms to the physical board kit so blueprint exports "
+            "can produce LEGO-style assembly guides. Turn off only for Custom / "
+            "Simulation-only exploration."
+        )
         unit_settings_layout.addRow(self.grid_system_check)
+
+        self.fabrication_mode_help_label = QLabel()
+        self.fabrication_mode_help_label.setWordWrap(True)
+        self.fabrication_mode_help_label.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+        )
+        self.fabrication_mode_help_label.setStyleSheet("color: #666; font-size: 10px;")
+        unit_settings_layout.addRow(self.fabrication_mode_help_label)
 
         self.grid_pitch_combo = QComboBox()
         for choice in GRID_PITCH_CHOICES:
@@ -279,6 +291,7 @@ class OptionsTab(QWidget):
             "Read-only pitch display. Choose one of the supported physical board presets above."
         )
         unit_settings_layout.addRow("Grid Cell Size:", self.grid_cell_size_spin)
+        self._update_fabrication_mode_help(True)
 
         self._add_group(layout, unit_settings_group)
 
@@ -305,7 +318,24 @@ class OptionsTab(QWidget):
     def _on_grid_system_toggled(self, enabled: bool) -> None:
         self.grid_pitch_combo.setEnabled(enabled)
         self.grid_cell_size_spin.setEnabled(enabled)
+        self._update_fabrication_mode_help(enabled)
+        self.gridSystemEnabledChanged.emit(enabled)
+        self.setting_changed.emit("fabrication_ready_preset_mode", enabled)
         self.physicalContextChanged.emit(self._current_physical_context())
+
+    def _update_fabrication_mode_help(self, enabled: bool) -> None:
+        if enabled:
+            text = (
+                "Preset / Fabrication-ready: mechanisms snap to the selected physical board "
+                "pitch and kit parts; assembly-guide PDFs can be generated when the physical "
+                "contract has no warnings."
+            )
+        else:
+            text = (
+                "Custom / Simulation-only: freeform exploration is preserved, but board "
+                "assembly-guide PDFs are gated until the design is converted back to kit presets."
+            )
+        self.fabrication_mode_help_label.setText(text)
 
     def _on_grid_cell_size_changed(self, value: float) -> None:
         if self._grid_pitch_syncing:
@@ -413,7 +443,11 @@ class OptionsTab(QWidget):
         cell_size_cm: float,
         pitch_choice_key: str | None = None,
     ) -> None:
-        self.grid_system_check.setChecked(bool(enabled))
+        previous_check = self.grid_system_check.blockSignals(True)
+        try:
+            self.grid_system_check.setChecked(bool(enabled))
+        finally:
+            self.grid_system_check.blockSignals(previous_check)
         key = pitch_choice_key or nearest_pitch_choice(float(cell_size_cm)).key
         cell_cm = grid_cell_cm_for_pitch_choice(key, cell_size_cm)
         self._set_pitch_choice(key, emit=False)
@@ -422,3 +456,4 @@ class OptionsTab(QWidget):
         self.grid_cell_size_spin.blockSignals(previous)
         self.grid_pitch_combo.setEnabled(bool(enabled))
         self.grid_cell_size_spin.setEnabled(bool(enabled))
+        self._update_fabrication_mode_help(bool(enabled))

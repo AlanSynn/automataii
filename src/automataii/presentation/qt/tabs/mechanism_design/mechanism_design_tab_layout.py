@@ -8,6 +8,7 @@ ULTRATHINK Architecture: Composition over inheritance, clear separation of conce
 """
 
 import logging
+from typing import Any
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
@@ -50,11 +51,12 @@ class MechanismDesignTabLayout:
     CONTROL_PANEL_PREFERRED_WIDTH = 300
     CONTROL_PANEL_MAX_WIDTH = 460
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the layout manager."""
-        self._created_widgets = {}  # Track created widgets for cleanup
+        self._created_widgets: dict[str, Any] = {}  # Track created widgets for cleanup
+        self._parent_widget: QWidget | None = None
 
-    def setup_main_layout(self, tab_widget) -> None:
+    def setup_main_layout(self, tab_widget: Any) -> None:
         """
         Setup the main layout for the mechanism design tab.
 
@@ -233,25 +235,28 @@ class MechanismDesignTabLayout:
         anim_button_layout.setSpacing(12)
 
         # Get standard icons from parent widget style
-        style = self._parent_widget.style()
+        style = self._parent_widget.style() if self._parent_widget is not None else None
 
         # Play button
         play_btn = QPushButton()
-        play_btn.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
+        if style is not None:
+            play_btn.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
         play_btn.setToolTip("Play Animation")
         play_btn.setEnabled(False)
         self._created_widgets["play_btn"] = play_btn
 
         # Stop button
         stop_btn = QPushButton()
-        stop_btn.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_MediaStop))
+        if style is not None:
+            stop_btn.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_MediaStop))
         stop_btn.setToolTip("Stop Animation")
         stop_btn.setEnabled(False)
         self._created_widgets["stop_btn"] = stop_btn
 
         # Reset button
         reset_btn = QPushButton()
-        reset_btn.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_BrowserReload))
+        if style is not None:
+            reset_btn.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_BrowserReload))
         reset_btn.setToolTip("Reset Animation")
         reset_btn.setEnabled(False)
         self._created_widgets["reset_btn"] = reset_btn
@@ -274,13 +279,17 @@ class MechanismDesignTabLayout:
         # Export Blueprint button
         blueprint_btn = QPushButton("Export Blueprint")
         blueprint_btn.setEnabled(False)
-        blueprint_btn.setToolTip("Export character parts and mechanisms as SVG blueprint")
+        blueprint_btn.setToolTip(
+            "Export a PDF-first package: cut sheets, needed part blueprints, and assembly guide"
+        )
         blueprint_btn.setStyleSheet(self._get_accent_button_style())
         export_layout.addWidget(blueprint_btn)
         self._created_widgets["blueprint_btn"] = blueprint_btn
 
         # Info label
-        blueprint_info_label = QLabel("Exports to single large-format blueprint (1200×1600mm)")
+        blueprint_info_label = QLabel(
+            "Exports PDF package: cut sheets + LEGO-style assembly guide + needed parts only"
+        )
         blueprint_info_label.setWordWrap(True)
         blueprint_info_label.setStyleSheet("""
             QLabel {
@@ -336,7 +345,7 @@ class MechanismDesignTabLayout:
         view_controls_layout.addLayout(zoom_controls_layout)
         return view_controls_group
 
-    def get_widget(self, widget_name: str):
+    def get_widget(self, widget_name: str) -> Any | None:
         """
         Get a created widget by name.
 
@@ -348,7 +357,7 @@ class MechanismDesignTabLayout:
         """
         return self._created_widgets.get(widget_name)
 
-    def get_all_widgets(self) -> dict:
+    def get_all_widgets(self) -> dict[str, Any]:
         """Get all created widgets."""
         return self._created_widgets.copy()
 

@@ -64,91 +64,60 @@ class BlueprintExporter:
 
     # ---------- Public API ----------
 
-    def _choose_fabrication_export_mode(self) -> str | None:
-        """Return the requested fabrication export direction."""
-        from PyQt6.QtWidgets import (
-            QButtonGroup,
-            QDialog,
-            QDialogButtonBox,
-            QLabel,
-            QRadioButton,
-            QVBoxLayout,
-        )
+    def _default_output_directory(self) -> str:
+        """Return a user-friendly default directory for export package dialogs."""
+        from pathlib import Path
 
-        dialog = QDialog(self._parent)
-        dialog.setWindowTitle("Export Fabrication")
-        dialog.setModal(True)
-        dialog.resize(520, 240)
+        downloads = Path.home() / "Downloads"
+        return str(downloads if downloads.is_dir() else Path.home())
 
-        layout = QVBoxLayout()
-        title_label = QLabel("Choose what you want to export:")
-        title_label.setStyleSheet("font-weight: bold; margin-bottom: 10px;")
-        layout.addWidget(title_label)
-
-        option_group = QButtonGroup()
-        assembly_radio = QRadioButton(
-            "Board Assembly Guide (15x15 coordinates + fastener/spacer stack)"
-        )
-        assembly_radio.setToolTip("Step-by-step 15x15 board guide for fabricated kit parts")
-        assembly_radio.setChecked(True)
-        option_group.addButton(assembly_radio, 0)
-        layout.addWidget(assembly_radio)
-
-        parts_radio = QRadioButton(
-            "Make Parts / Cut Sheets (character + mechanism parts + hardware list)"
-        )
-        parts_radio.setToolTip("Blueprint/cut-sheet export for making components")
-        option_group.addButton(parts_radio, 1)
-        layout.addWidget(parts_radio)
-
-        info_label = QLabel(
-            "Cut sheets make character/mechanism components; board guides show how to assemble them."
-        )
-        info_label.setStyleSheet("color: #666; font-size: 11px; margin-top: 10px;")
-        layout.addWidget(info_label)
-
-        button_box = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        button_box.accepted.connect(dialog.accept)
-        button_box.rejected.connect(dialog.reject)
-        layout.addWidget(button_box)
-        dialog.setLayout(layout)
-
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return None
-        return "assembly" if assembly_radio.isChecked() else "parts"
+    def _assembly_recipe_keys_for_layers(
+        self,
+        guide_exporter: Any,
+        mechanism_layers: dict[str, Any],
+    ) -> set[str]:
+        """Map current app mechanisms to the smallest matching board-guide set."""
+        recipe_keys: set[str] = set()
+        for layer_data in mechanism_layers.values():
+            if not isinstance(layer_data, dict):
+                continue
+            mechanism_type = layer_data.get("type") or layer_data.get("mechanism_type")
+            summary = guide_exporter.resolve_app_state_to_guide(mechanism_type)
+            if summary is not None:
+                recipe_keys.add(summary.key)
+        return recipe_keys
 
     def export_all(self) -> None:
-        """Export board assembly guides or make-parts cut sheets."""
+        """Export one PDF-first fabrication package for the current design.
+
+        The default user flow intentionally mirrors a LEGO guide book: one folder
+        contains the current character/mechanism cut sheet, the matching board
+        assembly PDF, and the needed fabrication part blueprints only. Users no
+        longer choose between assembly versus cut sheets because a physical build
+        needs both directions side-by-side.
+        """
         try:
+            from pathlib import Path
+
             from PyQt6.QtWidgets import QFileDialog, QMessageBox
 
             from automataii.application.fabrication import FabricationAssemblyGuideExporter
             from automataii.application.managers import BlueprintExportManager
 
-            logging.info("[BLUEPRINT] Using fabrication export flow")
-            export_mode = self._choose_fabrication_export_mode()
-            if export_mode is None:
+            logging.info("[BLUEPRINT] Using PDF-first fabrication package export flow")
+            output_dir_text = QFileDialog.getExistingDirectory(
+                self._parent,
+                "Export Blueprint Package",
+                self._default_output_directory(),
+            )
+            if not output_dir_text:
                 return
-
-            if export_mode == "assembly":
-                output_dir = QFileDialog.getExistingDirectory(
-                    self._parent,
-                    "Export Board Assembly Guide",
-                )
-                if not output_dir:
-                    return
-                result = FabricationAssemblyGuideExporter("fabrication").export_guides(output_dir)
-                QMessageBox.information(
-                    self._parent,
-                    "Board Assembly Guide Exported",
-                    "Board assembly guide exported successfully!\n\n"
-                    f"Guides: {len(result.recipe_keys)}\n"
-                    f"Files: {len(result.copied_files)}\n"
-                    f"Folder: {result.package_dir}",
-                )
-                return
+            output_dir = Path(output_dir_text)
+            output_dir.mkdir(parents=True, exist_ok=True)
+            for legacy_name in ("cut-sheets.pdf", "cut-sheets.svg"):
+                legacy_path = output_dir / legacy_name
+                if legacy_path.is_file():
+                    legacy_path.unlink()
 
             blueprint_manager = BlueprintExportManager.get_instance()
 
@@ -200,10 +169,32 @@ class BlueprintExporter:
                     f"[BLUEPRINT] Enhanced mechanism {mech_id}: scale_factor={scale_factor}"
                 )
 
+            output_format = self._blueprint_output_format()
+            cut_sheet_name = (
+                "current-design-cut-sheets.svg"
+                if output_format == "svg"
+                else "current-design-cut-sheets.pdf"
+            )
+            guide_exporter = FabricationAssemblyGuideExporter("fabrication")
+            recipe_keys = self._assembly_recipe_keys_for_layers(guide_exporter, mechanism_layers)
+            assembly_result = None
+            physical_contract = guide_exporter.build_app_physical_contract(
+                mechanism_layers,
+                recipe_keys=recipe_keys,
+            )
+            raw_contract_warnings = physical_contract.get("warnings", ())
+            contract_warnings = (
+                tuple(str(item) for item in raw_contract_warnings)
+                if isinstance(raw_contract_warnings, list | tuple)
+                else ()
+            )
+            assembly_contract_ready = bool(recipe_keys) and not contract_warnings
+
             logging.info(
-                "[BLUEPRINT] Cut-sheet export request: %s parts, %s mechanisms",
+                "[BLUEPRINT] Package export request: %s parts, %s mechanisms, recipes=%s",
                 len(part_items),
                 len(mechanism_layers),
+                sorted(recipe_keys),
             )
 
             with telemetry_span(
@@ -211,37 +202,133 @@ class BlueprintExporter:
                 unit_system="metric",
                 mechanism_count=len(mechanism_layers),
                 part_count=len(part_items),
+                recipe_count=len(recipe_keys),
+                output_format=output_format,
             ) as span:
-                success = blueprint_manager.export_blueprint(
+                cut_sheet_success = blueprint_manager.export_blueprint_to_path(
                     part_items=part_items,
                     mechanism_layers=mechanism_layers,
-                    parent_widget=self._parent,
-                    single_large_page=True,
+                    file_path=output_dir / cut_sheet_name,
                     snapshot_png_bytes=None,
                     unit_system="metric",
-                    output_format=self._blueprint_output_format(),
+                    output_format=output_format,
                 )
+
+                assembly_success = True
+                if assembly_contract_ready:
+                    assembly_result = guide_exporter.export_guides(
+                        output_dir,
+                        recipe_keys=recipe_keys,
+                        app_contract=physical_contract,
+                    )
+                    assembly_success = bool(
+                        assembly_result.pdf_files or assembly_result.fallback_files
+                    )
+                elif recipe_keys:
+                    guide_exporter.export_contract_report(output_dir, physical_contract)
+                    logging.warning(
+                        "[BLUEPRINT] Board assembly PDFs gated by physical contract warnings: %s",
+                        contract_warnings,
+                    )
+                else:
+                    guide_exporter.clear_exported_package(output_dir)
+                    if mechanism_layers:
+                        logging.warning(
+                            "[BLUEPRINT] No matching board assembly recipe for current mechanisms"
+                        )
+
+                success = cut_sheet_success and assembly_success
                 span.set(status="success" if success else "failure")
 
             if success:
-                logging.info("[BLUEPRINT] Cut-sheet export completed via composer pipeline")
-                QMessageBox.information(
-                    self._parent,
-                    "Cut Sheets Exported",
-                    f"Make-parts cut sheets exported successfully!\n\n"
+                if assembly_result is not None:
+                    if assembly_result.pdf_files:
+                        guide_text = (
+                            "Kit parts to cut: assembly/kit-parts-to-cut.pdf\n"
+                            "Assembly guide: assembly/assembly-guide.pdf\n"
+                            "Physical contract: assembly/physical-contract.json\n"
+                            f"Assembly PDFs: {len(assembly_result.pdf_files)}\n"
+                        )
+                        next_steps_text = (
+                            "Use it like a LEGO guide book: print/cut the current-design cut "
+                            "sheet and kit-parts PDF first, then follow assembly-guide.pdf one "
+                            "step card at a time."
+                        )
+                    else:
+                        guide_text = (
+                            "Kit parts to cut: assembly/svg-fallback/parts/\n"
+                            "Assembly guide: assembly/svg-fallback/assembly/\n"
+                            "Physical contract: assembly/physical-contract.json\n"
+                            "Assembly PDFs: none (SVG fallback generated)\n"
+                        )
+                        next_steps_text = (
+                            "PDF rendering was unavailable, so the export generated the same "
+                            "LEGO-style guide as SVG fallback files. Open the files under "
+                            "assembly/svg-fallback/ and print them from the browser or vector "
+                            "editor."
+                        )
+                    recipe_text = ", ".join(assembly_result.recipe_keys)
+                elif recipe_keys and contract_warnings:
+                    guide_text = (
+                        "Kit parts to cut: gated by physical contract warnings\n"
+                        "Assembly guide: gated by physical contract warnings\n"
+                        "Physical contract: assembly/physical-contract.json\n"
+                        "Assembly PDFs: none\n"
+                    )
+                    recipe_text = ", ".join(sorted(recipe_keys))
+                    next_steps_text = (
+                        "Custom / Simulation-only values were exported as a cut sheet, but "
+                        "LEGO-style board assembly PDFs were not generated. Open "
+                        "physical-contract.json, then convert the design to the nearest "
+                        "fabrication-ready kit presets before assembling on the board."
+                    )
+                else:
+                    guide_text = (
+                        "Kit parts to cut: not generated (no matching board recipe)\n"
+                        "Assembly guide: not generated (no matching board recipe)\n"
+                        "Physical contract: not written (no matching board recipe)\n"
+                        "Assembly PDFs: none\n"
+                    )
+                    recipe_text = "none"
+                    next_steps_text = (
+                        "Only the current-design cut sheet was exported; add a supported "
+                        "board mechanism to generate LEGO-style assembly PDFs."
+                    )
+                warning_count = (
+                    len(assembly_result.contract_warnings)
+                    if assembly_result is not None
+                    else len(contract_warnings)
+                )
+                logging.info("[BLUEPRINT] Fabrication package export completed: %s", output_dir)
+                message = (
+                    "PDF-first blueprint package exported successfully.\n\n"
+                    f"Folder: {output_dir}\n"
+                    f"Current design cut sheet: {cut_sheet_name}\n"
+                    f"{guide_text}"
                     f"Parts: {len(part_items)}\n"
                     f"Mechanisms: {len(mechanism_layers)}\n"
-                    f"Scale: {screen_scale_info.get('mm_per_pixel', 0.36):.3f} mm/pixel\n\n"
-                    "Use these sheets to cut character/mechanism components and review the hardware "
-                    "list, then use the Board Assembly Guide for board holes, spacers, brackets, and "
-                    "paper fastener stack order.",
+                    f"Selected guide recipes: {recipe_text}\n"
+                    f"Physical contract warnings: {warning_count}\n\n"
+                    f"{next_steps_text}"
                 )
+                if warning_count:
+                    QMessageBox.warning(
+                        self._parent,
+                        "Blueprint Package Exported as Custom / Simulation-only",
+                        message,
+                    )
+                else:
+                    QMessageBox.information(
+                        self._parent,
+                        "Blueprint Package Exported",
+                        message,
+                    )
             else:
-                logging.warning("[BLUEPRINT] Cut-sheet export failed")
+                logging.warning("[BLUEPRINT] Fabrication package export failed")
                 QMessageBox.warning(
                     self._parent,
-                    "Cut Sheets Export Failed",
-                    "Cut-sheet export failed.\nCheck the console for details.",
+                    "Blueprint Package Export Failed",
+                    "Blueprint package export failed.\nCheck the console for details.",
                 )
 
         except ImportError as e:

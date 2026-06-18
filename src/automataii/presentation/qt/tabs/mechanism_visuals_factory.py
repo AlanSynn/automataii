@@ -1116,9 +1116,7 @@ class MechanismVisualsFactory:
             fallback_points: list[list[float]] = []
             for i in range(num_samples + 1):
                 theta = 2 * np.pi * i / num_samples
-                fallback_points.append(
-                    [base_radius * np.cos(theta), base_radius * np.sin(theta)]
-                )
+                fallback_points.append([base_radius * np.cos(theta), base_radius * np.sin(theta)])
             return np.array(fallback_points, dtype=float)
 
         thetas = np.linspace(0, 2 * np.pi, num_samples + 1)

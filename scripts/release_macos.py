@@ -79,9 +79,7 @@ class ReleaseConfig:
     @property
     def manifest_path(self) -> Path:
         manifest_suffix = (
-            "dry-run-release-manifest.json"
-            if self.dry_run
-            else "release-manifest.json"
+            "dry-run-release-manifest.json" if self.dry_run else "release-manifest.json"
         )
         return (
             self.project_root
@@ -158,9 +156,7 @@ def build_config(args: argparse.Namespace, env: Mapping[str, str]) -> ReleaseCon
 
     sign_identity = _optional_text(args.sign) or _optional_text(merged_env.get(SIGN_IDENTITY_ENV))
     if sign_identity is None:
-        raise SystemExit(
-            f"{SIGN_IDENTITY_ENV} is required. Set it in {env_file} or pass --sign."
-        )
+        raise SystemExit(f"{SIGN_IDENTITY_ENV} is required. Set it in {env_file} or pass --sign.")
 
     notary_profile = (
         _optional_text(args.notary_profile)
@@ -207,7 +203,7 @@ def release_env(config: ReleaseConfig, base_env: Mapping[str, str]) -> dict[str,
 
 
 def sync_command() -> list[str]:
-    return ["uv", "sync"]
+    return ["uv", "sync", "--group", "build-macos"]
 
 
 def profile_check_command(config: ReleaseConfig) -> list[str]:
@@ -587,8 +583,12 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     )
     parser.add_argument("--timestamp", help="UTC timestamp override for reproducible test paths.")
     parser.add_argument("--skip-sync", dest="sync", action="store_false", help="Skip uv sync.")
-    parser.add_argument("--dry-run", action="store_true", help="Print commands and write dry-run manifest.")
-    parser.set_defaults(sync=True, notarize=True, strict_distribution=True, smoke=True, profile_check=True)
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Print commands and write dry-run manifest."
+    )
+    parser.set_defaults(
+        sync=True, notarize=True, strict_distribution=True, smoke=True, profile_check=True
+    )
     return parser.parse_args(argv)
 
 

@@ -83,10 +83,10 @@ class BlueprintComposer:
                 layout_items,
                 max(width_mm, 800),
                 max(height_mm, 600),
-                title=f"Make Parts / Cut Sheets ({unit_label})",
+                title=f"Current Design Cut Sheets ({unit_label})",
                 scale_info=(
                     "Character body components + mechanisms | "
-                    "Cut/drill only; Board Assembly Guide has 15x15 coordinates"
+                    "Cut/drill only; assembly-guide.pdf has 15x15 board coordinates"
                 ),
                 snapshot_data_uri=snapshot_data_uri,
                 unit_system=unit_system,

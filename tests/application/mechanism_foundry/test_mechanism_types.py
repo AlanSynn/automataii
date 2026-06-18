@@ -41,13 +41,13 @@ def test_foundry_controller_builds_configs_from_selected_grid_pitch():
     four_bar = configs["four_bar"].initial_parameters()
 
     assert four_bar["input_link"] == 50.0
-    assert four_bar["ground_link"] == 200.0
+    assert four_bar["ground_link"] == 100.0
 
     controller = MechanismFoundryController(grid_cell_cm=2.5)
     controller_params = controller.initial_parameters("four_bar")
 
     assert controller_params["input_link"] == 50.0
-    assert controller_params["ground_link"] == 200.0
+    assert controller_params["ground_link"] == 100.0
 
 
 def test_foundry_configs_tolerate_smaller_explicit_profile_shapes():

@@ -64,8 +64,8 @@ def _cut_sheet_handoff_panel(
       Drill 4mm holes when shown.
     </text>
     <text x="20" y="78" class="callout-text">
-      Paper fasteners are hardware, not cut parts; spacer/bracket stack order lives in the
-      Board Assembly Guide.
+      Paper fasteners are hardware, not cut parts; spacer/bracket stack order lives in
+      assembly-guide.pdf.
     </text>
   </g>
 '''
@@ -240,7 +240,7 @@ def generate_single_large_blueprint(
         )
         if unit_system == "imperial":
             material_info = (
-                'Cut RED outlines | Drill BLUE 4mm pivot/drive holes when shown | '
+                "Cut RED outlines | Drill BLUE 4mm pivot/drive holes when shown | "
                 'Use 1/8" sheet stock when self-fabricating'
             )
         svg_parts.append(f'<text x="0" y="25" class="manufacturing-note">{material_info}</text>')
@@ -342,7 +342,7 @@ def generate_single_large_blueprint(
     <line x1="20" y1="{footer_y}" x2="{page_width_mm - 20}" y2="{footer_y}"
           stroke="black" stroke-width="1"/>
     <text x="40" y="{footer_y + 20}" class="manufacturing-note">
-      Make Parts / Cut Sheets ({get_unit_label()} Units) | Cut/drill only | {len(layout_items)} items total
+      Current Design Cut Sheets ({get_unit_label()} Units) | Cut/drill only | {len(layout_items)} items total
     </text>
     <text x="{page_width_mm - 40}" y="{footer_y + 20}" class="manufacturing-note" text-anchor="end">
       MotionSmith Manufacturing System

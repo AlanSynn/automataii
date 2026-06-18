@@ -121,6 +121,10 @@ def test_build_and_verify_commands_are_distribution_strict(tmp_path):
     assert "secret" not in rendered.lower()
 
 
+def test_release_sync_keeps_macos_build_tools_available():
+    assert release_macos.sync_command() == ["uv", "sync", "--group", "build-macos"]
+
+
 def test_dry_run_writes_manifest_without_running_release_tools(tmp_path):
     (tmp_path / ".env").write_text(
         """

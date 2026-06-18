@@ -128,8 +128,7 @@ def test_planetary_visuals_render_and_animate_multiple_planets(qapp: QApplicatio
         for idx in (1, 2, 3)
     )
     assert all(
-        isinstance(keyed.get(f"planetary_carrier_{idx}"), QGraphicsLineItem)
-        for idx in (1, 2, 3)
+        isinstance(keyed.get(f"planetary_carrier_{idx}"), QGraphicsLineItem) for idx in (1, 2, 3)
     )
 
     third_planet = keyed["planetary_planet_3_body"]

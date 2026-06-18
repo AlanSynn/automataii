@@ -2836,7 +2836,12 @@ class AutomataDesigner(QMainWindow):
             setting_name == "unit_system"
         ):  # Assuming this will be the setting_name from OptionsTab
             self._handle_unit_changed(str(value))
-        elif setting_name in {"grid_system_enabled", "grid_cell_size_cm", "grid_pitch_choice"}:
+        elif setting_name in {
+            "grid_system_enabled",
+            "grid_cell_size_cm",
+            "grid_pitch_choice",
+            "fabrication_ready_preset_mode",
+        }:
             logging.debug(
                 "MainWindow: ignored legacy grid setting_changed %s; "
                 "physicalContextChanged is the runtime mutation path.",

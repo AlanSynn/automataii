@@ -60,6 +60,6 @@ def test_compose_single_page_names_cut_sheet_handoff():
 
     composer.compose_single_page([], {})
 
-    assert seen["title"] == "Make Parts / Cut Sheets (Metric)"
+    assert seen["title"] == "Current Design Cut Sheets (Metric)"
     assert "Cut/drill only" in seen["scale_info"]
-    assert "Board Assembly Guide has 15x15 coordinates" in seen["scale_info"]
+    assert "assembly-guide.pdf has 15x15 board coordinates" in seen["scale_info"]

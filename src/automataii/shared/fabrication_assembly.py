@@ -252,7 +252,9 @@ def _stack(coord: BoardCoord, moving_part: PartRef, spacer: PartRef) -> tuple[St
     )
 
 
-def _fixed_part_stack(coord: BoardCoord, fixed_part: PartRef, spacer: PartRef) -> tuple[StackLayer, ...]:
+def _fixed_part_stack(
+    coord: BoardCoord, fixed_part: PartRef, spacer: PartRef
+) -> tuple[StackLayer, ...]:
     """Stack for a part that is fixed to the board rather than free-running."""
 
     return (
@@ -294,7 +296,11 @@ def _gear_handle_stack(
     """Stack for a linkage joint mounted on an off-center gear handle hole."""
 
     return (
-        StackLayer(1, "gear-handle-hole", f"{_part_short_label(gear_part)} handle hole near {reference_coord.label}"),
+        StackLayer(
+            1,
+            "gear-handle-hole",
+            f"{_part_short_label(gear_part)} handle hole near {reference_coord.label}",
+        ),
         StackLayer(2, "paper-fastener", "Paper fastener"),
         StackLayer(3, "spacer", spacer.label, spacer),
         StackLayer(4, "moving-part", moving_part.label, moving_part),
@@ -950,7 +956,12 @@ def build_default_assembly_package(
                     "planetary_gear",
                     "carrier-check",
                     "If the orbit binds, loosen the planet fastener and spacer stack.",
-                    ghosts=(ring_gear.part_id, sun_gear.part_id, planet_gear.part_id, link2.part_id),
+                    ghosts=(
+                        ring_gear.part_id,
+                        sun_gear.part_id,
+                        planet_gear.part_id,
+                        link2.part_id,
+                    ),
                     coord_roles=("board", "carrier_reference"),
                 ),
             ),

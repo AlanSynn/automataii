@@ -1782,9 +1782,7 @@ class MechanismFoundryView(QWidget):
                 polygon = QPolygonF(poly_points)
                 if "cam_poly" not in cache:
                     cam_poly_item = _require_graphics_item(
-                        self.scene.addPolygon(
-                            polygon, cam_pen, QBrush(QColor(70, 130, 180, 100))
-                        )
+                        self.scene.addPolygon(polygon, cam_pen, QBrush(QColor(70, 130, 180, 100)))
                     )
                     cam_poly_item.setData(0, "mechanism_item")
                     cache["cam_poly"] = cam_poly_item
@@ -2317,9 +2315,7 @@ class MechanismFoundryView(QWidget):
 
         if "slider_guide" not in cache:
             guide_pen = QPen(QColor(130, 130, 130), 2, Qt.PenStyle.DashLine)
-            slider_guide = _require_graphics_item(
-                self.scene.addLine(-260, 0, 260, 0, guide_pen)
-            )
+            slider_guide = _require_graphics_item(self.scene.addLine(-260, 0, 260, 0, guide_pen))
             slider_guide.setData(0, "mechanism_item")
             cache["slider_guide"] = slider_guide
 
@@ -2535,8 +2531,12 @@ class MechanismFoundryView(QWidget):
             index_y += 1
 
         axis_pen = QPen(axis_color, 2, Qt.PenStyle.SolidLine)
-        x_axis = _require_graphics_item(self.scene.addLine(rect.left(), 0, rect.right(), 0, axis_pen))
-        y_axis = _require_graphics_item(self.scene.addLine(0, rect.top(), 0, rect.bottom(), axis_pen))
+        x_axis = _require_graphics_item(
+            self.scene.addLine(rect.left(), 0, rect.right(), 0, axis_pen)
+        )
+        y_axis = _require_graphics_item(
+            self.scene.addLine(0, rect.top(), 0, rect.bottom(), axis_pen)
+        )
         x_axis.setZValue(-98)
         y_axis.setZValue(-98)
         self._grid_items.extend([x_axis, y_axis])

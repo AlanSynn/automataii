@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 import pytest
 from PyQt6.QtWidgets import QApplication
@@ -106,14 +107,38 @@ def test_save_dialog_defaults_to_pdf_and_allows_svg(fresh_manager, monkeypatch):
 
     monkeypatch.setattr(QFileDialog, "getSaveFileName", fake_get_save_file_name)
 
-    assert fresh_manager._get_save_file_path(None) == "cut-sheets.pdf"  # type: ignore[attr-defined]
-    assert fresh_manager._get_save_file_path(None, output_format="svg") == "cut-sheets.svg"  # type: ignore[attr-defined]
+    assert fresh_manager._get_save_file_path(None) == "current-design-cut-sheets.pdf"  # type: ignore[attr-defined]
+    assert (
+        fresh_manager._get_save_file_path(None, output_format="svg")
+        == "current-design-cut-sheets.svg"
+    )  # type: ignore[attr-defined]
 
     assert captured[0] == (
-        "cut-sheets.pdf",
+        "current-design-cut-sheets.pdf",
         "PDF Files (*.pdf);;SVG Files (*.svg);;All Files (*)",
     )
     assert captured[1] == (
-        "cut-sheets.svg",
+        "current-design-cut-sheets.svg",
         "SVG Files (*.svg);;PDF Files (*.pdf);;All Files (*)",
     )
+
+
+def test_save_pdf_file_removes_partial_and_stale_pdf_when_renderer_fails(
+    fresh_manager,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    import automataii.application.managers.blueprint_manager as blueprint_manager
+
+    target = tmp_path / "current-design-cut-sheets.pdf"
+    target.write_text("stale pdf", encoding="utf-8")
+
+    def fake_render(_svg_content: str, output_path: Path) -> bool:
+        output_path.write_text("partial pdf", encoding="utf-8")
+        return False
+
+    monkeypatch.setattr(blueprint_manager, "render_svg_to_pdf", fake_render)
+
+    assert fresh_manager._save_pdf_file("<svg />", str(target)) is False  # type: ignore[attr-defined]
+    assert not target.exists()
+    assert not (tmp_path / ".current-design-cut-sheets.tmp.pdf").exists()

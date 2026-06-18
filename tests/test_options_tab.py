@@ -58,6 +58,8 @@ def test_grid_system_controls_defaults_and_toggle() -> None:
     _ = _get_app()
     tab = OptionsTab()
 
+    assert tab.grid_system_check.text() == "Fabrication-ready preset mode"
+    assert "Preset / Fabrication-ready" in tab.fabrication_mode_help_label.text()
     assert tab.grid_system_check.isChecked() is True
     assert tab.grid_cell_size_spin.value() == DEFAULT_GRID_CELL_CM
     assert tab.grid_pitch_combo.currentData() == "2cm"
@@ -70,6 +72,32 @@ def test_grid_system_controls_defaults_and_toggle() -> None:
     tab.grid_system_check.setChecked(False)
     assert tab.grid_cell_size_spin.isEnabled() is False
     assert tab.grid_pitch_combo.isEnabled() is False
+    assert "Custom / Simulation-only" in tab.fabrication_mode_help_label.text()
+
+
+def test_fabrication_preset_option_has_user_facing_copy() -> None:
+    _ = _get_app()
+    tab = OptionsTab()
+
+    group_titles = {group.title() for group in tab.findChildren(QGroupBox)}
+    assert "Fabrication Presets & Display Units" in group_titles
+    assert "physical board kit" in tab.grid_system_check.toolTip()
+    assert "LEGO-style assembly guides" in tab.grid_system_check.toolTip()
+
+
+def test_programmatic_fabrication_mode_sync_does_not_emit_stale_context() -> None:
+    _ = _get_app()
+    tab = OptionsTab()
+    seen = []
+    tab.physicalContextChanged.connect(seen.append)
+
+    tab.set_grid_system_input(False, 2.5, "2_5cm")
+
+    assert seen == []
+    assert tab.grid_system_check.isChecked() is False
+    assert tab.grid_cell_size_spin.value() == 2.5
+    assert tab.grid_pitch_combo.currentData() == "2_5cm"
+    assert "Custom / Simulation-only" in tab.fabrication_mode_help_label.text()
 
 
 def test_blueprint_export_format_defaults_to_pdf_and_can_switch_to_svg() -> None:

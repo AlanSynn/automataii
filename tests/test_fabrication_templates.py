@@ -693,8 +693,7 @@ def test_fabrication_generator_inventory_svg_contract_and_idempotence(tmp_path: 
     readme = (tmp_path / "README.md").read_text(encoding="utf-8")
     assert "9 workshop sheets" in readme
     assert (
-        "`gears/`, `ring_gears/`, `linkages/`, `cams/`, `followers/`, "
-        "`brackets/`, and `spacers/`"
+        "`gears/`, `ring_gears/`, `linkages/`, `cams/`, `followers/`, `brackets/`, and `spacers/`"
     ) in readme
     assert "4 mm-wide vertical slots" in readme
 

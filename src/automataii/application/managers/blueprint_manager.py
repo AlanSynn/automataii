@@ -3,6 +3,7 @@
 
 import logging
 import os
+from pathlib import Path
 from typing import Any, Optional
 
 from PyQt6.QtCore import QObject, pyqtSignal
@@ -12,6 +13,7 @@ from automataii.application.blueprint import BlueprintComposer, BlueprintComposi
 from automataii.infrastructure.generation.mechanism.cam import CamGenerator
 from automataii.infrastructure.generation.mechanism.gear import GearGenerator
 from automataii.infrastructure.generation.mechanism.linkage import LinkageGenerator
+from automataii.infrastructure.generation.pdf.svg_pdf import render_svg_to_pdf
 
 # Multi-page blueprint generation (future feature)
 # from automataii.generation.multi_page_blueprint import (
@@ -157,6 +159,44 @@ class BlueprintExportManager(QObject):
             self.export_completed.emit(False, f"Export failed: {str(e)}")
             return False
 
+    def export_blueprint_to_path(
+        self,
+        part_items: list[Any],
+        mechanism_layers: dict[str, Any] | None,
+        file_path: str | Path,
+        *,
+        snapshot_png_bytes: bytes | None = None,
+        unit_system: str = "metric",
+        output_format: str = "pdf",
+    ) -> bool:
+        """Export blueprint content directly to a caller-chosen path.
+
+        This is used by the package-style fabrication export so the user chooses
+        one output folder and receives the character/mechanism cut-sheet PDF plus
+        the matching board assembly PDF package without a second save dialog.
+        """
+        try:
+            svg_content = self._generate_single_large_page_blueprint(
+                part_items, mechanism_layers or {}, snapshot_png_bytes, unit_system
+            )
+            if not svg_content:
+                raise ValueError("Generated SVG content is empty")
+
+            destination = Path(file_path)
+            fmt = str(output_format).strip().lower()
+            ext = destination.suffix.lower()
+            if fmt == "svg" or ext == ".svg":
+                return self._save_svg_file(svg_content, str(destination.with_suffix(".svg")))
+
+            pdf_destination = destination.with_suffix(".pdf")
+            success = self._save_pdf_file(svg_content, str(pdf_destination))
+            if success:
+                self.logger.info("Blueprint package cut sheet saved to %s", pdf_destination)
+            return success
+        except Exception as e:
+            self.logger.error(f"Blueprint export to path failed: {e}")
+            return False
+
     def _get_save_file_path(
         self,
         parent_widget: QWidget | None,
@@ -168,7 +208,9 @@ class BlueprintExportManager(QObject):
             fmt = str(output_format).strip().lower()
             if fmt not in {"pdf", "svg"}:
                 fmt = "pdf"
-            default_name = "cut-sheets.pdf" if fmt == "pdf" else "cut-sheets.svg"
+            default_name = (
+                "current-design-cut-sheets.pdf" if fmt == "pdf" else "current-design-cut-sheets.svg"
+            )
             filters = (
                 "PDF Files (*.pdf);;SVG Files (*.svg);;All Files (*)"
                 if fmt == "pdf"
@@ -189,7 +231,9 @@ class BlueprintExportManager(QObject):
         """Save SVG content to file."""
         try:
             # Ensure directory exists
-            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            directory = os.path.dirname(file_path)
+            if directory:
+                os.makedirs(directory, exist_ok=True)
 
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(svg_content)
@@ -204,50 +248,30 @@ class BlueprintExportManager(QObject):
 
         Returns False if QtSvg is unavailable or rendering fails.
         """
+        destination = Path(file_path)
+        temp_destination = destination.with_name(
+            f".{destination.stem}.tmp{destination.suffix or '.pdf'}"
+        )
         try:
-            from PyQt6.QtGui import QPainter, QPdfWriter
-
-            try:
-                from PyQt6.QtSvg import QSvgRenderer
-            except Exception as e:
-                self.logger.warning(f"QtSvg not available for PDF export: {e}")
-                return False
-
-            from PyQt6.QtCore import QByteArray
-
-            data = QByteArray(bytes(svg_content, "utf-8"))
-            renderer = QSvgRenderer(data)
-            if not renderer.isValid():
-                self.logger.error("SVG renderer failed to load content for PDF export")
-                return False
-
-            writer = QPdfWriter(file_path)
-            writer.setResolution(300)
-            painter = QPainter(writer)
-
-            view_box = renderer.viewBoxF()
-            if view_box.isEmpty():
-                sz = renderer.defaultSize()
-                vw = float(sz.width()) or 1.0
-                vh = float(sz.height()) or 1.0
-            else:
-                vw = float(view_box.width()) or 1.0
-                vh = float(view_box.height()) or 1.0
-
-            page_w = float(writer.width())
-            page_h = float(writer.height())
-            margin = 20.0
-            scale_x = (page_w - 2 * margin) / vw
-            scale_y = (page_h - 2 * margin) / vh
-            scale = min(scale_x, scale_y)
-
-            painter.translate(margin, margin)
-            painter.scale(scale, scale)
-            renderer.render(painter)
-            painter.end()
-            return True
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            if temp_destination.is_file():
+                temp_destination.unlink()
+            if render_svg_to_pdf(svg_content, temp_destination):
+                temp_destination.replace(destination)
+                return True
+            if temp_destination.is_file():
+                temp_destination.unlink()
+            if destination.is_file():
+                destination.unlink()
+            return False
         except Exception as e:
-            self.logger.error(f"Failed to save PDF file: {e}")
+            self.logger.error("Failed to save PDF file: %s", e)
+            for stale_path in (temp_destination, destination):
+                try:
+                    if stale_path.is_file():
+                        stale_path.unlink()
+                except OSError:
+                    self.logger.debug("Could not remove stale PDF path %s", stale_path)
             return False
 
     def generate_gear_svg(self, gear_data: dict[str, Any]) -> str:
