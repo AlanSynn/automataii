@@ -21,6 +21,8 @@ make deploy
 Before it pushes the tag, it uses GitHub CLI to verify the repository has the
 required Actions secret names for signed Windows and notarized macOS release
 jobs. If those secrets are missing, it refuses to create the release tag.
+Use `make deploy-preflight` when you only want to run those readiness checks
+without creating or pushing a tag.
 That workflow is the only supported full-public deploy path:
 
 - macOS must pass Developer ID signing, notarization/stapling, strict

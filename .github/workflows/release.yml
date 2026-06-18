@@ -85,7 +85,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv sync --python /Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12
+          uv sync --group build-macos --python /Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12
 
       - name: Import signing certificate
         env:
@@ -238,6 +238,11 @@ jobs:
               "WINDOWS_TEST_CERTIFICATE_MODE=1" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
               Write-Host "Loaded GitHub-secret Windows signing certificate payload for non-production smoke."
             } else {
+              $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new("windows-cert.pfx", $env:WINDOWS_CERT_PASSWORD)
+              if ($cert.Subject -eq $cert.Issuer -or $cert.Subject -match "Test Signing|CI Test|Self-Signed") {
+                Write-Error "WINDOWS_CERT_PFX is a self-signed/test certificate. Production releases require a CA-issued trusted code-signing certificate."
+                exit 1
+              }
               Write-Host "Loaded GitHub-secret Windows signing certificate payload for production verification."
             }
           } elseif ($env:WINDOWS_ALLOW_TEST_CERTIFICATE -eq "1") {

@@ -223,6 +223,8 @@ def test_windows_build_regression_files_are_release_ready() -> None:
         "WINDOWS_ALLOW_TEST_CERTIFICATE",
         "WINDOWS_TEST_CERTIFICATE_MODE",
         "WINDOWS_CERT_PASSWORD=$env:WINDOWS_CERT_PASSWORD",
+        "Production releases require a CA-issued trusted code-signing certificate",
+        "$cert.Subject -eq $cert.Issuer",
         "Loaded GitHub-secret Windows signing certificate payload",
         "Public, test-only PFX",
         "Loaded public Windows test signing certificate payload",

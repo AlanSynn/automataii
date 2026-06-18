@@ -228,22 +228,28 @@ def test_makefile_deploy_uses_tag_triggered_strict_release_workflow():
     docs = Path("docs/deployment.md").read_text(encoding="utf-8")
     release_workflow = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
     recipe = _makefile_target_recipe(makefile, "deploy")
+    preflight_recipe = _makefile_target_recipe(makefile, "deploy-preflight")
 
     assert "RELEASE_TAG" in makefile
     assert "RELEASE_REQUIRED_SECRETS" in makefile
+    assert "deploy-preflight" in makefile
     assert "MACOS_CERT_P12" in makefile
     assert "MACOS_CERT_PASSWORD" in makefile
     assert "WINDOWS_CERT_PFX" in makefile
     assert "WINDOWS_CERT_PASSWORD" in makefile
     assert "gh secret list" in recipe
+    assert "gh secret list" in preflight_recipe
     assert "Refusing to push" in recipe
+    assert "Deploy preflight passed" in preflight_recipe
     assert "git tag -a" in recipe
     assert "git push" in recipe
     assert "release.yml" in recipe
     assert "notarization/stapling" in recipe
     assert "Authenticode signing" in recipe
     assert "make deploy" in docs
+    assert "make deploy-preflight" in docs
     assert "refuses to create the release tag" in docs
     assert "Unsigned local builds are development artifacts only" in docs
+    assert "uv sync --group build-macos --python" in release_workflow
     assert "--notarize --verify-release --strict-distribution" in release_workflow
     assert "default: 'v0.1.0'" not in release_workflow

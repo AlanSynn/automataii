@@ -5,7 +5,7 @@
         lint lint-fix format format-check type-check type-debt-report quality \
         build build-experiment build-experiment-arm64 build-experiment-x86_64 \
         build-macos build-macos-native build-macos-arm64 build-macos-x86_64 \
-        build-windows build-linux release-macos deploy \
+        build-windows build-linux release-macos deploy deploy-preflight \
         store-notary-profile verify-macos-release \
         clean clean-all info
 
@@ -45,6 +45,7 @@ help:
 	@echo "  build-linux            - Build Linux executable"
 	@echo "  release-macos          - Alias for build-macos"
 	@echo "  deploy                 - Push release tag; CI builds signed Windows + notarized macOS"
+	@echo "  deploy-preflight       - Check local/GitHub release readiness without pushing a tag"
 	@echo ""
 	@echo "macOS Distribution:"
 	@echo "  store-notary-profile   - Store notarytool credentials in keychain"
@@ -160,6 +161,30 @@ build-macos-x86_64:
 
 # Alias kept for documentation compatibility (docs/macos-distribution.md)
 release-macos: build-macos
+
+deploy-preflight:
+	@echo "Checking deploy readiness for $(RELEASE_TAG)..."
+	@test "$$(git status --porcelain)" = "" || (echo "Working tree must be clean before deploy." && exit 1)
+	@command -v gh >/dev/null || (echo "GitHub CLI (gh) is required so deploy can preflight release secrets before pushing a tag." && exit 1)
+	@gh auth status >/dev/null || (echo "GitHub CLI is not authenticated; run gh auth login before public deploy." && exit 1)
+	@secrets="$$(gh secret list --json name --jq '.[].name')"; \
+	missing=""; \
+	for secret in $(RELEASE_REQUIRED_SECRETS); do \
+		if ! printf '%s\n' "$$secrets" | grep -qx "$$secret"; then \
+			missing="$$missing $$secret"; \
+		fi; \
+	done; \
+	if [ -n "$$missing" ]; then \
+		echo "Missing GitHub Actions secrets for public deploy:$$missing"; \
+		echo "Refusing to push $(RELEASE_TAG); signed Windows and notarized macOS release would fail."; \
+		exit 1; \
+	fi
+	@test -z "$$(git ls-remote --tags $(RELEASE_REMOTE) refs/tags/$(RELEASE_TAG))" || (echo "Remote tag $(RELEASE_TAG) already exists on $(RELEASE_REMOTE)." && exit 1)
+	@if git rev-parse -q --verify "refs/tags/$(RELEASE_TAG)" >/dev/null; then \
+		echo "Local tag $(RELEASE_TAG) already exists; delete or choose RELEASE_TAG explicitly."; \
+		exit 1; \
+	fi
+	@echo "Deploy preflight passed for $(RELEASE_TAG)."
 
 deploy:
 	@echo "Deploying $(RELEASE_TAG) via GitHub Actions release.yml..."
