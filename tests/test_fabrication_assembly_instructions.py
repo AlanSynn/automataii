@@ -635,6 +635,41 @@ def test_physical_contract_flags_when_app_parts_do_not_match_recipe(tmp_path: Pa
     assert "linkages:linkage-6-cell" in layers[0]["expected_part_ids_from_app"]
 
 
+def test_physical_contract_records_snap_adjustments_without_gating_recipe(
+    tmp_path: Path,
+) -> None:
+    write_fabrication_templates(tmp_path)
+    exporter = FabricationAssemblyGuideExporter(tmp_path)
+
+    contract = exporter.build_app_physical_contract(
+        {
+            "four-bar-near-preset": {
+                "type": "four_bar",
+                "params": {
+                    "grid_system_enabled": True,
+                    "grid_cell_cm": 2.0,
+                    "ground_link": 83.0,
+                    "input_link": 38.0,
+                    "coupler_link": 81.0,
+                    "output_link": 42.0,
+                },
+            }
+        },
+        recipe_keys={"four-bar-basic"},
+    )
+
+    assert contract["status"] == "matched"
+    assert contract["warnings"] == []
+    layers = cast(list[dict[str, Any]], contract["layers"])
+    assert layers[0]["status"] == "matched"
+    adjustments = "\n".join(cast(list[str], layers[0]["snapped_parameter_adjustments"]))
+    assert "input_link=38.0 snaps to kit value 40.0" in adjustments
+    assert layers[0]["expected_part_ids_from_app"] == [
+        "linkages:linkage-2-cell",
+        "linkages:linkage-4-cell",
+    ]
+
+
 def test_active_part_ids_helper_contract_and_physical_contract_echo(tmp_path: Path) -> None:
     write_fabrication_templates(tmp_path)
     exporter = FabricationAssemblyGuideExporter(tmp_path)

@@ -201,7 +201,8 @@ def test_single_large_blueprint_escapes_header_and_rejects_bad_snapshot() -> Non
         unit_system="bad",
     )
 
-    assert 'width="800.0"' in svg
+    assert 'width="800.0mm"' in svg
+    assert 'viewBox="0 0 800.0 600.0"' in svg
     assert "&lt;Title&gt;" in svg
     assert "&lt;Scale&gt;" in svg
     assert "onload" not in svg
@@ -219,11 +220,14 @@ def test_single_large_blueprint_separates_cut_sheets_from_board_assembly() -> No
         ],
         800,
         600,
-        title="Make Parts / Cut Sheets (Metric)",
+        title="Make Parts / Cut Sheets",
         scale_info="Character body components + mechanisms",
         unit_system="metric",
     )
 
+    assert "Current Design Cut Sheets" not in svg
+    assert "Units: Metric" not in svg
+    assert "Board preset: 15×15 holes" in svg
     assert "Make Parts / Cut Sheets boundary" in svg
     assert "this sheet is not the board assembly order" in svg
     assert "Character body components: 1" in svg

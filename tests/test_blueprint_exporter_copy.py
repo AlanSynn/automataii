@@ -125,6 +125,113 @@ def test_blueprint_package_accepts_svg_fallback_assembly_export(
     assert "Blueprint Package Export Failed" not in captured["title"]
 
 
+def test_blueprint_package_snaps_layers_before_physical_contract(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from PyQt6 import QtWidgets
+
+    import automataii.application.fabrication as fabrication_pkg
+    from automataii.application.managers import BlueprintExportManager
+
+    output_dir = tmp_path / "export"
+    seen_params: dict[str, object] = {}
+    captured: dict[str, str] = {}
+
+    class FakeBlueprintManager:
+        def export_blueprint_to_path(self, *, file_path: Path, **_kwargs) -> bool:
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            file_path.write_text("%PDF-1.4\n", encoding="utf-8")
+            return True
+
+    class FakeGuideExporter:
+        def __init__(self, _root: str) -> None:
+            pass
+
+        def resolve_app_state_to_guide(self, _mechanism_type, **_kwargs):
+            return FabricationGuideSummary(
+                key="four-bar-basic",
+                title="Four-bar linkage",
+                mechanism_type="four_bar",
+                guide_svg="assembly/03-four-bar-basic.svg",
+                step_count=5,
+                app_mechanism_type="four_bar",
+                app_highlight_ids=("linkages:linkage-2-cell", "linkages:linkage-4-cell"),
+            )
+
+        def build_app_physical_contract(self, mechanism_layers, *, recipe_keys):
+            seen_params.update(mechanism_layers["four"]["params"])
+            return {"status": "matched", "warnings": [], "selected_recipe_keys": sorted(recipe_keys)}
+
+        def export_guides(self, output_dir_arg, *, recipe_keys, app_contract):
+            package_dir = Path(output_dir_arg) / "assembly"
+            pdf = package_dir / "assembly-guide.pdf"
+            pdf.parent.mkdir(parents=True, exist_ok=True)
+            pdf.write_text("%PDF-1.4\n", encoding="utf-8")
+            return FabricationGuideExportResult(
+                output_dir=Path(output_dir_arg),
+                package_dir=package_dir,
+                copied_files=(pdf,),
+                recipe_keys=tuple(sorted(recipe_keys)),
+                pdf_files=(pdf,),
+                fallback_files=(),
+                contract_warnings=(),
+            )
+
+    layer = {
+        "four": {
+            "type": "4_bar_linkage",
+            "params": {
+                "grid_system_enabled": False,
+                "grid_cell_cm": 2.0,
+                "l1": 83.0,
+                "l2": 38.0,
+                "l3": 81.0,
+                "l4": 42.0,
+            },
+        }
+    }
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog,
+        "getExistingDirectory",
+        lambda *_args, **_kwargs: str(output_dir),
+    )
+    monkeypatch.setattr(
+        QtWidgets.QMessageBox,
+        "information",
+        lambda _parent, title, text: captured.update({"title": title, "text": text}),
+    )
+    monkeypatch.setattr(
+        BlueprintExportManager, "get_instance", staticmethod(lambda: FakeBlueprintManager())
+    )
+    monkeypatch.setattr(fabrication_pkg, "FabricationAssemblyGuideExporter", FakeGuideExporter)
+
+    exporter = BlueprintExporter(
+        parent=None,
+        mechanism_view=None,
+        get_mechanism_layers=lambda: layer,
+        get_current_editor_items=lambda: {},
+        get_scene_transform_function=lambda _layer: None,
+    )
+    monkeypatch.setattr(exporter, "_collect_part_items", lambda: [])
+    monkeypatch.setattr(
+        exporter,
+        "calculate_screen_to_blueprint_scale",
+        lambda: {"mechanism_scale_factors": {}, "mm_per_pixel": 1.0},
+    )
+    monkeypatch.setattr(exporter, "enhance_mechanism_layers_with_scale_info", lambda _info: layer)
+
+    exporter.export_all()
+
+    assert seen_params["grid_system_enabled"] is True
+    assert seen_params["l1"] == 80.0
+    assert seen_params["l2"] == 40.0
+    assert seen_params["l3"] == 80.0
+    assert seen_params["l4"] == 40.0
+    assert captured["title"] == "Blueprint Package Exported"
+    assert "Assembly guide: assembly/assembly-guide.pdf" in captured["text"]
+
+
 def test_blueprint_package_clears_stale_assembly_when_no_recipe_matches(
     monkeypatch,
     tmp_path: Path,

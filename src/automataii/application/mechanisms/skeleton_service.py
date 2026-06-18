@@ -10,7 +10,8 @@ Architecture Note:
 - Callers in presentation layer provide Qt-specific implementation
 """
 
-from collections.abc import Callable
+import math
+from collections.abc import Callable, Mapping
 from typing import Any
 
 
@@ -20,6 +21,50 @@ class SkeletonService:
     def __init__(self) -> None:
         """Initialize the skeleton service."""
         pass
+
+    @staticmethod
+    def _resolve_joint_data(
+        anchor_joint_id: object,
+        joints_dict: Mapping[str, Any],
+        joint_map: Mapping[str, Any],
+    ) -> Mapping[str, Any] | None:
+        anchor = str(anchor_joint_id or "")
+        candidate_ids = [anchor]
+        mapped = joint_map.get(anchor)
+        if isinstance(mapped, str):
+            candidate_ids.append(mapped)
+
+        for candidate_id in candidate_ids:
+            joint_data = joints_dict.get(candidate_id)
+            if isinstance(joint_data, Mapping):
+                return joint_data
+
+        for candidate_id in candidate_ids:
+            if not candidate_id:
+                continue
+            for joint_id, joint_data in joints_dict.items():
+                if not isinstance(joint_data, Mapping):
+                    continue
+                if joint_id.startswith(f"{candidate_id}_") or joint_id.startswith(
+                    f"{candidate_id}."
+                ):
+                    return joint_data
+        return None
+
+    @staticmethod
+    def _joint_position(joint_data: Mapping[str, Any]) -> tuple[float, float] | None:
+        for key in ("position", "scene_position"):
+            raw_pos = joint_data.get(key)
+            if not isinstance(raw_pos, list | tuple) or len(raw_pos) < 2:
+                continue
+            try:
+                x_coord = float(raw_pos[0])
+                y_coord = float(raw_pos[1])
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(x_coord) and math.isfinite(y_coord):
+                return x_coord, y_coord
+        return None
 
     def position_parts_at_anchor_joints(
         self,
@@ -49,21 +94,32 @@ class SkeletonService:
 
         positioned_count = 0
         joints_dict = initial_skeleton_data_cache.get("joints", {})
+        if not isinstance(joints_dict, Mapping):
+            return 0
+        raw_joint_map = initial_skeleton_data_cache.get("joint_map", {})
+        joint_map = raw_joint_map if isinstance(raw_joint_map, Mapping) else {}
 
         for part_name, part_item in current_editor_items.items():
             part_info = parts_data.get(part_name)
-            if part_info and part_info.anchor_joint_id in joints_dict:
-                joint_data = joints_dict[part_info.anchor_joint_id]
-                joint_pos = joint_data.get("position", [0, 0])
-                if len(joint_pos) >= 2:
-                    pos = (float(joint_pos[0]), float(joint_pos[1]))
-                    if position_setter:
-                        position_setter(part_item, pos)
-                    # Do not apply generic skeleton joint rotation during initial placement.
-                    # Joint rotation is often defined in a different reference frame and can
-                    # rotate body-part textures unexpectedly on character replacement.
-                    if rotation_setter and "part_rotation_degrees" in joint_data:
-                        rotation_setter(part_item, float(joint_data["part_rotation_degrees"]))
-                    positioned_count += 1
+            if not part_info:
+                continue
+            joint_data = self._resolve_joint_data(
+                getattr(part_info, "anchor_joint_id", ""),
+                joints_dict,
+                joint_map,
+            )
+            if joint_data is None:
+                continue
+            pos = self._joint_position(joint_data)
+            if pos is None:
+                continue
+            if position_setter:
+                position_setter(part_item, pos)
+            # Do not apply generic skeleton joint rotation during initial placement.
+            # Joint rotation is often defined in a different reference frame and can
+            # rotate body-part textures unexpectedly on character replacement.
+            if rotation_setter and "part_rotation_degrees" in joint_data:
+                rotation_setter(part_item, float(joint_data["part_rotation_degrees"]))
+            positioned_count += 1
 
         return positioned_count

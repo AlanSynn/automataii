@@ -659,10 +659,16 @@ class FabricationAssemblyGuideExporter:
         return tuple(expected)
 
     @staticmethod
-    def _snapped_parameter_warnings(
+    def _snapped_parameter_adjustments(
         mechanism_type: str,
         params: Mapping[str, object],
     ) -> tuple[str, ...]:
+        """Describe values that will be normalized to the nearest kit preset.
+
+        These are intentionally informational rather than blocking warnings:
+        exporting a board guide should use the same snap rules as the Design and
+        Foundry tabs, not strand the user with a cut sheet and a JSON file.
+        """
         profile = physical_profile_from_params(params)
         grid_cell_cm = grid_cell_cm_from_params(params, DEFAULT_GRID_CELL_CM)
         snapped = snap_physical_params(
@@ -671,9 +677,7 @@ class FabricationAssemblyGuideExporter:
             grid_cell_cm,
             profile=profile,
         )
-        warnings: list[str] = []
-        if params.get("grid_system_enabled") is False:
-            warnings.append("physical grid is disabled; exported board recipe may not match")
+        adjustments: list[str] = []
         for key, raw_value in params.items():
             if key not in snapped or isinstance(raw_value, bool):
                 continue
@@ -685,9 +689,21 @@ class FabricationAssemblyGuideExporter:
                     rel_tol=1e-6,
                     abs_tol=1e-6,
                 ):
-                    warnings.append(f"{key}={raw_value} snaps to kit value {snapped_value}")
+                    adjustments.append(f"{key}={raw_value} snaps to kit value {snapped_value}")
             elif raw_value != snapped_value:
-                warnings.append(f"{key}={raw_value!r} snaps to kit value {snapped_value!r}")
+                adjustments.append(f"{key}={raw_value!r} snaps to kit value {snapped_value!r}")
+        return tuple(adjustments)
+
+    @staticmethod
+    def _snapped_parameter_warnings(params: Mapping[str, object]) -> tuple[str, ...]:
+        """Return only hard physical-contract blockers.
+
+        Snap-to-preset differences are no longer blockers because export now
+        normalizes a fabrication package to the nearest supported kit values.
+        """
+        warnings: list[str] = []
+        if params.get("grid_system_enabled") is False:
+            warnings.append("physical grid is disabled; exported board recipe may not match")
         return tuple(warnings)
 
     def build_app_physical_contract(
@@ -741,7 +757,10 @@ class FabricationAssemblyGuideExporter:
             expected_parts = self._expected_part_ids_for_layer(mechanism_type, params)
             recipe_counts = self._recipe_part_counts(recipe) if recipe is not None else {}
             recipe_parts = tuple(recipe_counts)
-            layer_warnings = list(self._snapped_parameter_warnings(mechanism_type, params))
+            snapped_adjustments = list(
+                self._snapped_parameter_adjustments(mechanism_type, params)
+            )
+            layer_warnings = list(self._snapped_parameter_warnings(params))
             grid_cell_cm = grid_cell_cm_from_params(params, DEFAULT_GRID_CELL_CM)
             grid_pitch_mm = grid_step_mm(grid_cell_cm)
             if not math.isclose(grid_pitch_mm, manifest_pitch, abs_tol=1e-6):
@@ -782,6 +801,7 @@ class FabricationAssemblyGuideExporter:
                     "active_part_ids_source": selection.active_part_ids_source,
                     "expected_part_ids_from_app": list(expected_parts),
                     "recipe_part_ids": list(recipe_parts),
+                    "snapped_parameter_adjustments": snapped_adjustments,
                     "status": "warning" if layer_warnings else "matched",
                     "warnings": layer_warnings,
                 }

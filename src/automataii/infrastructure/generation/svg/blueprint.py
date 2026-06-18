@@ -120,9 +120,6 @@ def generate_single_large_blueprint(
         else:
             return f"{value_mm:.1f}mm"
 
-    def get_unit_label() -> str:
-        return "Imperial" if unit_system == "imperial" else "Metric"
-
     # Start building SVG content
     svg_parts = []
 
@@ -142,7 +139,8 @@ def generate_single_large_blueprint(
 
     # SVG header with large dimensions and consolidated defs
     svg_header = f'''<?xml version="1.0" encoding="UTF-8"?>
-<svg width="{page_width_mm}" height="{page_height_mm}"
+<svg width="{page_width_mm}mm" height="{page_height_mm}mm"
+     viewBox="0 0 {page_width_mm} {page_height_mm}"
      xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1">
   <defs>
     <style>
@@ -180,9 +178,11 @@ def generate_single_large_blueprint(
   <g id="title-block">
     <rect x="20" y="20" width="{page_width_mm - 40}" height="90"
           fill="#f8f8f8" stroke="black" stroke-width="2"/>
-    <text x="40" y="50" class="section-title" font-size="24">{title}</text>
-    <text x="40" y="75" class="blueprint-text" font-size="14">{scale_info}</text>
-    <text x="40" y="95" class="blueprint-text" font-size="12">Units: {get_unit_label()}</text>
+    <text x="40" y="50" class="section-title" font-size="20">{title}</text>
+    <text x="40" y="75" class="blueprint-text" font-size="12">{scale_info}</text>
+    <text x="40" y="95" class="blueprint-text" font-size="10">
+      Board preset: 15×15 holes | 4mm part holes | Assembly PDF gives placement
+    </text>
     <text x="{page_width_mm - 40}" y="50" class="blueprint-text" font-size="12" text-anchor="end">
       Generated: {get_timestamp()}
     </text>
@@ -342,7 +342,7 @@ def generate_single_large_blueprint(
     <line x1="20" y1="{footer_y}" x2="{page_width_mm - 20}" y2="{footer_y}"
           stroke="black" stroke-width="1"/>
     <text x="40" y="{footer_y + 20}" class="manufacturing-note">
-      Current Design Cut Sheets ({get_unit_label()} Units) | Cut/drill only | {len(layout_items)} items total
+      Make Parts / Cut Sheets | Cut/drill only | {len(layout_items)} items total
     </text>
     <text x="{page_width_mm - 40}" y="{footer_y + 20}" class="manufacturing-note" text-anchor="end">
       MotionSmith Manufacturing System

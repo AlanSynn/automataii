@@ -1518,6 +1518,25 @@ class MechanismDesignTab(QWidget):
         except Exception:
             logging.debug("Suppressed exception during rotation reset", exc_info=True)
 
+    def _restore_character_parts_to_initial_skeleton(self) -> None:
+        """Restore body parts to the cached rest skeleton when entering Design.
+
+        Editor-tab path previews can leave the shared IK manager in an animated
+        pose. Mechanism Design should start from the character's anchor joints
+        unless its own mechanism animation is actively running.
+        """
+        if self._is_animation_running():
+            return
+        skeleton_cache = getattr(self, "_initial_skeleton_data_cache", None)
+        if not isinstance(skeleton_cache, dict) or not skeleton_cache.get("joints"):
+            return
+        try:
+            if hasattr(self, "_skeleton_handler") and self._skeleton_handler:
+                self._skeleton_handler.ensure_skeleton_visualization(skeleton_cache)
+            self._position_parts_at_anchor_joints()
+        except Exception:
+            logging.debug("Suppressed exception restoring rest skeleton pose", exc_info=True)
+
     def handle_mechanism_visuals(self, mechanism_graphics_data: dict):
         self._mvp_presenter.handle_mechanism_visuals(mechanism_graphics_data)
 
@@ -1576,6 +1595,7 @@ class MechanismDesignTab(QWidget):
         # Reset character/skeleton rotations to world 0 when entering tab
         # This prevents broken rotations from previous tab interactions
         self._reset_character_rotations_to_world_zero()
+        self._restore_character_parts_to_initial_skeleton()
 
         self._update_mechanism_layers_list()
         self._update_all_ui_states()

@@ -63,3 +63,57 @@ def test_position_parts_applies_explicit_part_rotation() -> None:
 
     assert positioned == 1
     assert rotation_calls == [12.5]
+
+
+def test_position_parts_uses_joint_map_like_editor_tab() -> None:
+    service = SkeletonService()
+    part_item = SimpleNamespace()
+    position_calls: list[tuple[float, float]] = []
+
+    part_info = SimpleNamespace(anchor_joint_id="left_hand")
+    positioned = service.position_parts_at_anchor_joints(
+        current_editor_items={"hand": part_item},
+        parts_data={"hand": part_info},
+        initial_skeleton_data_cache={
+            "joint_map": {"left_hand": "left_wrist"},
+            "joints": {"left_wrist": {"position": [30.0, 40.0]}},
+        },
+        position_setter=lambda _item, pos: position_calls.append(pos),
+    )
+
+    assert positioned == 1
+    assert position_calls == [(30.0, 40.0)]
+
+
+def test_position_parts_uses_prefixed_joint_and_scene_position() -> None:
+    service = SkeletonService()
+    part_item = SimpleNamespace()
+    position_calls: list[tuple[float, float]] = []
+
+    part_info = SimpleNamespace(anchor_joint_id="elbow")
+    positioned = service.position_parts_at_anchor_joints(
+        current_editor_items={"arm": part_item},
+        parts_data={"arm": part_info},
+        initial_skeleton_data_cache={
+            "joints": {"elbow_1": {"scene_position": [12.0, 24.0]}},
+        },
+        position_setter=lambda _item, pos: position_calls.append(pos),
+    )
+
+    assert positioned == 1
+    assert position_calls == [(12.0, 24.0)]
+
+
+def test_position_parts_skips_invalid_joint_coordinates() -> None:
+    service = SkeletonService()
+    part_item = SimpleNamespace()
+
+    part_info = SimpleNamespace(anchor_joint_id="head")
+    positioned = service.position_parts_at_anchor_joints(
+        current_editor_items={"head": part_item},
+        parts_data={"head": part_info},
+        initial_skeleton_data_cache={"joints": {"head": {"position": [float("nan"), 1.0]}}},
+        position_setter=lambda _item, _pos: None,
+    )
+
+    assert positioned == 0

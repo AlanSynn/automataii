@@ -78,15 +78,13 @@ class BlueprintComposer:
                     f"data:image/png;base64,{base64.b64encode(bytes(snapshot_png_bytes)).decode()}"
                 )
 
-            unit_label = "Imperial" if unit_system == "imperial" else "Metric"
             svg = self._svg_generator(
                 layout_items,
                 max(width_mm, 800),
                 max(height_mm, 600),
-                title=f"Current Design Cut Sheets ({unit_label})",
+                title="Make Parts / Cut Sheets",
                 scale_info=(
-                    "Character body components + mechanisms | "
-                    "Cut/drill only; assembly-guide.pdf has 15x15 board coordinates"
+                    "Cut/drill only; assembly-guide.pdf shows 15x15 board placement"
                 ),
                 snapshot_data_uri=snapshot_data_uri,
                 unit_system=unit_system,

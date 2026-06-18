@@ -13,11 +13,14 @@ from PyQt6.QtWidgets import QMessageBox, QWidget
 from automataii.application.fabrication import FabricationLayerSelection
 from automataii.infrastructure.telemetry import telemetry_span
 from automataii.shared.physical_kit import (
+    DEFAULT_GRID_CELL_CM,
     gear_center_distance,
     gear_clearance_from_params,
     gear_teeth_from_params,
     grid_enabled_from_params,
+    physical_context_from_params,
     physical_profile_from_params,
+    snap_physical_params,
 )
 
 _NumericPayload = str | bytes | bytearray | SupportsFloat | SupportsIndex
@@ -92,6 +95,50 @@ class BlueprintExporter:
                 recipe_keys.add(summary.key)
         return recipe_keys
 
+    def _fabrication_ready_mechanism_layers(
+        self,
+        mechanism_layers: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Return export-only layers snapped to the current physical-kit preset.
+
+        The app can remain flexible while drawing/simulating, but the PDF package
+        must be internally buildable: cut sheet, physical contract, selected
+        kit parts, and board guide all need the same snapped values.
+        """
+        ready_layers: dict[str, Any] = {}
+        for layer_id, layer_data in mechanism_layers.items():
+            if not isinstance(layer_data, dict):
+                ready_layers[layer_id] = layer_data
+                continue
+
+            ready_layer = dict(layer_data)
+            params = ready_layer.get("params")
+            if not isinstance(params, dict):
+                ready_layers[layer_id] = ready_layer
+                continue
+
+            export_params = dict(params)
+            export_params["grid_system_enabled"] = True
+            export_params.setdefault("grid_cell_cm", DEFAULT_GRID_CELL_CM)
+            context = physical_context_from_params(export_params, default_enabled=True)
+            export_params.update(context.as_params())
+
+            selection = FabricationLayerSelection.from_layer_data(ready_layer)
+            ready_layer["params"] = snap_physical_params(
+                selection.mechanism_type,
+                export_params,
+                context.grid_cell_cm,
+                enabled=True,
+                profile=context.profile,
+            )
+            ready_layer["params"].update(context.as_params())
+            raw_fabrication = ready_layer.get("fabrication")
+            fabrication = dict(raw_fabrication) if isinstance(raw_fabrication, dict) else {}
+            fabrication["preset_snapped_for_export"] = True
+            ready_layer["fabrication"] = fabrication
+            ready_layers[layer_id] = ready_layer
+        return ready_layers
+
     def export_all(self) -> None:
         """Export one PDF-first fabrication package for the current design.
 
@@ -161,6 +208,7 @@ class BlueprintExporter:
             except Exception as e:
                 logging.error(f"[BLUEPRINT] Error enhancing mechanism layers: {e}")
                 mechanism_layers = mechanism_layers_raw
+            mechanism_layers = self._fabrication_ready_mechanism_layers(mechanism_layers)
 
             if not part_items and not mechanism_layers:
                 QMessageBox.warning(
