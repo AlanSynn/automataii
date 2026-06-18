@@ -1,5 +1,6 @@
 import logging
 import math
+import re
 from collections.abc import Sequence
 from html import escape as escape_xml
 
@@ -37,6 +38,74 @@ def _safe_snapshot_data_uri(snapshot_data_uri: object) -> str | None:
     if not value.lower().startswith(allowed_prefixes):
         return None
     return escape_xml(value, quote=True)
+
+
+_SVG_WRAPPER_RE = re.compile(
+    r"^\s*(?:<\?xml[^>]*>\s*)?<svg\b(?P<attrs>[^>]*)>(?P<body>.*)</svg>\s*$",
+    re.IGNORECASE | re.DOTALL,
+)
+_SVG_ATTR_RE = re.compile(r"([A-Za-z_:][-A-Za-z0-9_:.]*)\s*=\s*(['\"])(.*?)\2", re.DOTALL)
+
+
+def _svg_attrs(attr_text: str) -> dict[str, str]:
+    return {match.group(1): match.group(3) for match in _SVG_ATTR_RE.finditer(attr_text)}
+
+
+def _svg_length(value: str | None) -> float | None:
+    if not value:
+        return None
+    match = re.match(r"\s*(-?(?:\d+(?:\.\d*)?|\.\d+))", value)
+    if match is None:
+        return None
+    try:
+        number = float(match.group(1))
+    except ValueError:
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _flatten_embedded_svg(svg_content: object) -> str:
+    """Convert a generated standalone SVG snippet into an embeddable group.
+
+    QtSvg's PDF backend follows SVG Tiny 1.2 and skips nested ``<svg>`` nodes.
+    Browser preview tolerated those snippets, but PDF export could silently lose
+    the actual cut parts. Generated items are already positioned by the parent
+    blueprint, so unwrap a top-level SVG while preserving x/y and viewBox scale.
+    """
+
+    content = str(svg_content or "")
+    match = _SVG_WRAPPER_RE.match(content)
+    if match is None:
+        return content
+
+    attrs = _svg_attrs(match.group("attrs"))
+    body = match.group("body")
+    transforms: list[str] = []
+    x_value = _svg_length(attrs.get("x"))
+    y_value = _svg_length(attrs.get("y"))
+    if x_value or y_value:
+        transforms.append(f"translate({x_value or 0.0:g},{y_value or 0.0:g})")
+
+    view_box = attrs.get("viewBox")
+    if view_box:
+        view_values = [
+            _svg_length(value) for value in re.split(r"[,\s]+", view_box.strip()) if value
+        ]
+        if len(view_values) == 4 and all(value is not None for value in view_values):
+            min_x, min_y, box_width, box_height = [
+                value if value is not None else 0.0 for value in view_values
+            ]
+            width = _svg_length(attrs.get("width")) or box_width
+            height = _svg_length(attrs.get("height")) or box_height
+            if box_width and box_height and (width != box_width or height != box_height):
+                transforms.append(f"scale({width / box_width:g},{height / box_height:g})")
+            if min_x or min_y:
+                transforms.append(f"translate({-min_x:g},{-min_y:g})")
+
+    transform_attr = (
+        f' transform="{escape_xml(" ".join(transforms), quote=True)}"' if transforms else ""
+    )
+    return f"<g{transform_attr}>{body}</g>"
 
 
 def _layout_item_name(item: object, fallback: str) -> str:
@@ -347,7 +416,7 @@ def generate_single_large_blueprint(
                     clean_svg_content = clean_svg_content[:start] + clean_svg_content[end:]
 
             svg_parts.append(f'<g transform="translate({parts_x},{parts_y})">')
-            svg_parts.append(clean_svg_content)
+            svg_parts.append(_flatten_embedded_svg(clean_svg_content))
             part_name = _layout_item_name(item, "Character component")
             note_y = item_height + 12
             svg_parts.append(f'<text x="0" y="{note_y}" class="part-guidance">{part_name}</text>')
@@ -395,7 +464,7 @@ def generate_single_large_blueprint(
 
             # Add mechanism with its SVG content
             svg_parts.append(f'<g transform="translate({mech_x},{mech_y})">')
-            svg_parts.append(str(getattr(item, "svg_content", "") or ""))
+            svg_parts.append(_flatten_embedded_svg(getattr(item, "svg_content", "")))
             svg_parts.append("</g>")
 
             logger.debug(
@@ -494,6 +563,7 @@ def _generate_single_part_page(
             attr_start = item.svg_content.find(' data-clip-def="')
             attr_end = item.svg_content.find('"', attr_start + len(' data-clip-def="')) + 1
             clean_svg_content = item.svg_content[:attr_start] + item.svg_content[attr_end:]
+    clean_svg_content = _flatten_embedded_svg(clean_svg_content)
 
     # Material specifications based on unit system
     material_info = "Material: 3mm Plywood/Acrylic | Cut on RED dashed lines"
@@ -666,7 +736,7 @@ def _generate_single_mechanism_page(
 
   <!-- Mechanism Content (scaled and centered) -->
   <g transform="translate({mech_x:.1f},{mech_y:.1f}) scale({page_scale:.3f})">
-    {item.svg_content}
+    {_flatten_embedded_svg(item.svg_content)}
   </g>
 
   <!-- Manufacturing Information -->

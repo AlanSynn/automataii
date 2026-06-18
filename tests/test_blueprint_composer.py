@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from automataii.application.blueprint import BlueprintComposer, BlueprintCompositionResult
+from automataii.domain.generation.layout import LayoutItem, ScaledBounds
+from automataii.infrastructure.generation.svg.blueprint import generate_single_large_blueprint
 
 
 @dataclass
@@ -65,3 +67,36 @@ def test_compose_single_page_names_cut_sheet_handoff():
     assert seen["title"] == "Make Parts / Cut Sheets"
     assert "Cut/drill only" in seen["scale_info"]
     assert "assembly-guide.pdf shows 15x15 board placement" in seen["scale_info"]
+
+
+def test_single_page_blueprint_flattens_embedded_item_svgs_for_pdf_renderer() -> None:
+    part = LayoutItem(
+        name="Body",
+        bounds=ScaledBounds(0, 0, 100, 50),
+        svg_content=(
+            '<svg width="100" height="50" viewBox="0 0 100 50" '
+            'xmlns="http://www.w3.org/2000/svg"><rect width="100" height="50"/></svg>'
+        ),
+        item_type="part",
+    )
+    mechanism = LayoutItem(
+        name="Mechanism",
+        bounds=ScaledBounds(0, 0, 120, 80),
+        svg_content=(
+            '<svg width="120" height="80" viewBox="0 0 120 80" '
+            'xmlns="http://www.w3.org/2000/svg"><circle cx="40" cy="40" r="20"/></svg>'
+        ),
+        item_type="mechanism",
+    )
+
+    svg = generate_single_large_blueprint(
+        [part, mechanism],
+        400,
+        300,
+        title="Make Parts / Cut Sheets",
+        scale_info="Cut/drill only",
+    )
+
+    assert svg.count("<svg") == 1
+    assert "<g><rect" in svg
+    assert "<g><circle" in svg

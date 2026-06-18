@@ -14,7 +14,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from PyQt6.QtCore import QByteArray
+from PyQt6.QtCore import QByteArray, QRectF
 from PyQt6.QtGui import QGuiApplication, QPainter, QPdfWriter
 from PyQt6.QtWidgets import QApplication
 
@@ -79,6 +79,24 @@ def _start_new_pdf_page(writer: QPdfWriter, destination: Path, page_number: int)
         return True
     LOGGER.error("Could not create PDF page %s for %s", page_number, destination)
     return False
+
+
+def _margin_to_device_units(margin_points: float, resolution: int) -> float:
+    """Convert PDF point margins to the device units used by ``QPdfWriter``.
+
+    ``QPdfWriter.width()``/``height()`` are reported in the writer's current
+    resolution units, not typographic points. Treating 20 pt as 20 device units
+    at 300 DPI left almost no real margin and made clipping harder to spot.
+    """
+    try:
+        points = float(margin_points)
+    except (TypeError, ValueError):
+        points = 20.0
+    try:
+        dpi = float(resolution)
+    except (TypeError, ValueError):
+        dpi = 300.0
+    return max(0.0, points) * max(1.0, dpi) / 72.0
 
 
 def render_svgs_to_pdf(
@@ -147,16 +165,22 @@ def render_svgs_to_pdf(
 
                 page_width = float(writer.width())
                 page_height = float(writer.height())
-                usable_width = max(1.0, page_width - 2.0 * margin_points)
-                usable_height = max(1.0, page_height - 2.0 * margin_points)
+                margin_units = _margin_to_device_units(margin_points, resolution)
+                usable_width = max(1.0, page_width - 2.0 * margin_units)
+                usable_height = max(1.0, page_height - 2.0 * margin_units)
                 scale = min(usable_width / svg_width, usable_height / svg_height)
-                x_offset = margin_points + (usable_width - svg_width * scale) / 2.0
-                y_offset = margin_points + (usable_height - svg_height * scale) / 2.0
+                target_width = max(1.0, svg_width * scale)
+                target_height = max(1.0, svg_height * scale)
+                x_offset = margin_units + (usable_width - target_width) / 2.0
+                y_offset = margin_units + (usable_height - target_height) / 2.0
+                target_rect = QRectF(x_offset, y_offset, target_width, target_height)
 
                 painter.save()
-                painter.translate(x_offset, y_offset)
-                painter.scale(scale, scale)
-                renderer.render(painter)
+                # Render into an explicit page target. Relying on painter
+                # translate/scale plus QSvgRenderer.render(painter) can leave
+                # large fabrication SVGs painted at their natural viewport and
+                # clipped to the PDF's top-left corner in some Qt backends.
+                renderer.render(painter, target_rect)
                 painter.restore()
         finally:
             painter.end()
