@@ -2,7 +2,7 @@
 # Uses uv for dependency management and development workflow
 
 .PHONY: help sync dev update deps run test test-verbose test-coverage \
-        lint lint-fix format format-check type-check quality \
+        lint lint-fix format format-check type-check type-debt-report quality \
         build build-experiment build-experiment-arm64 build-experiment-x86_64 \
         build-macos build-macos-native build-macos-arm64 build-macos-x86_64 \
         build-windows build-linux release-macos \
@@ -31,6 +31,7 @@ help:
 	@echo "  format        - Format code with ruff"
 	@echo "  format-check  - Check formatting without changes"
 	@echo "  type-check    - Run mypy type checking"
+	@echo "  type-debt-report - Show grouped mypy legacy debt"
 	@echo "  quality       - lint + format-check + type-check"
 	@echo ""
 	@echo "Build:"
@@ -108,6 +109,9 @@ format-check:
 
 type-check:
 	$(PYTHON) scripts/check_mypy_baseline.py
+
+type-debt-report:
+	$(PYTHON) scripts/check_mypy_baseline.py --report
 
 quality: lint format-check type-check
 
