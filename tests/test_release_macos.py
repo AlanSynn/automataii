@@ -253,6 +253,8 @@ def test_makefile_deploy_uses_tag_triggered_strict_release_workflow():
     assert "uv sync --group build-macos" in release_workflow
     assert "matrix.arch" in release_workflow
     assert "macos-dmg-${{ matrix.arch }}" in release_workflow
+    assert "runner: macos-15" in release_workflow
+    assert "runner: macos-15-intel" in release_workflow
     assert "MotionSmith-macos-${{ matrix.arch }}.dmg" in release_workflow
     assert "MotionSmith-macos-universal2.dmg" not in release_workflow
     assert "--notarize --verify-release --strict-distribution" in release_workflow

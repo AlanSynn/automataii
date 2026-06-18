@@ -9,7 +9,7 @@ permissions:
 jobs:
   build-x86_64:
     name: Build macOS x86_64 (Intel)
-    runs-on: macos-13
+    runs-on: macos-15-intel
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -77,7 +77,7 @@ jobs:
 
   build-arm64:
     name: Build macOS arm64 (Apple Silicon)
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
