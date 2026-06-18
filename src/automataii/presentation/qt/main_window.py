@@ -2897,7 +2897,7 @@ class AutomataDesigner(QMainWindow):
             self,
             f"About {AppConfig.APP_NAME}",
             f"<p><b>{AppConfig.APP_NAME}</b></p>"
-            "<p>Version 0.1.0</p>"
+            f"<p>Version {AppConfig.APP_VERSION}</p>"
             "<p>Copyright &copy; 2024 MotionSmith Contributors</p>"
             "<p>This application helps design and simulate character mechanisms.</p>",
         )

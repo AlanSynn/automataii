@@ -11,6 +11,7 @@ from typing import cast
 
 from PyQt6.QtCore import QObject
 
+from automataii.utils.config import AppConfig
 from automataii.utils.update_config import configured_appcast_url, configured_update_url
 
 logger = logging.getLogger(__name__)
@@ -302,7 +303,9 @@ class AutoUpdater:
             winsparkle.win_sparkle_check_update_with_ui.restype = None
 
             # Configure WinSparkle
-            winsparkle.win_sparkle_set_app_details("MotionSmith", "MotionSmith", "0.1.0")
+            winsparkle.win_sparkle_set_app_details(
+                AppConfig.APP_NAME, AppConfig.APP_NAME, AppConfig.APP_VERSION
+            )
             winsparkle.win_sparkle_set_appcast_url(self.appcast_url.encode("utf-8"))
 
             # Initialize WinSparkle

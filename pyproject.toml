@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "automataii"
-version = "0.1.0"
+version = "0.1.1"
 description = "Interactive mechanism design and character animation platform"
 readme = "README.md"
 requires-python = ">=3.10,<3.13"

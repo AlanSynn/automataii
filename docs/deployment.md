@@ -132,7 +132,7 @@ If you intentionally build a different architecture, pass that exact asset name 
 GitHub Actions `workflow_dispatch` cannot directly receive a local binary upload. Upload the locally built DMG to a GitHub Release first:
 
 ```bash
-VERSION=v0.1.0
+VERSION=v0.1.1
 DMG=dist/MotionSmith-macos-universal2.dmg
 
 # Create the release if it does not exist.
@@ -156,7 +156,7 @@ After the DMG exists as a release asset, run:
 ```bash
 gh workflow run publish-ota.yml \
   --repo AlanSynn/automataii \
-  -f version=v0.1.0 \
+  -f version=v0.1.1 \
   -f dmg_asset_name=MotionSmith-macos-universal2.dmg \
   -f publish_pages=true \
   -f ota_smoke_passed=true
@@ -186,7 +186,7 @@ set -a
 source .env
 set +a
 
-VERSION=v0.1.0
+VERSION=v0.1.1
 DMG=dist/MotionSmith-macos-universal2.dmg
 PAYLOAD=signed-appcast-local
 

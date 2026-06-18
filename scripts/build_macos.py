@@ -154,10 +154,10 @@ class MacOSBuilder:
             with pyproject.open("rb") as handle:
                 version = tomllib.load(handle).get("project", {}).get("version")
             if isinstance(version, str) and version:
-                return normalize_release_version(version) or "0.1.0"
+                return normalize_release_version(version) or "0.1.1"
         except Exception:
             pass
-        return "0.1.0"
+        return "0.1.1"
 
     def release_version(self) -> str:
         """Return the expected appcast/bundle version for this build."""
