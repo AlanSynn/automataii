@@ -239,6 +239,8 @@ def test_makefile_deploy_uses_tag_triggered_strict_release_workflow():
     assert "WINDOWS_CERT_PASSWORD" in makefile
     assert "gh secret list" in recipe
     assert "gh secret list" in preflight_recipe
+    assert "scripts/verify_windows_certificate.py" in recipe
+    assert "scripts/verify_windows_certificate.py" in preflight_recipe
     assert "Refusing to push" in recipe
     assert "Deploy preflight passed" in preflight_recipe
     assert "git tag -a" in recipe

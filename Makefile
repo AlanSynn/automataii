@@ -179,6 +179,7 @@ deploy-preflight:
 		echo "Refusing to push $(RELEASE_TAG); signed Windows and notarized macOS release would fail."; \
 		exit 1; \
 	fi
+	@$(PYTHON) scripts/verify_windows_certificate.py --env-file .env --pfx-base64-env WINDOWS_CERT_PFX --password-env WINDOWS_CERT_PASSWORD
 	@test -z "$$(git ls-remote --tags $(RELEASE_REMOTE) refs/tags/$(RELEASE_TAG))" || (echo "Remote tag $(RELEASE_TAG) already exists on $(RELEASE_REMOTE)." && exit 1)
 	@if git rev-parse -q --verify "refs/tags/$(RELEASE_TAG)" >/dev/null; then \
 		echo "Local tag $(RELEASE_TAG) already exists; delete or choose RELEASE_TAG explicitly."; \
@@ -203,6 +204,7 @@ deploy:
 		echo "Refusing to push $(RELEASE_TAG); signed Windows and notarized macOS release would fail."; \
 		exit 1; \
 	fi
+	@$(PYTHON) scripts/verify_windows_certificate.py --env-file .env --pfx-base64-env WINDOWS_CERT_PFX --password-env WINDOWS_CERT_PASSWORD
 	@test -z "$$(git ls-remote --tags $(RELEASE_REMOTE) refs/tags/$(RELEASE_TAG))" || (echo "Remote tag $(RELEASE_TAG) already exists on $(RELEASE_REMOTE)." && exit 1)
 	@if git rev-parse -q --verify "refs/tags/$(RELEASE_TAG)" >/dev/null; then \
 		echo "Local tag $(RELEASE_TAG) already exists; delete or choose RELEASE_TAG explicitly."; \

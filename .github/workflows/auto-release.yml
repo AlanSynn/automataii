@@ -56,6 +56,9 @@ jobs:
             printf '::error::Missing production signing secret(s): %s\n' "${missing[*]}"
             exit 1
           fi
+          python3 scripts/verify_windows_certificate.py \
+            --pfx-base64-env WINDOWS_CERT_PFX \
+            --password-env WINDOWS_CERT_PASSWORD
           if [[ -n "${RELEASE_BOT_TOKEN:-}" ]]; then
             echo "release_via_tag_push=true" >> "$GITHUB_OUTPUT"
           else
@@ -125,9 +128,13 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add pyproject.toml
-          git commit -m "chore(release): ${RELEASE_TAG}"
+          if git diff --cached --quiet -- pyproject.toml; then
+            echo "pyproject.toml is already at ${RELEASE_TAG}; tagging current commit."
+          else
+            git commit -m "chore(release): ${RELEASE_TAG}"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
           git tag -a "$RELEASE_TAG" -m "MotionSmith ${RELEASE_TAG}"
-          git push origin "HEAD:${GITHUB_REF_NAME}"
           git push origin "$RELEASE_TAG"
 
       - name: Dispatch signed release build

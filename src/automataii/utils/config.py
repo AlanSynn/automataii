@@ -4,7 +4,7 @@ class AppConfig:
     """
 
     APP_NAME: str = "MotionSmith"
-    APP_VERSION: str = "0.1.2"
+    APP_VERSION: str = "0.1.3"
     ORGANIZATION_NAME: str = "MotionSmith"
     ORGANIZATION_DOMAIN: str = "motionsmith.app"
 

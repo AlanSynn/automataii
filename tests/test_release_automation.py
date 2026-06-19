@@ -28,6 +28,7 @@ def test_auto_release_workflow_bumps_and_dispatches_signed_release() -> None:
     assert "github-actions[bot]" in workflow
     assert "Preflight production signing secrets" in workflow
     assert "Missing production signing secret(s)" in workflow
+    assert "scripts/verify_windows_certificate.py" in workflow
     assert "APPLE_APP_SPECIFIC_PASSWORD" in workflow
     assert '["git", "tag", "--list", "v*"]' in workflow
     assert "re.fullmatch" in workflow
@@ -36,6 +37,8 @@ def test_auto_release_workflow_bumps_and_dispatches_signed_release() -> None:
     assert "patch += 1" in workflow
     assert "minor += 1" in workflow
     assert "git tag -a" in workflow
+    assert "git diff --cached --quiet -- pyproject.toml" in workflow
+    assert "tagging current commit" in workflow
     assert 'git commit -m "chore(release): ${RELEASE_TAG}"' in workflow
     assert "[skip ci]" not in workflow
     assert "release_via_tag_push=true" in workflow
