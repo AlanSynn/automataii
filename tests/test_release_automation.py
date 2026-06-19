@@ -108,6 +108,7 @@ def test_release_workflow_separates_github_release_from_ota_publish() -> None:
     assert "MOTIONSMITH_OTA_ENABLED" not in workflow
     assert "Reject built-in OTA publish for split macOS DMGs" in workflow
     assert "macos-dmg-*/*" in workflow
+    assert "release.yml rejects built-in OTA for split macOS DMGs" in workflow
     assert "inputs.publish_external && inputs.ota_smoke_passed" in workflow
     assert "Create Release with OTA payload" not in workflow
     assert "Create Release" in workflow

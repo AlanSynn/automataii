@@ -15,7 +15,7 @@ on:
         default: false
         type: boolean
       ota_smoke_passed:
-        description: 'manual attestation: also publish MotionSmith Pages OTA payload after matching old-to-new Sparkle OTA smoke evidence'
+        description: 'manual attestation flag; release.yml rejects built-in OTA for split macOS DMGs, use publish-ota.yml after selecting one verified DMG'
         required: true
         default: false
         type: boolean

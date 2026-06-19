@@ -85,7 +85,10 @@ separate notarized `MotionSmith-macos-arm64.dmg` and
 - `WINDOWS_CERT_PASSWORD` for the Windows PFX
 - `WINDOWS_SIGNTOOL_PATH` only if the Windows runner cannot find `signtool.exe` from the Windows SDK/PATH
 - `SPARKLE_PUBLIC_ED_KEY`
-- `SPARKLE_PRIVATE_ED_KEY` if publishing OTA in the same workflow
+
+The full release workflow deliberately does not use `SPARKLE_PRIVATE_ED_KEY` or publish the
+Sparkle/Pages OTA feed. OTA publication is a separate `publish-ota.yml` step after one exact
+macOS DMG has been selected and smoke-tested.
 
 Manual `workflow_dispatch` runs with `publish_external=false` use `WINDOWS_CERT_PFX` when a
 GitHub-secret Windows certificate is present. If it is missing, they can fall back to a public,
@@ -102,7 +105,9 @@ Temporary test-signed distribution is possible only through manual `workflow_dis
 notarized macOS DMGs and signed Windows zip, but marks the GitHub Release as a prerelease and
 adds a warning that the Windows artifact uses a self-signed/test certificate. Replace
 `WINDOWS_CERT_PFX` with a CA-issued code-signing certificate before treating Windows builds as
-trusted public distribution artifacts.
+trusted public distribution artifacts. `publish-ota.yml` refuses to publish OTA metadata from
+draft or prerelease GitHub Releases, so this temporary test-signed prerelease cannot become the
+stable Sparkle update feed by accident.
 
 ## Local signed Windows build
 
@@ -211,16 +216,17 @@ gh workflow run publish-ota.yml \
 
 The workflow will:
 
-1. Download the exact named DMG release asset.
-2. Reject non-DMG DMG inputs, glob-style asset names, non-HTML release notes, and ambiguous staging if any extra `.dmg` file is present after all optional assets are downloaded.
-3. Install pinned Sparkle 2.9.3.
-4. Verify the downloaded DMG is signed, notarized, strict-distribution-ready, and OTA-ready via `scripts/verify_macos_release.py`.
-5. Mount the DMG and compare the app's `SUPublicEDKey` to the configured `SPARKLE_PUBLIC_ED_KEY`.
-6. Generate a signed `appcast.xml` using Sparkle's official `generate_appcast`.
-7. Validate version, HTTPS URL prefix, EdDSA signature presence, and local payload references.
-8. Upload generated OTA metadata, excluding the DMG, back to the GitHub Release.
-9. If `publish_pages=true`, preflight write access to `AlanSynn/motionsmith` and publish the payload to Pages.
-10. Check live HTTPS reachability for the published appcast and assets.
+1. Reject draft/prerelease GitHub Releases before downloading any release assets.
+2. Download the exact named DMG release asset.
+3. Reject non-DMG DMG inputs, glob-style asset names, non-HTML release notes, and ambiguous staging if any extra `.dmg` file is present after all optional assets are downloaded.
+4. Install pinned Sparkle 2.9.3.
+5. Verify the downloaded DMG is signed, notarized, strict-distribution-ready, and OTA-ready via `scripts/verify_macos_release.py`.
+6. Mount the DMG and compare the app's `SUPublicEDKey` to the configured `SPARKLE_PUBLIC_ED_KEY`.
+7. Generate a signed `appcast.xml` using Sparkle's official `generate_appcast`.
+8. Validate version, HTTPS URL prefix, EdDSA signature presence, and local payload references.
+9. Upload generated OTA metadata, excluding the DMG, back to the GitHub Release.
+10. If `publish_pages=true`, preflight write access to `AlanSynn/motionsmith` and publish the payload to Pages.
+11. Check live HTTPS reachability for the published appcast and assets.
 
 Keep `ota_smoke_passed=false` until the candidate local build and update path have been tested. The flag is a deliberate manual release gate and attests that the configured Sparkle public/private keys are intended for this release.
 
@@ -279,7 +285,7 @@ Use the local path only after confirming the DMG is signed, notarized, and built
 
 - Pages deployment credentials are configured for Actions.
 - Sparkle EdDSA signing and public verification credentials are configured for Actions.
-- Full CI macOS signing/notarization remains blocked until `MACOS_CERT_P12`, `MACOS_CERT_PASSWORD`, `KEYCHAIN_PASSWORD`, `MACOS_SIGN_IDENTITY`, `APPLE_ID`, `APPLE_TEAM_ID`, and `APPLE_APP_SPECIFIC_PASSWORD` are available in Actions.
+- Full CI macOS signing/notarization requires `MACOS_CERT_P12`, `MACOS_CERT_PASSWORD`, `KEYCHAIN_PASSWORD`, `MACOS_SIGN_IDENTITY`, `APPLE_ID`, `APPLE_TEAM_ID`, and `APPLE_APP_SPECIFIC_PASSWORD` in Actions.
 - GitHub-hosted macOS runners create a fresh temporary notary profile per run; profile-only notarization without Apple ID credentials is not supported for public releases.
 - The deploy-only workflow does not need Apple signing/notarization secrets because it never builds the app.
 
@@ -294,7 +300,10 @@ Pushes to `main` run `.github/workflows/auto-release.yml`:
 - with `RELEASE_BOT_TOKEN`, the PAT-created tag push triggers `release.yml`, so explicit dispatch is skipped to avoid duplicate releases
 - if production signing secrets are missing, it fails before changing `pyproject.toml` or creating a tag
 
-`release.yml` builds the GitHub Release in Actions for strict `vX.Y.Z` tags only. It only publishes the Sparkle/Pages OTA payload when `ota_smoke_passed=true`; auto push releases dispatch with `ota_smoke_passed=false`.
+`release.yml` builds the GitHub Release in Actions for strict `vX.Y.Z` tags only. It does not
+publish the Sparkle/Pages OTA payload directly; if `ota_smoke_passed=true` is supplied to
+`release.yml`, the workflow fails with instructions to run `publish-ota.yml` after selecting one
+verified macOS DMG. Auto push releases dispatch with `ota_smoke_passed=false`.
 
 Required production signing secrets before public releases can pass:
 

@@ -42,7 +42,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
@@ -58,6 +58,16 @@ jobs:
           DMG_ASSET_NAME: ${{ inputs.dmg_asset_name }}
           RELEASE_NOTES_ASSET_NAME: ${{ inputs.release_notes_asset_name }}
         run: |
+          release_state="$(gh release view "$VERSION" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json isDraft,isPrerelease \
+            --jq '[.isDraft,.isPrerelease] | @tsv')"
+          read -r is_draft is_prerelease <<< "$release_state"
+          if [[ "$is_draft" == "true" || "$is_prerelease" == "true" ]]; then
+            echo "::error::Refusing OTA publication from a draft or prerelease GitHub Release. Promote the release only after every platform artifact is production-ready."
+            exit 1
+          fi
+
           if [[ "$DMG_ASSET_NAME" != *.dmg ]]; then
             echo "::error::dmg_asset_name must end with .dmg."
             exit 1

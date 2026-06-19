@@ -752,8 +752,14 @@ def test_deploy_only_ota_workflow_uses_release_asset_without_building():
 
     assert "contents: write" in workflow
     assert "persist-credentials: false" in workflow
+    assert "actions/setup-python@v5" in workflow
+    assert "actions/setup-python@v4" not in workflow
     assert "GH_TOKEN: ${{ github.token }}" in workflow
     assert "gh release download" in workflow
+    assert 'gh release view "$VERSION"' in workflow
+    assert "--json isDraft,isPrerelease" in workflow
+    assert "Refusing OTA publication from a draft or prerelease GitHub Release" in workflow
+    assert workflow.index('gh release view "$VERSION"') < workflow.index("gh release download")
     assert "gh release upload" in workflow
     assert "scripts/install_sparkle.py" in workflow
     assert "scripts/verify_macos_release.py" in workflow
@@ -828,8 +834,11 @@ def test_deployment_docs_cover_local_build_and_deploy_only_ota():
         "extra `.dmg`",
         "MACOS_CERT_P12",
         "MACOS_CERT_PASSWORD",
+        "draft or prerelease GitHub Releases",
+        "Sparkle/Pages OTA payload directly",
     ):
         assert required in docs
+    assert "if publishing OTA in the same workflow" not in docs
 
 
 def test_pages_payload_copy_preserves_unrelated_site_files(tmp_path):
