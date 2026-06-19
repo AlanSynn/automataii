@@ -70,7 +70,7 @@ def test_release_trigger_matrix_has_one_owner_for_auto_release_modes() -> None:
 
     assert "if: ${{ steps.preflight.outputs.release_via_tag_push != 'true' }}" in auto_release
     assert (
-        "if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.ota_smoke_passed) }}"
+        "if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.ota_smoke_passed && !inputs.allow_test_windows_certificate) }}"
         in release
     )
     assert "Reject built-in OTA publish for split macOS DMGs" in release
@@ -111,6 +111,10 @@ def test_release_workflow_separates_github_release_from_ota_publish() -> None:
     assert "inputs.publish_external && inputs.ota_smoke_passed" in workflow
     assert "Create Release with OTA payload" not in workflow
     assert "Create Release" in workflow
+    assert "allow_test_windows_certificate" in workflow
+    assert "Create Test-Signed Prerelease" in workflow
+    assert "prerelease: true" in workflow
+    assert "Temporary test-signed Windows release note" in workflow
     assert (
         "github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish_external)"
         in workflow

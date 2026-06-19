@@ -97,6 +97,13 @@ macOS signing/notarization secrets. Tagged/full external releases build separate
 notarized Apple Silicon and Intel DMGs in CI because current binary dependencies
 (such as NumPy/SciPy/ONNX Runtime) are not all available as universal2 wheels.
 
+Temporary test-signed distribution is possible only through manual `workflow_dispatch` with
+`publish_external=true` and `allow_test_windows_certificate=true`. That path still builds the
+notarized macOS DMGs and signed Windows zip, but marks the GitHub Release as a prerelease and
+adds a warning that the Windows artifact uses a self-signed/test certificate. Replace
+`WINDOWS_CERT_PFX` with a CA-issued code-signing certificate before treating Windows builds as
+trusted public distribution artifacts.
+
 ## Local signed Windows build
 
 Windows releases are built on Windows because PyInstaller is not a cross-compiler. The release

@@ -19,6 +19,11 @@ on:
         required: true
         default: false
         type: boolean
+      allow_test_windows_certificate:
+        description: 'TEMPORARY: allow a self-signed/test Windows certificate and mark the GitHub Release as prerelease'
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -198,14 +203,14 @@ jobs:
         env:
           WINDOWS_CERT_PFX: ${{ secrets.WINDOWS_CERT_PFX }}
           WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
-          WINDOWS_ALLOW_TEST_CERTIFICATE: ${{ github.event_name == 'workflow_dispatch' && !inputs.publish_external && '1' || '' }}
+          WINDOWS_ALLOW_TEST_CERTIFICATE: ${{ github.event_name == 'workflow_dispatch' && (!inputs.publish_external || inputs.allow_test_windows_certificate) && '1' || '' }}
         run: |
           if ($env:WINDOWS_CERT_PFX -and $env:WINDOWS_CERT_PASSWORD) {
             [IO.File]::WriteAllBytes("windows-cert.pfx", [Convert]::FromBase64String($env:WINDOWS_CERT_PFX))
             "WINDOWS_CERT_PASSWORD=$env:WINDOWS_CERT_PASSWORD" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
             if ($env:WINDOWS_ALLOW_TEST_CERTIFICATE -eq "1") {
               "WINDOWS_TEST_CERTIFICATE_MODE=1" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-              Write-Host "Loaded GitHub-secret Windows signing certificate payload for non-production smoke."
+              Write-Warning "Loaded GitHub-secret Windows signing certificate payload in test-certificate mode. This is temporary and not a trusted public Windows signature."
             } else {
               $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new("windows-cert.pfx", $env:WINDOWS_CERT_PASSWORD)
               if ($cert.Subject -eq $cert.Issuer -or $cert.Subject -match "Test Signing|CI Test|Self-Signed") {
@@ -334,7 +339,7 @@ jobs:
         uses: actions/download-artifact@v4
 
       - name: Create Release
-        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.ota_smoke_passed) }}
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.ota_smoke_passed && !inputs.allow_test_windows_certificate) }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.validate-release-ref.outputs.version }}
@@ -346,3 +351,20 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Create Test-Signed Prerelease
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_external && !inputs.ota_smoke_passed && inputs.allow_test_windows_certificate }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.validate-release-ref.outputs.version }}
+          files: |
+            macos-dmg-*/*
+            linux-appimage/*
+            windows-release/*
+          prerelease: true
+          body: |
+            ⚠️ Temporary test-signed Windows release note:
+            This workflow run was allowed to use a self-signed/test Windows certificate only when `allow_test_windows_certificate=true`.
+            Replace `WINDOWS_CERT_PFX` with a CA-issued Windows code-signing certificate before treating Windows artifacts as trusted public distribution builds.
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
