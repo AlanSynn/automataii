@@ -333,7 +333,9 @@ def gear_attachment_grid_offsets_mm(
     pitch_mm = grid_step_mm(grid_cell_cm)
     pitch_scale = pitch_mm / DEFAULT_GRID_PITCH_MM
     hole_radius = max(0.1, finite_float(profile.hole_diameter_mm, DEFAULT_HOLE_DIAMETER_MM) / 2.0)
-    pitch_radius = max(1.0, finite_float(pitch_radius_mm, gear_radius_for_teeth(8, profile=profile)))
+    pitch_radius = max(
+        1.0, finite_float(pitch_radius_mm, gear_radius_for_teeth(8, profile=profile))
+    )
     tooth_depth = profile.gear_radius_per_tooth_mm * pitch_scale
     root_radius = max(hole_radius + 8.0, pitch_radius - tooth_depth * 1.25)
     max_attachment_radius = root_radius - hole_radius - 4.0
@@ -717,7 +719,9 @@ def snap_gear_linkage_params(
         )
         if candidates:
             requested = finite_float(snapped.get("gear2_teeth"), _gear_preset_at(profile, 1).teeth)
-            driven = min(candidates, key=lambda preset: (abs(preset.teeth - requested), preset.teeth))
+            driven = min(
+                candidates, key=lambda preset: (abs(preset.teeth - requested), preset.teeth)
+            )
             snapped["gear2_teeth"] = driven.teeth
             snapped["gear2_radius"] = gear_radius_for_teeth(driven.teeth, profile=profile)
             snapped["r2"] = snapped["gear2_radius"]
@@ -917,7 +921,9 @@ def snap_parameter_value(
         if key == "linkage_arm_length":
             return nearest_linkage_length_mm(value, normalized_grid_cell_cm, profile=profile)
         if key == "linkage_pin_radius":
-            default_radius = gear_radius_for_teeth(_gear_preset_at(profile, 1).teeth, profile=profile)
+            default_radius = gear_radius_for_teeth(
+                _gear_preset_at(profile, 1).teeth, profile=profile
+            )
             return nearest_gear_attachment_radius_mm(
                 value,
                 default_radius,

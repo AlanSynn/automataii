@@ -197,9 +197,7 @@ class RecommendationController(QObject):
             return
 
         physical_context = (
-            self._instantiation_service.physical_context()
-            if self._instantiation_service
-            else None
+            self._instantiation_service.physical_context() if self._instantiation_service else None
         )
         dialog = MechanismRecommendationDialog(
             enabled_parts[target_part_name],

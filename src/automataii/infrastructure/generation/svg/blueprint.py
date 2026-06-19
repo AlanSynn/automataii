@@ -261,11 +261,13 @@ def generate_single_large_blueprint(
     # Unit conversion functions
     def format_dimension(value_mm: float) -> str:
         value_mm = _positive_dimension(value_mm, 0.0)
-        return str(format_length_for_user(
-            value_mm,
-            unit_system=unit_system,
-            include_board_spaces=False,
-        ))
+        return str(
+            format_length_for_user(
+                value_mm,
+                unit_system=unit_system,
+                include_board_spaces=False,
+            )
+        )
 
     # Start building SVG content
     svg_parts = []
@@ -518,11 +520,13 @@ def _generate_single_part_page(
 
     # Unit conversion function
     def format_dimension(value_mm: float) -> str:
-        return str(format_length_for_user(
-            value_mm,
-            unit_system=unit_system,
-            include_board_spaces=False,
-        ))
+        return str(
+            format_length_for_user(
+                value_mm,
+                unit_system=unit_system,
+                include_board_spaces=False,
+            )
+        )
 
     def get_unit_label() -> str:
         return "Imperial" if unit_system == "imperial" else "Metric"
@@ -657,11 +661,13 @@ def _generate_single_mechanism_page(
 
     # Unit conversion function
     def format_dimension(value_mm: float) -> str:
-        return str(format_length_for_user(
-            value_mm,
-            unit_system=unit_system,
-            include_board_spaces=False,
-        ))
+        return str(
+            format_length_for_user(
+                value_mm,
+                unit_system=unit_system,
+                include_board_spaces=False,
+            )
+        )
 
     def get_unit_label() -> str:
         return "Imperial" if unit_system == "imperial" else "Metric"

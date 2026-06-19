@@ -3045,7 +3045,9 @@ class AutomataDesigner(QMainWindow):
             badge = self._ensure_physical_mode_badge()
             badge.setToolTip(summary)
             if context.enabled:
-                badge.setText(f"Fabrication-ready kit: {physical_kit_preset_summary(context.profile)}")
+                badge.setText(
+                    f"Fabrication-ready kit: {physical_kit_preset_summary(context.profile)}"
+                )
                 badge.setStyleSheet(
                     """
                     QLabel {
@@ -3084,7 +3086,10 @@ class AutomataDesigner(QMainWindow):
                 getattr(self, "image_proc_tab", None),
                 "Character Selection — choose one of the sample drawings or load your own image",
             ),
-            (getattr(self, "editor_tab", None), "Path Editor — draw motion paths on character parts"),
+            (
+                getattr(self, "editor_tab", None),
+                "Path Editor — draw motion paths on character parts",
+            ),
             (
                 getattr(self, "mechanism_design_tab", None),
                 "Mechanism Design — attach and tune mechanisms",

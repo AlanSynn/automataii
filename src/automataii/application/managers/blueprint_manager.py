@@ -437,11 +437,15 @@ class BlueprintExportManager(QObject):
         item_width, item_height = BlueprintExportManager._item_dimensions(item)
         stride_w = max(1.0, CUT_SHEET_CONTENT_W_MM - CUT_SHEET_TILE_OVERLAP_MM)
         stride_h = max(1.0, CUT_SHEET_CONTENT_H_MM - CUT_SHEET_TILE_OVERLAP_MM)
-        cols = 1 if item_width <= CUT_SHEET_CONTENT_W_MM else math.ceil(
-            (item_width - CUT_SHEET_TILE_OVERLAP_MM) / stride_w
+        cols = (
+            1
+            if item_width <= CUT_SHEET_CONTENT_W_MM
+            else math.ceil((item_width - CUT_SHEET_TILE_OVERLAP_MM) / stride_w)
         )
-        rows = 1 if item_height <= CUT_SHEET_CONTENT_H_MM else math.ceil(
-            (item_height - CUT_SHEET_TILE_OVERLAP_MM) / stride_h
+        rows = (
+            1
+            if item_height <= CUT_SHEET_CONTENT_H_MM
+            else math.ceil((item_height - CUT_SHEET_TILE_OVERLAP_MM) / stride_h)
         )
         return max(1, cols), max(1, rows)
 
@@ -471,7 +475,7 @@ class BlueprintExportManager(QObject):
             f'<line x1="{content_x:.1f}" y1="{bottom - 3:.1f}" x2="{content_x:.1f}" y2="{bottom + 3:.1f}"/>',
             f'<line x1="{right - 3:.1f}" y1="{bottom:.1f}" x2="{right + 3:.1f}" y2="{bottom:.1f}"/>',
             f'<line x1="{right:.1f}" y1="{bottom - 3:.1f}" x2="{right:.1f}" y2="{bottom + 3:.1f}"/>',
-            '</g>',
+            "</g>",
         ]
         return "\n  ".join(marks)
 
@@ -531,7 +535,7 @@ class BlueprintExportManager(QObject):
             middle_section = (
                 '<rect x="18" y="134" width="103" height="96" class="warning"/>'
                 '<text x="26" y="149" class="body-strong">Export notice</text>'
-                f'{"".join(rows)}'
+                f"{''.join(rows)}"
             )
         return f'''<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="{width}mm" height="{height}mm"
@@ -550,7 +554,7 @@ class BlueprintExportManager(QObject):
   <text x="26" y="114" class="body">4. Follow assembly/assembly-guide.pdf one step card at a time.</text>
   {middle_section}
   <rect x="{calibration_x}" y="{calibration_y}" width="{calibration_size}" height="{calibration_size}" class="calibration"/>
-  {''.join(grid_lines)}
+  {"".join(grid_lines)}
   <text x="{calibration_x}" y="{calibration_y - 7}" class="body-strong">2 in calibration square</text>
   <text x="{calibration_x}" y="{calibration_y + calibration_size + 10}" class="tiny">If not 2 in, turn off printer scaling.</text>
   <text x="18" y="{height - 18}" class="tiny">MotionSmith fabrication export · current design cut sheets · page 1 of {total_pages}</text>
@@ -679,10 +683,7 @@ class BlueprintExportManager(QObject):
         mechanism_count = len(
             tuple(item for item in layout_items if getattr(item, "item_type", None) == "mechanism")
         )
-        tile_counts = tuple(
-            (item, *self._part_tile_grid(item))
-            for item in part_layout_items
-        )
+        tile_counts = tuple((item, *self._part_tile_grid(item)) for item in part_layout_items)
         total_pages = 1 + sum(cols * rows for _item, cols, rows in tile_counts)
         pages = [
             self._cut_sheet_cover_page_svg(
@@ -729,7 +730,7 @@ class BlueprintExportManager(QObject):
             f'xmlns:xlink="http://www.w3.org/1999/xlink" '
             f'width="{width}mm" height="{total_height:.1f}mm" '
             f'viewBox="0 0 {width} {total_height:.1f}">'
-            f'{"".join(nested)}</svg>\n'
+            f"{''.join(nested)}</svg>\n"
         )
 
     def _save_svg_pages(self, svg_pages: Sequence[str], file_path: str) -> bool:

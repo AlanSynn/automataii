@@ -15,6 +15,16 @@ def _write_windows_readme(project_root: Path) -> None:
     readme.write_text("readme", encoding="utf-8")
 
 
+def _minimal_pe(machine_type: int) -> bytes:
+    """Return enough PE header bytes for build_windows.pe_machine_type tests."""
+    payload = bytearray(0x90)
+    payload[0:2] = b"MZ"
+    payload[0x3C:0x40] = (0x80).to_bytes(4, "little")
+    payload[0x80:0x84] = b"PE\0\0"
+    payload[0x84:0x86] = machine_type.to_bytes(2, "little")
+    return bytes(payload)
+
+
 def test_sign_executable_uses_sha256_timestamp(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
     builder = build_windows.WindowsBuilder(tmp_path)
     exe = tmp_path / "dist" / "MotionSmith" / "MotionSmith.exe"
@@ -334,6 +344,42 @@ def test_stage_winsparkle_copies_dll_beside_executable(tmp_path: Path) -> None:
 
     assert staged == exe.parent / "WinSparkle.dll"
     assert staged.read_bytes() == b"dll"
+
+
+def test_stage_winsparkle_prefers_x64_release_dll(tmp_path: Path) -> None:
+    builder = build_windows.WindowsBuilder(tmp_path)
+    arm64_dll = tmp_path / "WinSparkle" / "ARM64" / "Release" / "WinSparkle.dll"
+    x64_dll = tmp_path / "WinSparkle" / "x64" / "Release" / "WinSparkle.dll"
+    exe = tmp_path / "dist" / "MotionSmith" / "MotionSmith.exe"
+    arm64_dll.parent.mkdir(parents=True)
+    x64_dll.parent.mkdir(parents=True)
+    exe.parent.mkdir(parents=True)
+    arm64_dll.write_bytes(_minimal_pe(build_windows.PE_MACHINE_BY_ARCH["arm64"]))
+    x64_payload = _minimal_pe(build_windows.PE_MACHINE_BY_ARCH["x64"])
+    x64_dll.write_bytes(x64_payload)
+    exe.write_bytes(b"exe")
+
+    staged = builder.stage_winsparkle(tmp_path / "WinSparkle", exe)
+
+    assert staged == exe.parent / "WinSparkle.dll"
+    assert staged.read_bytes() == x64_payload
+
+
+def test_stage_winsparkle_rejects_wrong_machine_type(tmp_path: Path) -> None:
+    builder = build_windows.WindowsBuilder(tmp_path)
+    x64_dll = tmp_path / "WinSparkle" / "x64" / "Release" / "WinSparkle.dll"
+    exe = tmp_path / "dist" / "MotionSmith" / "MotionSmith.exe"
+    x64_dll.parent.mkdir(parents=True)
+    exe.parent.mkdir(parents=True)
+    x64_dll.write_bytes(_minimal_pe(build_windows.PE_MACHINE_BY_ARCH["arm64"]))
+    exe.write_bytes(b"exe")
+
+    try:
+        builder.stage_winsparkle(tmp_path / "WinSparkle", exe)
+    except RuntimeError as exc:
+        assert "architecture mismatch" in str(exc)
+    else:  # pragma: no cover - assertion path
+        raise AssertionError("x64 release must reject an ARM64 WinSparkle.dll")
 
 
 def test_find_built_executable_rejects_flat_layout(tmp_path: Path) -> None:

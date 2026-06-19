@@ -1064,7 +1064,9 @@ class MechanismVisualAnimator:
                 center_marker.setRect(planet_scene.x() - 4.0, planet_scene.y() - 4.0, 8.0, 8.0)
 
             hole_radius = gear_hole_radius(r_planet_screen)
-            for index, hole_center in enumerate(physical_planet_holes(planet_scene, planet_orig, phase)):
+            for index, hole_center in enumerate(
+                physical_planet_holes(planet_scene, planet_orig, phase)
+            ):
                 hole = keyed_items.get(f"planetary_planet_{planet_index}_hole_{index}")
                 if hole is None and planet_index == 1:
                     hole = keyed_items.get(f"planetary_planet_hole_{index}")

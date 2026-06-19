@@ -11,7 +11,7 @@
     "index": 4,
     "misc": 1,
     "no-any-return": 87,
-    "no-untyped-def": 533,
+    "no-untyped-def": 532,
     "operator": 9,
     "override": 42,
     "return-value": 8,
@@ -593,7 +593,6 @@
     "src/automataii/presentation/qt/parametric/components/constraint_solver.py: error: Incompatible types in assignment (expression has type \"float\", target has type \"QPointF\")  [assignment] | source:constraints[\"angle\"] = fixed_angle",
     "src/automataii/presentation/qt/parametric/components/constraint_solver.py: error: Incompatible types in assignment (expression has type \"float\", target has type \"QPointF\")  [assignment] | source:constraints[\"max_radius\"] = max_radius",
     "src/automataii/presentation/qt/parametric/components/constraint_solver.py: error: Incompatible types in assignment (expression has type \"float\", target has type \"QPointF\")  [assignment] | source:constraints[\"min_radius\"] = min_radius",
-    "src/automataii/presentation/qt/parametric/components/gear_editor.py: error: Function is missing a return type annotation  [no-untyped-def] | source:def _profile_for_params(params: dict[str, Any]):",
     "src/automataii/presentation/qt/shared/layout_utils.py: error: \"QLayout\" has no attribute \"insertWidget\"  [attr-defined] | source:layout.insertWidget(i, new_widget)",
     "src/automataii/presentation/qt/shared/scene_update_batcher.py: error: Function is missing a type annotation for one or more arguments  [no-untyped-def] | source:def __exit__(self, exc_type, exc_val, exc_tb) -> None:",
     "src/automataii/presentation/qt/shared/widget_utils.py: error: Argument 1 to \"setRange\" of \"QSpinBox\" has incompatible type \"float\"; expected \"int\"  [arg-type] | source:self._spinbox.setRange(self._min_value, self._max_value)",
@@ -1146,7 +1145,6 @@
     "src/automataii/presentation/qt/parametric/components/base_editor.py": 10,
     "src/automataii/presentation/qt/parametric/components/cam_editor.py": 2,
     "src/automataii/presentation/qt/parametric/components/constraint_solver.py": 3,
-    "src/automataii/presentation/qt/parametric/components/gear_editor.py": 1,
     "src/automataii/presentation/qt/shared/layout_utils.py": 1,
     "src/automataii/presentation/qt/shared/scene_update_batcher.py": 1,
     "src/automataii/presentation/qt/shared/widget_utils.py": 7,
@@ -1196,10 +1194,10 @@
     "application": 27,
     "domain-core": 2,
     "infrastructure": 44,
-    "legacy-qt-ui": 949,
+    "legacy-qt-ui": 948,
     "opencv-image-pipeline": 44,
     "presentation-other": 6
   },
   "target": "src/automataii",
-  "total_errors": 1072
+  "total_errors": 1071
 }

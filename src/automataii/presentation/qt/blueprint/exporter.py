@@ -672,8 +672,12 @@ class BlueprintExporter:
             dimensions_text += "Cam Dimensions (in / board spaces):\n"
             dimensions_text += f"  Base Radius: {format_length_for_user(base_radius)}\n"
             dimensions_text += f"  Eccentricity: {format_length_for_user(eccentricity)}\n"
-            dimensions_text += f"  Max Radius: {format_length_for_user(base_radius + eccentricity)}\n"
-            dimensions_text += f"  Min Radius: {format_length_for_user(base_radius - eccentricity)}\n"
+            dimensions_text += (
+                f"  Max Radius: {format_length_for_user(base_radius + eccentricity)}\n"
+            )
+            dimensions_text += (
+                f"  Min Radius: {format_length_for_user(base_radius - eccentricity)}\n"
+            )
             dimensions_text += f"  Follower Rod Length: {format_length_for_user(rod_length)}\n"
 
         elif mech_type == "gear":
@@ -953,9 +957,7 @@ class BlueprintExporter:
             instructions += f"   - Crank: {format_length_for_user(L2)}\n"
             instructions += f"   - Coupler: {format_length_for_user(L3)}\n"
             instructions += f"   - Rocker: {format_length_for_user(L4)}\n\n"
-            instructions += (
-                f"2. Drill holes at both ends of each bar ({FABRICATION_HOLE_DIAMETER_INCH_LABEL})\n"
-            )
+            instructions += f"2. Drill holes at both ends of each bar ({FABRICATION_HOLE_DIAMETER_INCH_LABEL})\n"
             instructions += "3. Mount ground link to base plate\n"
             instructions += "4. Connect crank to left ground pivot\n"
             instructions += "5. Connect rocker to right ground pivot\n"
@@ -996,9 +998,7 @@ class BlueprintExporter:
             instructions += "- Rotation shaft and bearing\n\n"
             instructions += "Cam Profile Creation:\n"
             instructions += "1. Use the generated CAM profile from the blueprint/SVG export:\n"
-            instructions += (
-                f"   - Base radius/reference: {format_length_for_user(base_radius)}\n"
-            )
+            instructions += f"   - Base radius/reference: {format_length_for_user(base_radius)}\n"
             instructions += (
                 f"   - Lift/eccentricity input: {format_length_for_user(eccentricity)}\n"
             )

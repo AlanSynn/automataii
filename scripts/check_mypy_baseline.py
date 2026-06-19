@@ -258,8 +258,7 @@ def main() -> int:
         delta = baseline_total - current_total
         print(
             f"mypy legacy debt within baseline: {current_total}/{baseline_total} errors "
-            f"across {len(current_files)} files"
-            + (f" ({delta} fewer)" if delta else "")
+            f"across {len(current_files)} files" + (f" ({delta} fewer)" if delta else "")
         )
         if fixed_errors:
             print(f"fixed legacy errors waiting for baseline update: {len(fixed_errors)}")

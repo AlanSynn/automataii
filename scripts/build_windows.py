@@ -32,6 +32,17 @@ def _download_file(url: str, destination: Path) -> Path:
 DEFAULT_TIMESTAMP_URL = "http://timestamp.digicert.com"
 DEFAULT_CERT_PASSWORD_ENV = "WINDOWS_CERT_PASSWORD"
 WINSPARKLE_ZIP_SHA256 = "ffada2df3180de5376bfcde076a13ef406c87a83173ca62ae02b583cd7103c58"
+DEFAULT_WINSPARKLE_TARGET_ARCH = "x64"
+PE_MACHINE_BY_ARCH = {
+    "x86": 0x014C,
+    "x64": 0x8664,
+    "arm64": 0xAA64,
+}
+WINSPARKLE_ARCH_ALIASES = {
+    "x86": ("x86", "win32"),
+    "x64": ("x64", "amd64", "win64"),
+    "arm64": ("arm64", "aarch64"),
+}
 
 # Logging setup
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -212,13 +223,83 @@ class WindowsBuilder:
         except subprocess.CalledProcessError as exc:
             raise RuntimeError("SignTool verification failed") from exc
 
-    def stage_winsparkle(self, winsparkle_dir: Path, exe_path: Path) -> Path:
-        """Copy WinSparkle.dll beside MotionSmith.exe so auto-update works from the zip."""
+    @staticmethod
+    def pe_machine_type(path: Path) -> int | None:
+        """Return a Windows PE machine type, or None when the file is not parseable PE."""
+        data = path.read_bytes()
+        if len(data) < 0x40 or data[:2] != b"MZ":
+            return None
+        pe_offset = int.from_bytes(data[0x3C:0x40], "little")
+        if pe_offset < 0 or len(data) < pe_offset + 6:
+            return None
+        if data[pe_offset : pe_offset + 4] != b"PE\0\0":
+            return None
+        return int.from_bytes(data[pe_offset + 4 : pe_offset + 6], "little")
+
+    @staticmethod
+    def _winsparkle_candidate_matches_arch(path: Path, target_arch: str) -> bool:
+        aliases = WINSPARKLE_ARCH_ALIASES.get(target_arch, (target_arch,))
+        return any(part.lower() in aliases for part in path.parts)
+
+    @staticmethod
+    def _winsparkle_candidate_rank(path: Path) -> tuple[int, int, str]:
+        parts = {part.lower() for part in path.parts}
+        release_rank = 0 if "release" in parts else 1
+        return (release_rank, len(path.parts), str(path).lower())
+
+    def select_winsparkle_dll(
+        self,
+        winsparkle_dir: Path,
+        target_arch: str = DEFAULT_WINSPARKLE_TARGET_ARCH,
+    ) -> Path:
+        """Select the WinSparkle DLL matching the Windows build architecture."""
         matches = sorted(winsparkle_dir.rglob("WinSparkle.dll"))
         if not matches:
             raise FileNotFoundError(f"WinSparkle.dll not found under {winsparkle_dir}")
+
+        arch_matches = [
+            path for path in matches if self._winsparkle_candidate_matches_arch(path, target_arch)
+        ]
+        if arch_matches:
+            selected = min(arch_matches, key=self._winsparkle_candidate_rank)
+        elif len(matches) == 1:
+            selected = matches[0]
+        else:
+            candidates = "\n".join(f"  - {path}" for path in matches)
+            raise FileNotFoundError(
+                f"Could not find a WinSparkle.dll for target architecture {target_arch!r}. "
+                f"Candidates:\n{candidates}"
+            )
+
+        self.verify_winsparkle_machine_type(selected, target_arch)
+        return selected
+
+    def verify_winsparkle_machine_type(self, path: Path, target_arch: str) -> None:
+        """Fail closed when a parseable WinSparkle DLL has the wrong PE architecture."""
+        expected = PE_MACHINE_BY_ARCH.get(target_arch)
+        if expected is None:
+            raise ValueError(f"Unsupported WinSparkle target architecture: {target_arch}")
+
+        actual = self.pe_machine_type(path)
+        if actual is None:
+            logger.warning("Could not parse PE machine type for %s; selected by path only.", path)
+            return
+        if actual != expected:
+            raise RuntimeError(
+                f"WinSparkle DLL architecture mismatch for {path}: "
+                f"expected 0x{expected:04x} ({target_arch}), got 0x{actual:04x}"
+            )
+
+    def stage_winsparkle(
+        self,
+        winsparkle_dir: Path,
+        exe_path: Path,
+        target_arch: str = DEFAULT_WINSPARKLE_TARGET_ARCH,
+    ) -> Path:
+        """Copy WinSparkle.dll beside MotionSmith.exe so auto-update works from the zip."""
+        winsparkle_dll = self.select_winsparkle_dll(winsparkle_dir, target_arch=target_arch)
         destination = exe_path.parent / "WinSparkle.dll"
-        shutil.copy2(matches[0], destination)
+        shutil.copy2(winsparkle_dll, destination)
         logger.info(f"WinSparkle staged at: {destination}")
         return destination
 

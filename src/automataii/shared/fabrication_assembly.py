@@ -1281,9 +1281,7 @@ def validate_assembly_package(
                 role = str(layer.get("role", ""))
                 part = str(layer.get("part", ""))
                 if role in {"spacer", "top-spacer"} and part != part_id("spacers", "s10"):
-                    raise AssemblyValidationError(
-                        f"Step {raw_n} must use S10 spacers in z-stack"
-                    )
+                    raise AssemblyValidationError(f"Step {raw_n} must use S10 spacers in z-stack")
 
             def _require_role_order(
                 expected_roles: Sequence[str],
@@ -1300,9 +1298,7 @@ def validate_assembly_package(
                             f"Step {_raw_n} z-stack missing {expected_role}"
                         ) from exc
                     if next_index <= cursor:
-                        raise AssemblyValidationError(
-                            f"Step {_raw_n} z-stack order is invalid"
-                        )
+                        raise AssemblyValidationError(f"Step {_raw_n} z-stack order is invalid")
                     cursor = next_index
 
             moving_anchor_roles = {
@@ -1354,7 +1350,10 @@ def validate_assembly_package(
                     )
             if "carrier-hole" in stack_role_set and "carrier_reference" not in coord_role_set:
                 raise AssemblyValidationError(f"Step {raw_n} carrier stack lacks carrier role")
-            if "gear-handle-hole" in stack_role_set and "gear_handle_reference" not in coord_role_set:
+            if (
+                "gear-handle-hole" in stack_role_set
+                and "gear_handle_reference" not in coord_role_set
+            ):
                 raise AssemblyValidationError(
                     f"Step {raw_n} gear handle stack lacks gear handle role"
                 )
@@ -1367,10 +1366,12 @@ def validate_assembly_package(
             if "link-end-hole" in stack_role_set and not (
                 {"link_end_reference", "slider_reference"} & coord_role_set
             ):
-                raise AssemblyValidationError(
-                    f"Step {raw_n} link end stack lacks moving end role"
-                )
-            if non_board_coord_roles and "board" not in coord_role_set and "board" in stack_role_set:
+                raise AssemblyValidationError(f"Step {raw_n} link end stack lacks moving end role")
+            if (
+                non_board_coord_roles
+                and "board" not in coord_role_set
+                and "board" in stack_role_set
+            ):
                 raise AssemblyValidationError(
                     f"Step {raw_n} moving-only coordinate was pinned to board"
                 )

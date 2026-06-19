@@ -394,7 +394,10 @@ class _PlanetaryGearPreviewMechanism:
         )
         orbit_radius = max(1.0, r_sun + r_planet + clearance * 0.5)
         ring_pitch_radius = orbit_radius + r_planet + clearance * 0.5
-        ring_teeth = max(sun_teeth + planet_teeth * 2, int(round(ring_pitch_radius / max(profile.gear_radius_per_tooth_mm, 1e-6))))
+        ring_teeth = max(
+            sun_teeth + planet_teeth * 2,
+            int(round(ring_pitch_radius / max(profile.gear_radius_per_tooth_mm, 1e-6))),
+        )
 
         theta = math.radians(_finite_float(input_angle, 0.0))
         carrier_angle = theta

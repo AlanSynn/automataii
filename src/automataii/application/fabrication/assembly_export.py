@@ -540,7 +540,9 @@ class FabricationAssemblyGuideExporter:
         if not raw_view_box:
             return None
         try:
-            values = tuple(float(value) for value in re.split(r"[,\s]+", raw_view_box.strip()) if value)
+            values = tuple(
+                float(value) for value in re.split(r"[,\s]+", raw_view_box.strip()) if value
+            )
         except ValueError:
             return None
         if len(values) != 4:
@@ -588,7 +590,9 @@ class FabricationAssemblyGuideExporter:
             body_svg=body_svg,
         )
 
-    def _quantity_part_instances(self, package: Mapping[str, object]) -> tuple[KitPartCutInstance, ...]:
+    def _quantity_part_instances(
+        self, package: Mapping[str, object]
+    ) -> tuple[KitPartCutInstance, ...]:
         """Return cut-part templates expanded by quantity with reusable SVG geometry."""
         manifest = self.load_manifest()
         index = manifest_part_index(manifest)
@@ -723,7 +727,7 @@ class FabricationAssemblyGuideExporter:
                 f'data-source-path="{html_escape(instance.source.name)}" '
                 f'data-copy-index="{instance.copy_index}" '
                 f'transform="translate({_fmt_mm(placed.x_mm)} {_fmt_mm(placed.y_mm)}) '
-                f'scale({_fmt_mm(scale_x)} {_fmt_mm(scale_y)}) '
+                f"scale({_fmt_mm(scale_x)} {_fmt_mm(scale_y)}) "
                 f'translate({_fmt_mm(-min_x)} {_fmt_mm(-min_y)})">'
                 f"{instance.body_svg}</g>"
                 f'<rect x="{_fmt_mm(placed.x_mm)}" y="{_fmt_mm(placed.y_mm)}" '
@@ -810,9 +814,9 @@ class FabricationAssemblyGuideExporter:
                 f'stroke="{html_escape(color)}" stroke-width="0.5"/>'
                 f'<circle cx="{x + 7}" cy="{y - 3}" r="3" fill="{html_escape(color)}"/>'
                 f'<text x="{x + 14}" y="{y - 4}" class="item">{index_text}. '
-                f'{_compact_svg_text(label, max_chars=25, suffix="…")}</text>'
+                f"{_compact_svg_text(label, max_chars=25, suffix='…')}</text>"
                 f'<text x="{x + 14}" y="{y + 0.7}" class="small">'
-                f'{_compact_svg_text(detail, max_chars=38, suffix="…")}</text>'
+                f"{_compact_svg_text(detail, max_chars=38, suffix='…')}</text>"
                 f'<text x="{x + 107}" y="{y - 2}" class="item" text-anchor="end">'
                 f"{html_escape(count_text)}</text>"
             )
@@ -874,7 +878,7 @@ class FabricationAssemblyGuideExporter:
                 f'<text x="24" y="{y - 4}" class="item">{index}. '
                 f"{html_escape(self._part_label(part_id))}</text>"
                 f'<text x="24" y="{y + 0.8}" class="small">'
-                f'{_compact_svg_text(part_id, max_chars=46, suffix="…")}</text>'
+                f"{_compact_svg_text(part_id, max_chars=46, suffix='…')}</text>"
                 f'<text x="194" y="{y - 2}" class="item" text-anchor="end">cut x{count}</text>'
             )
         if len(part_counts) > max_rows:
@@ -1396,7 +1400,9 @@ class FabricationAssemblyGuideExporter:
         )
 
     @staticmethod
-    def _coord_to_xy(label: object, *, x: float, y: float, size: float) -> tuple[float, float] | None:
+    def _coord_to_xy(
+        label: object, *, x: float, y: float, size: float
+    ) -> tuple[float, float] | None:
         try:
             point = board_coord_to_svg_xy(str(label), x=x, y=y, size=size)
             return (float(point[0]), float(point[1]))
@@ -1537,7 +1543,6 @@ class FabricationAssemblyGuideExporter:
             )
         return "".join(parts)
 
-
     @staticmethod
     def _part_category(part_id: str) -> str:
         category, _sep, _key = part_id.partition(":")
@@ -1557,7 +1562,12 @@ class FabricationAssemblyGuideExporter:
         root = max(1.0, radius * 0.80)
         for tooth in range(safe_teeth):
             base = 2.0 * math.pi * tooth / safe_teeth
-            for fraction, point_radius in ((0.08, root), (0.28, radius), (0.56, radius), (0.82, root)):
+            for fraction, point_radius in (
+                (0.08, root),
+                (0.28, radius),
+                (0.56, radius),
+                (0.82, root),
+            ):
                 theta = base + 2.0 * math.pi * fraction / safe_teeth
                 points.append(
                     (cx + point_radius * math.cos(theta), cy + point_radius * math.sin(theta))
@@ -1642,8 +1652,8 @@ class FabricationAssemblyGuideExporter:
                 f'fill="{html_escape(color)}" fill-opacity="0.20" stroke="#92400e" stroke-width="2.0"/>'
                 f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{max(4.0, radius * 0.58):.1f}" '
                 f'fill="#ffffff" fill-opacity="0.70" stroke="#92400e" stroke-width="1.0"/>'
-                f'{mount_holes}'
-                f'</g>'
+                f"{mount_holes}"
+                f"</g>"
             )
 
         if category == "gears":
@@ -1661,8 +1671,8 @@ class FabricationAssemblyGuideExporter:
                 f'<path d="{self._mini_gear_path(px, py, radius, teeth)}" fill="{html_escape(color)}" '
                 f'fill-opacity="0.58" stroke="#78350f" stroke-width="1.1" stroke-linejoin="round"/>'
                 f'<circle cx="{px:.1f}" cy="{py:.1f}" r="2.1" fill="#ffffff" stroke="#78350f" stroke-width="0.9"/>'
-                f'{hole_ring}'
-                f'</g>'
+                f"{hole_ring}"
+                f"</g>"
             )
 
         if category in {"linkages", "brackets", "followers"} and len(points) >= 2:
@@ -1681,8 +1691,8 @@ class FabricationAssemblyGuideExporter:
                 f'stroke="{html_escape(color)}" stroke-opacity="0.78" stroke-width="{width:.1f}" stroke-linecap="round"/>'
                 f'<path d="M {x1:.1f} {y1:.1f} L {x2:.1f} {y2:.1f}" fill="none" '
                 f'stroke="#1f2937" stroke-opacity="0.35" stroke-width="0.8" stroke-linecap="round"/>'
-                f'{holes}'
-                f'</g>'
+                f"{holes}"
+                f"</g>"
             )
 
         if category == "cams":
@@ -1701,7 +1711,7 @@ class FabricationAssemblyGuideExporter:
                 f'<g class="placed-part visual-spacer {state_class}" {attrs}>'
                 f'<circle cx="{px:.1f}" cy="{py:.1f}" r="4.0" fill="{html_escape(color)}" fill-opacity="0.34" stroke="#475569" stroke-width="0.8"/>'
                 f'<circle cx="{px:.1f}" cy="{py:.1f}" r="1.7" fill="#ffffff" stroke="#475569" stroke-width="0.55"/>'
-                f'</g>'
+                f"</g>"
             )
 
         if part_id.startswith("hardware:"):
@@ -1711,7 +1721,7 @@ class FabricationAssemblyGuideExporter:
                 f'<circle cx="{px:.1f}" cy="{py:.1f}" r="4.6" fill="#fb923c" fill-opacity="0.42" stroke="#9a3412" stroke-width="1.0"/>'
                 f'<path d="M {px - 5:.1f} {py:.1f} L {px + 5:.1f} {py:.1f} M {px:.1f} {py - 5:.1f} L {px:.1f} {py + 5:.1f}" '
                 f'stroke="#9a3412" stroke-width="0.9" stroke-linecap="round"/>'
-                f'</g>'
+                f"</g>"
             )
 
         px, py = point_at(max(0, part_index - 1))
@@ -1811,7 +1821,7 @@ class FabricationAssemblyGuideExporter:
 
     @staticmethod
     def _assembly_page_style() -> str:
-        return '''<style>
+        return """<style>
       .page-border { fill:#ffffff; stroke:#111827; stroke-width:0.8; }
       .page-title { font-family:Arial, Helvetica, sans-serif; font-size:7px; font-weight:700; fill:#111827; }
       .step-badge { fill:#2563eb; stroke:#1e40af; stroke-width:0.8; }
@@ -1841,7 +1851,7 @@ class FabricationAssemblyGuideExporter:
       .stack-text { font-family:Arial, Helvetica, sans-serif; font-size:3.15px; fill:#111827; }
       .check-box { fill:#fff7ed; stroke:#fb923c; stroke-width:0.5; }
       .footer { font-family:Arial, Helvetica, sans-serif; font-size:3px; fill:#64748b; }
-    </style>'''
+    </style>"""
 
     def _assembly_step_page_svg(
         self,
@@ -1855,7 +1865,9 @@ class FabricationAssemblyGuideExporter:
         width, height = ASSEMBLY_PAGE_SIZE_MM
         step_n = int(finite_float(step.get("n"), float(page_index)))
         title = str(step.get("title", f"Step {step_n}"))
-        instruction_lines = self._wrapped_lines(step.get("instruction", ""), max_chars=78, max_lines=2)
+        instruction_lines = self._wrapped_lines(
+            step.get("instruction", ""), max_chars=78, max_lines=2
+        )
         check_lines = self._wrapped_lines(step.get("check", ""), max_chars=18, max_lines=4)
         part_ids = self._step_part_ids(step)
         stack_layers = self._step_stack_layers(step)
@@ -1908,7 +1920,9 @@ class FabricationAssemblyGuideExporter:
         for index, part_id in enumerate(shown_parts[:7]):
             y = body_y + 24.0 + index * 14.2
             color = "#ef4444" if part_id.startswith("hardware:") else self._part_color(part_id)
-            label = "Paper fastener" if part_id.startswith("hardware:") else self._part_label(part_id)
+            label = (
+                "Paper fastener" if part_id.startswith("hardware:") else self._part_label(part_id)
+            )
             if part_id.startswith("instruction:"):
                 color = "#94a3b8"
                 label = "No new cut part"
@@ -1929,7 +1943,10 @@ class FabricationAssemblyGuideExporter:
                 f"{html_escape(self._stack_label(layer))}</text>"
             )
         coord_text = ", ".join(all_coords) if all_coords else "See board"
-        ghost_text = ", ".join(self._part_label(part) for part in ghost_parts[:4]) or "previous parts ghosted"
+        ghost_text = (
+            ", ".join(self._part_label(part) for part in ghost_parts[:4])
+            or "previous parts ghosted"
+        )
         return f'''<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="{width}mm" height="{height}mm" viewBox="0 0 {width} {height}"
      data-recipe-key="{html_escape(recipe_key)}" data-step="{step_n}" data-layout-kind="assembly-step-page">
@@ -1945,7 +1962,7 @@ class FabricationAssemblyGuideExporter:
   <rect x="{board_x}" y="{body_y}" width="{board_w}" height="{body_h}" rx="4" class="column-box"/>
   <rect x="{right_x}" y="{body_y}" width="{right_w}" height="{body_h}" rx="4" class="column-box"/>
   <text x="{left_x + 4}" y="{body_y + 8}" class="section-label">Add now</text>
-  {''.join(part_cards)}
+  {"".join(part_cards)}
   <text x="{left_x + 4}" y="{body_y + body_h - 20}" class="tiny">Fasteners are hardware.</text>
   <text x="{left_x + 4}" y="{body_y + body_h - 13}" class="tiny">Cut parts are in kit-parts PDF.</text>
   <text x="{board_x + 4}" y="{body_y + 8}" class="section-label">Board placement: {html_escape(coord_text)}</text>
@@ -1954,7 +1971,7 @@ class FabricationAssemblyGuideExporter:
   <g id="layer-new-part-placement-step-{step_n}" data-step="{step_n}">{current_placement_svg}{placement_callout_svg}</g>
   <text x="{board_x + 4}" y="{body_y + body_h - 11}" class="tiny">Context: {html_escape(ghost_text)}</text>
   <text x="{right_x + 4}" y="{body_y + 8}" class="section-label">Fastener stack</text>
-  {''.join(stack_rows)}
+  {"".join(stack_rows)}
   <rect x="{right_x + 2}" y="{body_y + body_h - 39}" width="{right_w - 4}" height="31" rx="3" class="check-box"/>
   <text x="{right_x + 5}" y="{body_y + body_h - 30}" class="section-label">Check</text>
   {self._text_lines(x=right_x + 5, y=body_y + body_h - 22, lines=check_lines, class_name="body", line_height=4.2)}
@@ -2051,7 +2068,9 @@ class FabricationAssemblyGuideExporter:
             temp_pdf_path.unlink()
         pdf_scale_mode: PageScaleMode = "actual-size" if scale_mode == "actual-size" else "fit"
         effective_margin = (
-            PRINT_MARGIN_POINTS if page_size_mm and margin_points is None else float(margin_points or 0.0)
+            PRINT_MARGIN_POINTS
+            if page_size_mm and margin_points is None
+            else float(margin_points or 0.0)
         )
         if render_svgs_to_pdf(
             tuple(svg_sources),
@@ -2212,7 +2231,9 @@ This folder is a self-contained `assembly/` package exported from Automataii.
         fallback_files.extend(path for path in guide_outputs if path.suffix.lower() != ".pdf")
 
         packed_part_pages = self._packed_kit_parts_cut_sheet_svgs(package)
-        part_sources: tuple[str | Path, ...] = packed_part_pages or self._quantity_part_sources(package)
+        part_sources: tuple[str | Path, ...] = packed_part_pages or self._quantity_part_sources(
+            package
+        )
         if part_sources:
             part_outputs = self._render_pdf_or_copy_fallback(
                 svg_sources=(self._kit_parts_cover_svg(package), *part_sources),
