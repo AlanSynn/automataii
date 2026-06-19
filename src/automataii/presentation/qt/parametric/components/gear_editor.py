@@ -17,12 +17,15 @@ from PyQt6.QtGui import QColor
 
 from automataii.shared.physical_kit import (
     DEFAULT_PHYSICAL_KIT_PROFILE,
+    PhysicalKitProfile,
     gear_center_distance,
     gear_clearance_from_params,
     gear_teeth_for_radius,
+    grid_enabled_from_params,
     nearest_gear_radius_mm,
     physical_profile_from_params,
     snap_gear_params,
+    snap_planetary_gear_params,
 )
 
 from .base_editor import HandleStyle, MechanismEditor, ParametricHandle
@@ -52,7 +55,7 @@ def _is_finite_point(point: QPointF) -> bool:
     return math.isfinite(point.x()) and math.isfinite(point.y())
 
 
-def _profile_for_params(params: dict[str, Any]):
+def _profile_for_params(params: dict[str, Any]) -> PhysicalKitProfile:
     if "physical_profile_key" in params:
         return physical_profile_from_params(params)
     return DEFAULT_PHYSICAL_KIT_PROFILE
@@ -459,6 +462,7 @@ class PlanetaryGearEditor(MechanismEditor):
         )
         params["gear1_radius"] = float(params["r_sun"])
         params["gear2_radius"] = float(params["r_planet"])
+        self._snap_planetary_params_if_needed()
 
         # Sun center handle
         sun_center = ParametricHandle(
@@ -504,6 +508,25 @@ class PlanetaryGearEditor(MechanismEditor):
         self._sync_planetary_key_points_and_aliases()
         self._sync_handle_positions()
 
+    def _physical_grid_enabled(self) -> bool:
+        params = self.mechanism_data.get("params", {}) if hasattr(self, "mechanism_data") else {}
+        if not isinstance(params, dict):
+            return True
+        return bool(grid_enabled_from_params(params))
+
+    def _snap_planetary_params_if_needed(self) -> None:
+        params = self.mechanism_data.get("params", {}) if hasattr(self, "mechanism_data") else {}
+        if not isinstance(params, dict) or not self._physical_grid_enabled():
+            return
+        profile = _profile_for_params(params)
+        params.update(
+            snap_planetary_gear_params(
+                params,
+                params.get("grid_cell_cm", 2.0),
+                profile=profile,
+            )
+        )
+
     def _extract_initial_sun_center(
         self,
         params: dict[str, Any],
@@ -548,6 +571,7 @@ class PlanetaryGearEditor(MechanismEditor):
         """Keep compatibility aliases and key points synchronized with params."""
         params = self.mechanism_data.setdefault("params", {})
         key_points = self.mechanism_data.setdefault("key_points", {})
+        self._snap_planetary_params_if_needed()
 
         center_scene = QPointF(
             float(params.get("sun_x", 0.0)),

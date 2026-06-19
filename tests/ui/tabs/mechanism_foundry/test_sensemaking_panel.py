@@ -66,7 +66,8 @@ def test_panel_renders_application_context_for_student_and_teacher(qapp):
     assert "Input link: 40 mm → 65 mm" in _label_text(panel, "changeValueLabel")
     assert "Effect:" in _label_text(panel, "consequenceLabel")
     assert "Why:" in _label_text(panel, "principleLabel")
-    assert "Joint B moved about 50 mm" in _label_text(panel, "evidenceLabel")
+    assert "Joint B moved about 1.97 in" in _label_text(panel, "evidenceLabel")
+    assert "2.5 board spaces" in _label_text(panel, "evidenceLabel")
     assert "Teacher prompt:" in _label_text(panel, "promptLabel")
 
 

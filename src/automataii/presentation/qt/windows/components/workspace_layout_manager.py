@@ -40,7 +40,7 @@ class WorkspaceLayoutManager(QObject):
     def navigator_dock(self) -> None:
         return None
 
-    def initialize(self) -> None:
+    def initialize(self, *, restore_current_tab: bool = True) -> None:
         """Enable tab reordering and restore saved layout."""
         if not self._default_tab_order:
             self._default_tab_order = self.get_current_tab_order()
@@ -59,7 +59,7 @@ class WorkspaceLayoutManager(QObject):
             | QMainWindow.DockOption.AnimatedDocks
         )
 
-        self.restore_workspace_layout()
+        self.restore_workspace_layout(restore_current_tab=restore_current_tab)
 
     def get_current_tab_order(self) -> list[str]:
         """Return tab IDs in visual order."""
@@ -78,7 +78,7 @@ class WorkspaceLayoutManager(QObject):
         self._settings.setValue("workspace/state", self._main_window.saveState(self._STATE_VERSION))
         self._settings.sync()
 
-    def restore_workspace_layout(self) -> None:
+    def restore_workspace_layout(self, *, restore_current_tab: bool = True) -> None:
         """Restore tab order first, then geometry and dock state."""
         self._restore_tab_order()
 
@@ -90,11 +90,12 @@ class WorkspaceLayoutManager(QObject):
         if isinstance(saved_state, QByteArray):
             self._main_window.restoreState(saved_state, self._STATE_VERSION)
 
-        current_tab_id = self._settings.value("workspace/current_tab_id")
-        if isinstance(current_tab_id, str):
-            index = self._find_tab_index_by_id(current_tab_id)
-            if index >= 0:
-                self._tab_widget.setCurrentIndex(index)
+        if restore_current_tab:
+            current_tab_id = self._settings.value("workspace/current_tab_id")
+            if isinstance(current_tab_id, str):
+                index = self._find_tab_index_by_id(current_tab_id)
+                if index >= 0:
+                    self._tab_widget.setCurrentIndex(index)
 
     def reset_workspace_layout(self) -> None:
         """Reset workspace persistence and restore default tab order."""

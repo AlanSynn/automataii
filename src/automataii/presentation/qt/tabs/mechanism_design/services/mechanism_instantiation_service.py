@@ -31,6 +31,7 @@ from automataii.shared.physical_kit import (
     GEAR_PRESETS,
     PhysicalKitContext,
     PhysicalKitProfile,
+    fabrication_ready_params,
     freeform_gear_radius_for_teeth,
     gear_center_distance,
     gear_clearance_from_params,
@@ -242,6 +243,15 @@ class MechanismInstantiationService:
             )
         )
 
+    def physical_context(self) -> PhysicalKitContext:
+        """Return the active physical-kit context for sibling UI surfaces."""
+        return physical_context_from_settings(
+            self._grid_system_enabled,
+            self._grid_cell_cm,
+            self._grid_pitch_choice,
+            profile=self._physical_profile,
+        )
+
     def _profile_for_params(self, params: dict[str, Any]) -> PhysicalKitProfile:
         if "physical_profile_key" in params:
             return physical_profile_from_params(params)
@@ -255,6 +265,22 @@ class MechanismInstantiationService:
         params.setdefault("physical_profile_key", self._physical_profile.key)
         params.setdefault("hole_diameter_mm", self._physical_profile.hole_diameter_mm)
         return params
+
+    def _fabrication_ready_layer_params(
+        self,
+        mechanism_type: str,
+        params: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Apply current physical defaults and snap to fabricated presets when enabled."""
+        self._apply_physical_context_defaults(params)
+        return dict(
+            fabrication_ready_params(
+                mechanism_type,
+                params,
+                default_enabled=self._grid_system_enabled,
+                default_grid_cell_cm=self._grid_cell_cm,
+            )
+        )
 
     def map_mechanism_type(self, display_type: str, original_json_type: str | None = None) -> str:
         """
@@ -607,7 +633,6 @@ class MechanismInstantiationService:
         raw_params = mechanism_data.get("parameters", {})
         raw_params = raw_params if isinstance(raw_params, dict) else {}
         params = raw_params.copy()
-        self._apply_physical_context_defaults(params)
         reverse_direction = _bool_flag(
             mechanism_data.get(
                 "reverse_direction",
@@ -615,6 +640,7 @@ class MechanismInstantiationService:
             )
         )
         params["reverse_direction"] = reverse_direction
+        params = self._fabrication_ready_layer_params(internal_type, params)
 
         # IMPORTANT: Always prefer user_motion_path_local from the dialog over target_path from path_data.
         # The dialog stores the exact path the user drew for THIS mechanism recommendation.
@@ -662,6 +688,21 @@ class MechanismInstantiationService:
             profile = self._profile_for_params(layer_data["params"])
             layer_data["params"].update(snap_gear_params(layer_data["params"], profile=profile))
 
+        # Visual generation receives graphics_data first; keep it in lockstep
+        # with the layer payload after CAM/gear preset snapping and placement.
+        graphics_data["params"] = dict(layer_data.get("params", {}))
+        graphics_data["key_points"] = layer_data.get("key_points", {})
+        graphics_data["full_simulation_data"] = layer_data.get("full_simulation_data", {})
+        for key in (
+            "cam_position",
+            "cam_scale_factor",
+            "rod_length_multiplier",
+            "is_auto_generated_cam",
+            "cam_template_svg_path",
+        ):
+            if key in layer_data:
+                graphics_data[key] = layer_data[key]
+
         return layer_data, graphics_data
 
     def create_layer_data_from_candidate(
@@ -699,7 +740,6 @@ class MechanismInstantiationService:
             params = {}
         else:
             params = dict(params)
-        self._apply_physical_context_defaults(params)
         reverse_direction = _bool_flag(
             candidate_data.get(
                 "reverse_direction",
@@ -707,6 +747,7 @@ class MechanismInstantiationService:
             )
         )
         params["reverse_direction"] = reverse_direction
+        params = self._fabrication_ready_layer_params(internal_type, params)
 
         # IMPORTANT: Always prefer user_motion_path_local from the dialog over target_path from path_data.
         # The dialog stores the exact path the user drew for THIS mechanism recommendation.
@@ -744,6 +785,11 @@ class MechanismInstantiationService:
         elif internal_type == "gear" and grid_enabled_from_params(layer_data["params"]):
             profile = self._profile_for_params(layer_data["params"])
             layer_data["params"].update(snap_gear_params(layer_data["params"], profile=profile))
+
+        layer_data["params"] = self._fabrication_ready_layer_params(
+            internal_type,
+            layer_data["params"],
+        )
 
         return layer_data
 
@@ -951,6 +997,7 @@ class MechanismInstantiationService:
         # Map Foundry parameter names to internal parameter names
         safe_parameters = parameters if isinstance(parameters, dict) else {}
         params = self.map_foundry_params_to_internal(canonical_foundry_type, safe_parameters)
+        params = self._fabrication_ready_layer_params(canonical_foundry_type, params)
         reverse_direction = _bool_flag(
             params.get("reverse_direction", safe_parameters.get("reverse_direction", False))
         )
@@ -1315,8 +1362,8 @@ class MechanismInstantiationService:
 
         elif normalized_type in {"gear_train", "gear_linkage"}:
             gear_presets = profile.gear_presets or GEAR_PRESETS
-            default_gear1 = gear_presets[0].teeth
-            default_gear2 = gear_presets[min(2, len(gear_presets) - 1)].teeth
+            default_gear1 = gear_presets[min(1, len(gear_presets) - 1)].teeth
+            default_gear2 = gear_presets[min(1, len(gear_presets) - 1)].teeth
             gear1_raw = foundry_params.get("gear1_teeth", default_gear1)
             gear2_raw = foundry_params.get("gear2_teeth", default_gear2)
             gear1_teeth = _positive_int(gear1_raw, default_gear1)
@@ -1449,14 +1496,11 @@ class MechanismInstantiationService:
             # Copy params as-is for unknown types
             params = dict(foundry_params)
 
-        if normalized_type == "cam_follower" and grid_enabled:
-            profile = self._profile_for_params(params)
-            params.update(
-                snap_cam_params(
-                    params,
-                    grid_cell_cm_from_params(foundry_params),
-                    profile=profile,
-                )
+        return dict(
+            fabrication_ready_params(
+                normalized_type,
+                params,
+                default_enabled=grid_enabled,
+                default_grid_cell_cm=grid_cell_cm_from_params(foundry_params),
             )
-
-        return params
+        )

@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import shutil
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from html import escape as html_escape
 from pathlib import Path
+from xml.etree import ElementTree as ET
 
 from automataii.application.mechanism_foundry.mechanism_types import (
     canonical_mechanism_type,
@@ -18,12 +20,22 @@ from automataii.infrastructure.generation.pdf.svg_pdf import (
     is_valid_pdf_file,
     render_svgs_to_pdf,
 )
-from automataii.shared.fabrication_assembly import ASSEMBLY_SCHEMA_VERSION, manifest_part_index
+from automataii.shared.fabrication_assembly import (
+    ASSEMBLY_SCHEMA_VERSION,
+    BOARD_COLUMNS,
+    BOARD_ROWS,
+    AssemblyValidationError,
+    BoardCoord,
+    board_coord_to_centered_mm,
+    board_coord_to_svg_xy,
+    manifest_part_index,
+)
 from automataii.shared.physical_kit import (
     DEFAULT_GRID_CELL_CM,
     DEFAULT_PHYSICAL_KIT_PROFILE,
     allowed_linkage_lengths_mm,
     finite_float,
+    format_length_for_user,
     gear_pair_from_params,
     gear_teeth_from_params,
     grid_cell_cm_from_params,
@@ -34,8 +46,13 @@ from automataii.shared.physical_kit import (
 )
 from automataii.utils.paths import resolve_path
 
-PRINT_PAGE_SIZE_MM = (210.0, 297.0)
+PRINT_PAGE_SIZE_MM = (215.9, 279.4)
+ASSEMBLY_PAGE_SIZE_MM = (279.4, 215.9)
 PRINT_MARGIN_POINTS = 18.0
+_SVG_TITLE_RE = re.compile(r"<title>(?P<title>.*?)</title>", re.IGNORECASE | re.DOTALL)
+_SVG_DATA_ATTR_RE = re.compile(r'data-(?P<key>[a-z0-9_-]+)="(?P<value>[^"]*)"', re.IGNORECASE)
+_SVG_BODY_RE = re.compile(r"<svg\b[^>]*>(?P<body>.*)</svg>\s*$", re.IGNORECASE | re.DOTALL)
+_SVG_DEFS_RE = re.compile(r"<defs\b[^>]*>.*?</defs>", re.IGNORECASE | re.DOTALL)
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,6 +75,31 @@ class FabricationGuideExportResult:
     pdf_files: tuple[Path, ...] = ()
     fallback_files: tuple[Path, ...] = ()
     contract_warnings: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class KitPartCutInstance:
+    part_id: str
+    source: Path
+    copy_index: int
+    width_mm: float
+    height_mm: float
+    view_box: tuple[float, float, float, float]
+    body_svg: str
+
+
+@dataclass(frozen=True, slots=True)
+class PlacedKitPartCutInstance:
+    instance: KitPartCutInstance
+    x_mm: float
+    y_mm: float
+
+
+@dataclass(slots=True)
+class KitPartCutRow:
+    y_mm: float
+    height_mm: float
+    next_x_mm: float
 
 
 def _normalize_part_ids(raw_value: object) -> tuple[str, ...]:
@@ -97,6 +139,10 @@ def _compact_svg_text(value: object, *, max_chars: int, suffix: str = "… see J
         room = max(1, max_chars - len(suffix) - 1)
         text = f"{text[:room].rstrip(' ,.;:')} {suffix}"
     return html_escape(text)
+
+
+def _fmt_mm(value: float) -> str:
+    return f"{value:.3f}".rstrip("0").rstrip(".")
 
 
 @dataclass(frozen=True, slots=True)
@@ -462,6 +508,255 @@ class FabricationAssemblyGuideExporter:
                 expanded.extend(source for _ in range(count))
         return tuple(expanded)
 
+    @staticmethod
+    def _svg_length_mm(value: object) -> float | None:
+        if not isinstance(value, str):
+            return None
+        match = re.match(r"\s*(-?(?:\d+(?:\.\d*)?|\.\d+))\s*([A-Za-z%]*)", value)
+        if match is None:
+            return None
+        try:
+            number = float(match.group(1))
+        except ValueError:
+            return None
+        if not math.isfinite(number) or number <= 0.0:
+            return None
+        unit = match.group(2).lower()
+        if unit in {"", "mm"}:
+            return number
+        if unit == "cm":
+            return number * 10.0
+        if unit == "in":
+            return number * 25.4
+        if unit == "pt":
+            return number * 25.4 / 72.0
+        if unit == "px":
+            return number * 25.4 / 96.0
+        return None
+
+    @staticmethod
+    def _svg_view_box(root: ET.Element) -> tuple[float, float, float, float] | None:
+        raw_view_box = root.attrib.get("viewBox")
+        if not raw_view_box:
+            return None
+        try:
+            values = tuple(float(value) for value in re.split(r"[,\s]+", raw_view_box.strip()) if value)
+        except ValueError:
+            return None
+        if len(values) != 4:
+            return None
+        min_x, min_y, width, height = values
+        if not all(math.isfinite(value) for value in values) or width <= 0.0 or height <= 0.0:
+            return None
+        return min_x, min_y, width, height
+
+    def _kit_part_cut_instance(
+        self,
+        *,
+        part_id: str,
+        source: Path,
+        copy_index: int,
+    ) -> KitPartCutInstance | None:
+        try:
+            svg_text = source.read_text(encoding="utf-8")
+            root = ET.fromstring(svg_text)
+        except (OSError, ET.ParseError):
+            return None
+
+        view_box = self._svg_view_box(root)
+        if view_box is None:
+            return None
+        _min_x, _min_y, view_width, view_height = view_box
+        width_mm = self._svg_length_mm(root.attrib.get("width")) or view_width
+        height_mm = self._svg_length_mm(root.attrib.get("height")) or view_height
+        if width_mm <= 0.0 or height_mm <= 0.0:
+            return None
+
+        body_match = _SVG_BODY_RE.search(svg_text)
+        if body_match is None:
+            return None
+        body_svg = _SVG_DEFS_RE.sub("", body_match.group("body")).strip()
+        if not body_svg:
+            return None
+        return KitPartCutInstance(
+            part_id=part_id,
+            source=source,
+            copy_index=copy_index,
+            width_mm=width_mm,
+            height_mm=height_mm,
+            view_box=view_box,
+            body_svg=body_svg,
+        )
+
+    def _quantity_part_instances(self, package: Mapping[str, object]) -> tuple[KitPartCutInstance, ...]:
+        """Return cut-part templates expanded by quantity with reusable SVG geometry."""
+        manifest = self.load_manifest()
+        index = manifest_part_index(manifest)
+        expanded: list[KitPartCutInstance] = []
+        for part_id, count in self._package_part_counts(package).items():
+            item = index.get(part_id)
+            if not isinstance(item, Mapping):
+                continue
+            raw_path = item.get("path")
+            if not isinstance(raw_path, str) or not raw_path:
+                continue
+            source = self._resolve_fabrication_asset(raw_path)
+            if not source.is_file():
+                continue
+            for copy_index in range(1, count + 1):
+                instance = self._kit_part_cut_instance(
+                    part_id=part_id,
+                    source=source,
+                    copy_index=copy_index,
+                )
+                if instance is not None:
+                    expanded.append(instance)
+        return tuple(expanded)
+
+    def _packed_kit_parts_cut_sheet_svgs(self, package: Mapping[str, object]) -> tuple[str, ...]:
+        """Pack all required cut-part copies into actual-size Letter cut-sheet SVG pages."""
+        instances = sorted(
+            self._quantity_part_instances(package),
+            key=lambda item: (-item.height_mm, -item.width_mm, item.part_id, item.copy_index),
+        )
+        if not instances:
+            return ()
+
+        page_width, page_height = PRINT_PAGE_SIZE_MM
+        margin = 8.0
+        header_height = 18.0
+        gap = 4.0
+        usable_width = page_width - 2.0 * margin
+        max_x = page_width - margin
+        max_y = page_height - margin
+
+        pages: list[list[PlacedKitPartCutInstance]] = []
+        rows_by_page: list[list[KitPartCutRow]] = []
+
+        for instance in instances:
+            part_width = instance.width_mm
+            part_height = instance.height_mm
+            placed = False
+            for page_index, rows in enumerate(rows_by_page):
+                for row in rows:
+                    if (
+                        part_height <= row.height_mm + 0.001
+                        and row.next_x_mm + part_width <= max_x + 0.001
+                    ):
+                        pages[page_index].append(
+                            PlacedKitPartCutInstance(
+                                instance=instance,
+                                x_mm=row.next_x_mm,
+                                y_mm=row.y_mm,
+                            )
+                        )
+                        row.next_x_mm += part_width + gap
+                        placed = True
+                        break
+                if placed:
+                    break
+
+                next_y = (
+                    margin + header_height
+                    if not rows
+                    else max(row.y_mm + row.height_mm for row in rows) + gap
+                )
+                if part_width <= usable_width + 0.001 and next_y + part_height <= max_y + 0.001:
+                    rows.append(
+                        KitPartCutRow(
+                            y_mm=next_y,
+                            height_mm=part_height,
+                            next_x_mm=margin + part_width + gap,
+                        )
+                    )
+                    pages[page_index].append(
+                        PlacedKitPartCutInstance(instance=instance, x_mm=margin, y_mm=next_y)
+                    )
+                    placed = True
+                    break
+
+            if placed:
+                continue
+
+            rows_by_page.append(
+                [
+                    KitPartCutRow(
+                        y_mm=margin + header_height,
+                        height_mm=part_height,
+                        next_x_mm=margin + part_width + gap,
+                    )
+                ]
+            )
+            pages.append(
+                [
+                    PlacedKitPartCutInstance(
+                        instance=instance,
+                        x_mm=margin,
+                        y_mm=margin + header_height,
+                    )
+                ]
+            )
+
+        return tuple(
+            self._kit_parts_cut_sheet_page_svg(placed, page_index=index, page_count=len(pages))
+            for index, placed in enumerate(pages, start=1)
+        )
+
+    def _kit_parts_cut_sheet_page_svg(
+        self,
+        placed_parts: Sequence[PlacedKitPartCutInstance],
+        *,
+        page_index: int,
+        page_count: int,
+    ) -> str:
+        width, height = PRINT_PAGE_SIZE_MM
+        count = len(placed_parts)
+        groups: list[str] = []
+        for placed in placed_parts:
+            instance = placed.instance
+            min_x, min_y, view_width, view_height = instance.view_box
+            scale_x = instance.width_mm / view_width
+            scale_y = instance.height_mm / view_height
+            part_label = self._part_label(instance.part_id)
+            groups.append(
+                f'<g class="packed-kit-part" data-part-id="{html_escape(instance.part_id)}" '
+                f'data-source-path="{html_escape(instance.source.name)}" '
+                f'data-copy-index="{instance.copy_index}" '
+                f'transform="translate({_fmt_mm(placed.x_mm)} {_fmt_mm(placed.y_mm)}) '
+                f'scale({_fmt_mm(scale_x)} {_fmt_mm(scale_y)}) '
+                f'translate({_fmt_mm(-min_x)} {_fmt_mm(-min_y)})">'
+                f"{instance.body_svg}</g>"
+                f'<rect x="{_fmt_mm(placed.x_mm)}" y="{_fmt_mm(placed.y_mm)}" '
+                f'width="{_fmt_mm(instance.width_mm)}" height="{_fmt_mm(instance.height_mm)}" '
+                f'rx="1.4" class="pack-boundary"/>'
+                f'<text x="{_fmt_mm(placed.x_mm)}" y="{_fmt_mm(max(4.0, placed.y_mm - 1.4))}" '
+                f'class="pack-label">{html_escape(part_label)} #{instance.copy_index}</text>'
+            )
+        return f'''<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="{width}mm" height="{height}mm"
+     viewBox="0 0 {width} {height}" data-layout-kind="kit-parts-compact-cut-sheet"
+     data-actual-size="true" data-packed-part-count="{count}">
+  <title>MotionSmith kit parts compact cut sheet page {page_index}</title>
+  <desc>Actual-size Letter cut sheet packing multiple required kit parts onto one page.</desc>
+  <defs>
+    <style>
+      .cut {{ fill: #ffffff; stroke: #ed1c24; stroke-width: 0.35; vector-effect: non-scaling-stroke; }}
+      .drill {{ fill: none; stroke: #0071bc; stroke-width: 0.28; vector-effect: non-scaling-stroke; }}
+      .score {{ fill: none; stroke: #777777; stroke-width: 0.22; stroke-dasharray: 1.2 1.2; vector-effect: non-scaling-stroke; }}
+      .label {{ font-family: Arial, Helvetica, sans-serif; font-size: 3px; fill: #333333; }}
+      .tiny {{ font-family: Arial, Helvetica, sans-serif; font-size: 2.4px; fill: #333333; }}
+      .small {{ font-family: Arial, Helvetica, sans-serif; font-size: 2.7px; fill: #333333; }}
+      .pack-label {{ font-family: Arial, Helvetica, sans-serif; font-size: 2.8px; font-weight: bold; fill: #111827; }}
+      .pack-boundary {{ fill: none; stroke: #d1d5db; stroke-width: 0.18; stroke-dasharray: 1.6 1.6; }}
+    </style>
+  </defs>
+  <rect x="4" y="4" width="{width - 8}" height="{height - 8}" rx="3" fill="#ffffff" stroke="#d1d5db" stroke-width="0.35"/>
+  <text x="8" y="11" class="pack-label">Kit Parts To Cut — compact actual-size page {page_index}/{page_count}</text>
+  <text x="8" y="16" class="tiny">Print at 100%. Parts below are packed by quantity; paper fasteners are hardware, not cut parts.</text>
+  {"".join(groups)}
+</svg>
+'''
+
     def _source_path_for_part(self, part_id: str) -> str:
         item = manifest_part_index(self.load_manifest()).get(part_id)
         if not isinstance(item, Mapping):
@@ -478,40 +773,64 @@ class FabricationAssemblyGuideExporter:
         )
         part_counts = self._package_part_counts(package)
         hardware_counts = self._package_hardware_counts(package)
-
-        row_count = max(1, len(part_counts) + len(hardware_counts))
-        height = max(190, 102 + row_count * 13)
-        part_rows: list[str] = []
+        width, height = ASSEMBLY_PAGE_SIZE_MM
+        entries: list[tuple[str, str, str, str, str]] = []
         for index, (part_id, count) in enumerate(part_counts.items(), start=1):
-            y = 92 + (index - 1) * 13
-            color = self._part_color(part_id)
-            label = self._part_label(part_id)
+            entries.append(
+                (
+                    str(index),
+                    self._part_label(part_id),
+                    part_id,
+                    f"x{count}",
+                    self._part_color(part_id),
+                )
+            )
+        start = len(entries) + 1
+        for offset, (hardware_id, count) in enumerate(hardware_counts.items()):
+            entries.append(
+                (
+                    str(start + offset),
+                    hardware_id.replace("-", " ").title(),
+                    "hardware — buy, do not cut",
+                    f"x{count}",
+                    "#ef4444",
+                )
+            )
+        shown_entries = entries[:14]
+        hidden_count = max(0, len(entries) - len(shown_entries))
+        part_rows: list[str] = []
+        for row_index, (index_text, label, detail, count_text, color) in enumerate(shown_entries):
+            col = 0 if row_index < 7 else 1
+            row = row_index if col == 0 else row_index - 7
+            x = 18 + col * 128
+            y = 106 + row * 13
             part_rows.append(
-                f'<rect x="18" y="{y - 8}" width="238" height="10" rx="2" '
+                f'<rect x="{x}" y="{y - 8}" width="112" height="10" rx="2" '
                 f'fill="{html_escape(color)}" fill-opacity="0.18" '
                 f'stroke="{html_escape(color)}" stroke-width="0.5"/>'
-                f'<circle cx="25" cy="{y - 3}" r="3" fill="{html_escape(color)}"/>'
-                f'<text x="34" y="{y - 2}" class="item">{index}. {html_escape(label)}</text>'
-                f'<text x="130" y="{y - 2}" class="small">{html_escape(part_id)}</text>'
-                f'<text x="242" y="{y - 2}" class="item" text-anchor="end">x{count}</text>'
+                f'<circle cx="{x + 7}" cy="{y - 3}" r="3" fill="{html_escape(color)}"/>'
+                f'<text x="{x + 14}" y="{y - 4}" class="item">{index_text}. '
+                f'{_compact_svg_text(label, max_chars=25, suffix="…")}</text>'
+                f'<text x="{x + 14}" y="{y + 0.7}" class="small">'
+                f'{_compact_svg_text(detail, max_chars=38, suffix="…")}</text>'
+                f'<text x="{x + 107}" y="{y - 2}" class="item" text-anchor="end">'
+                f"{html_escape(count_text)}</text>"
             )
-        start = len(part_counts) + 1
-        for offset, (hardware_id, count) in enumerate(hardware_counts.items()):
-            y = 92 + (start + offset - 1) * 13
-            part_rows.append(
-                f'<rect x="18" y="{y - 8}" width="238" height="10" rx="2" '
-                'fill="#fee2e2" stroke="#ef4444" stroke-width="0.5"/>'
-                f'<circle cx="25" cy="{y - 3}" r="3" fill="#ef4444"/>'
-                f'<text x="34" y="{y - 2}" class="item">{start + offset}. '
-                f"{html_escape(hardware_id.replace('-', ' ').title())}</text>"
-                f'<text x="130" y="{y - 2}" class="small">hardware — buy, do not cut</text>'
-                f'<text x="242" y="{y - 2}" class="item" text-anchor="end">x{count}</text>'
+        more = ""
+        if hidden_count:
+            more = (
+                f'<text x="18" y="196" class="body">See recipes.json for '
+                f"{hidden_count} more item(s).</text>"
             )
         recipe_text = ", ".join(str(recipe.get("title", "Guide")) for recipe in recipes) or "Guide"
         recipe_text = _compact_svg_text(recipe_text, max_chars=112, suffix="… see recipes.json")
+        board_pitch = format_length_for_user(
+            grid_step_mm(DEFAULT_GRID_CELL_CM),
+            include_board_spaces=False,
+        )
         return f'''<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="280mm" height="{height}mm"
-     viewBox="0 0 280 {height}">
+<svg xmlns="http://www.w3.org/2000/svg" width="{width}mm" height="{height}mm"
+     viewBox="0 0 {width} {height}">
   <title>MotionSmith selected fabrication checklist</title>
   <desc>LEGO-style cover page for selected board assembly recipes and needed parts only.</desc>
   <defs>
@@ -519,11 +838,11 @@ class FabricationAssemblyGuideExporter:
       .title {{ font-family: Arial, Helvetica, sans-serif; font-size: 9px; font-weight: bold; fill: #111827; }}
       .heading {{ font-family: Arial, Helvetica, sans-serif; font-size: 5px; font-weight: bold; fill: #111827; }}
       .body {{ font-family: Arial, Helvetica, sans-serif; font-size: 4px; fill: #374151; }}
-      .item {{ font-family: Arial, Helvetica, sans-serif; font-size: 3.7px; font-weight: bold; fill: #111827; }}
-      .small {{ font-family: Arial, Helvetica, sans-serif; font-size: 3px; fill: #4b5563; }}
+      .item {{ font-family: Arial, Helvetica, sans-serif; font-size: 3.55px; font-weight: bold; fill: #111827; }}
+      .small {{ font-family: Arial, Helvetica, sans-serif; font-size: 2.75px; fill: #4b5563; }}
     </style>
   </defs>
-  <rect x="8" y="8" width="264" height="{height - 16}" rx="6" fill="#ffffff" stroke="#111827" stroke-width="0.8"/>
+  <rect x="8" y="8" width="{width - 16}" height="{height - 16}" rx="6" fill="#ffffff" stroke="#111827" stroke-width="0.8"/>
   <text x="18" y="24" class="title">MotionSmith Board Assembly PDF</text>
   <text x="18" y="36" class="heading">Selected build(s)</text>
   <text x="18" y="44" class="body">{recipe_text}</text>
@@ -531,47 +850,56 @@ class FabricationAssemblyGuideExporter:
   <text x="18" y="67" class="body">1. Print/cut the current-design cut sheet and kit-parts-to-cut.pdf.</text>
   <text x="18" y="75" class="body">2. Open one card at a time; only the newly-added part is highlighted.</text>
   <text x="18" y="83" class="body">3. Follow every fastener/spacer stack before moving to the next card.</text>
-  <text x="18" y="96" class="heading">Needed parts and hardware only</text>
+  <text x="18" y="91" class="body">Board scale: 1 board space = {board_pitch}; coordinates use the 15×15 hole grid.</text>
+  <text x="18" y="101" class="heading">Needed parts and hardware only</text>
   {"".join(part_rows)}
-  <text x="18" y="{height - 28}" class="heading">Hardware</text>
-  <text x="18" y="{height - 19}" class="body">Paper fasteners up to 2 inch; spacers are cut parts and appear above with quantities.</text>
+  {more}
+  <text x="18" y="{height - 18}" class="heading">Hardware</text>
+  <text x="18" y="{height - 9}" class="body">Paper fasteners up to 2 in; spacers are cut parts and appear above with quantities.</text>
 </svg>
 '''
 
     def _kit_parts_cover_svg(self, package: Mapping[str, object]) -> str:
         part_counts = self._package_part_counts(package)
-        row_count = max(1, len(part_counts))
-        height = max(160, 72 + row_count * 14)
+        width, height = PRINT_PAGE_SIZE_MM
         rows: list[str] = []
-        for index, (part_id, count) in enumerate(part_counts.items(), start=1):
-            y = 62 + (index - 1) * 14
+        max_rows = 15
+        for index, (part_id, count) in enumerate(tuple(part_counts.items())[:max_rows], start=1):
+            y = 62 + (index - 1) * 13.5
             color = self._part_color(part_id)
             rows.append(
-                f'<rect x="16" y="{y - 9}" width="248" height="11" rx="2" '
+                f'<rect x="16" y="{y - 9}" width="184" height="10.8" rx="2" '
                 f'fill="{html_escape(color)}" fill-opacity="0.16" '
                 f'stroke="{html_escape(color)}" stroke-width="0.5"/>'
-                f'<text x="24" y="{y - 2}" class="item">{index}. '
+                f'<text x="24" y="{y - 4}" class="item">{index}. '
                 f"{html_escape(self._part_label(part_id))}</text>"
-                f'<text x="112" y="{y - 2}" class="small">{html_escape(part_id)}</text>'
-                f'<text x="254" y="{y - 2}" class="item" text-anchor="end">cut x{count}</text>'
+                f'<text x="24" y="{y + 0.8}" class="small">'
+                f'{_compact_svg_text(part_id, max_chars=46, suffix="…")}</text>'
+                f'<text x="194" y="{y - 2}" class="item" text-anchor="end">cut x{count}</text>'
+            )
+        if len(part_counts) > max_rows:
+            rows.append(
+                f'<text x="24" y="{62 + max_rows * 13.5}" class="body">'
+                f"See recipes.json for {len(part_counts) - max_rows} more part type(s).</text>"
             )
         return f'''<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="280mm" height="{height}mm"
-     viewBox="0 0 280 {height}">
+<svg xmlns="http://www.w3.org/2000/svg" width="{width}mm" height="{height}mm"
+     viewBox="0 0 {width} {height}">
   <title>MotionSmith kit parts to cut</title>
   <desc>Quantity-aware cover page for fabricated parts required by the selected assembly guide.</desc>
   <defs>
     <style>
-      .title {{ font-family: Arial, Helvetica, sans-serif; font-size: 9px; font-weight: bold; fill: #111827; }}
-      .body {{ font-family: Arial, Helvetica, sans-serif; font-size: 4px; fill: #374151; }}
-      .item {{ font-family: Arial, Helvetica, sans-serif; font-size: 3.7px; font-weight: bold; fill: #111827; }}
-      .small {{ font-family: Arial, Helvetica, sans-serif; font-size: 3px; fill: #4b5563; }}
+      .title {{ font-family: Arial, Helvetica, sans-serif; font-size: 8px; font-weight: bold; fill: #111827; }}
+      .body {{ font-family: Arial, Helvetica, sans-serif; font-size: 3.7px; fill: #374151; }}
+      .item {{ font-family: Arial, Helvetica, sans-serif; font-size: 3.45px; font-weight: bold; fill: #111827; }}
+      .small {{ font-family: Arial, Helvetica, sans-serif; font-size: 2.7px; fill: #4b5563; }}
     </style>
   </defs>
-  <rect x="8" y="8" width="264" height="{height - 16}" rx="6" fill="#ffffff" stroke="#111827" stroke-width="0.8"/>
-  <text x="18" y="25" class="title">Kit Parts To Cut — quantity-aware</text>
-  <text x="18" y="40" class="body">Only the fabrication templates needed by the selected board recipe(s) are included.</text>
-  <text x="18" y="49" class="body">The following pages repeat templates by count; paper fasteners are hardware and are not cut.</text>
+  <rect x="8" y="8" width="{width - 16}" height="{height - 16}" rx="6" fill="#ffffff" stroke="#111827" stroke-width="0.8"/>
+  <text x="18" y="25" class="title">Kit Parts To Cut — compact quantity-aware</text>
+  <text x="18" y="40" class="body">Only templates needed by the selected board recipe(s) are included.</text>
+  <text x="18" y="49" class="body">Following pages pack as many actual-size parts as possible onto Letter sheets.</text>
+  <text x="18" y="57" class="body">Paper fasteners are hardware; spacers/brackets/linkages/gears/cams/followers are cut parts.</text>
   {"".join(rows)}
 </svg>
 '''
@@ -759,6 +1087,60 @@ class FabricationAssemblyGuideExporter:
             warnings.append("physical grid is disabled; exported board recipe may not match")
         return tuple(warnings)
 
+    @classmethod
+    def _recipe_board_placements(
+        cls,
+        recipe: Mapping[str, object] | None,
+        pitch_mm: float,
+    ) -> tuple[dict[str, object], ...]:
+        """Expose exact recipe coordinates in the same frame as the app scene.
+
+        Assembly/PDF pages draw in a top-left SVG frame, while Foundry and
+        Design previews use a center-origin scene frame.  The contract records
+        both the semantic board label and the center-origin millimeter point so
+        exported packages can be audited 1:1 against what the user saw.
+        """
+
+        if recipe is None:
+            return ()
+        raw_steps = recipe.get("steps", ())
+        if not isinstance(raw_steps, Sequence) or isinstance(raw_steps, str):
+            return ()
+
+        placements: list[dict[str, object]] = []
+        for raw_step in raw_steps:
+            if not isinstance(raw_step, Mapping):
+                continue
+            points: list[dict[str, object]] = []
+            roles = cls._sequence_strings(raw_step.get("coord_roles", ()))
+            for index, coord_text in enumerate(cls._sequence_strings(raw_step.get("coords", ()))):
+                try:
+                    coord = BoardCoord.from_label(coord_text)
+                    board_x, board_y = coord.board_space_xy(origin="center")
+                    mm_x, mm_y = board_coord_to_centered_mm(coord.label, pitch_mm)
+                except AssemblyValidationError:
+                    continue
+                role = roles[index] if index < len(roles) else ""
+                points.append(
+                    {
+                        "coord": coord.label,
+                        "role": role,
+                        "board_space_xy": [round(board_x, 3), round(board_y, 3)],
+                        "centered_mm": [round(mm_x, 3), round(mm_y, 3)],
+                    }
+                )
+            if not points:
+                continue
+            placements.append(
+                {
+                    "step": raw_step.get("n"),
+                    "action": raw_step.get("action"),
+                    "title": raw_step.get("title"),
+                    "points": points,
+                }
+            )
+        return tuple(placements)
+
     def build_app_physical_contract(
         self,
         mechanism_layers: Mapping[str, object],
@@ -811,6 +1193,7 @@ class FabricationAssemblyGuideExporter:
             recipe = recipes.get(summary.key) if summary is not None else None
             recipe_counts = self._recipe_part_counts(recipe) if recipe is not None else {}
             recipe_parts = tuple(recipe_counts)
+            recipe_board_placements = self._recipe_board_placements(recipe, manifest_pitch)
             snapped_adjustments = list(self._snapped_parameter_adjustments(mechanism_type, params))
             layer_warnings = list(self._snapped_parameter_warnings(params))
             grid_cell_cm = grid_cell_cm_from_params(params, DEFAULT_GRID_CELL_CM)
@@ -874,6 +1257,7 @@ class FabricationAssemblyGuideExporter:
                     "active_part_ids_source": selection.active_part_ids_source,
                     "expected_part_ids_from_app": list(expected_parts),
                     "recipe_part_ids": list(recipe_parts),
+                    "recipe_board_placements": list(recipe_board_placements),
                     "active_part_ids_missing_from_recipe": list(active_parts_missing_recipe),
                     "snapped_parameter_adjustments": snapped_adjustments,
                     "status": "warning" if layer_warnings else "matched",
@@ -890,6 +1274,8 @@ class FabricationAssemblyGuideExporter:
                 "columns": manifest.get("board_columns"),
                 "grid_pitch_mm": manifest_pitch,
                 "hole_diameter_mm": manifest_hole,
+                "scene_origin": "H8",
+                "scene_coordinate_frame": "+x right, +y down, one board space equals grid_pitch_mm",
             },
             "layers": layer_reports,
             "selected_recipe_keys": sorted(selected_keys),
@@ -916,6 +1302,7 @@ class FabricationAssemblyGuideExporter:
         shown = warnings[:8]
         row_count = max(1, len(shown))
         height = max(150, 88 + row_count * 12)
+        width = ASSEMBLY_PAGE_SIZE_MM[0]
         status_color = "#16a34a" if status == "matched" else "#dc2626"
         rows: list[str] = []
         if shown:
@@ -935,8 +1322,8 @@ class FabricationAssemblyGuideExporter:
         if len(warnings) > len(shown):
             more = f'<text x="24" y="{height - 18}" class="body">See physical-contract.json for {len(warnings) - len(shown)} more warning(s).</text>'
         return f'''<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="280mm" height="{height}mm"
-     viewBox="0 0 280 {height}">
+<svg xmlns="http://www.w3.org/2000/svg" width="{width}mm" height="{height}mm"
+     viewBox="0 0 {width} {height}">
   <title>MotionSmith physical contract check</title>
   <desc>Checks whether app simulation/visualization parameters match fabrication templates.</desc>
   <defs>
@@ -947,7 +1334,7 @@ class FabricationAssemblyGuideExporter:
       .warning {{ font-family: Arial, Helvetica, sans-serif; font-size: 3.4px; fill: #7f1d1d; }}
     </style>
   </defs>
-  <rect x="8" y="8" width="264" height="{height - 16}" rx="6" fill="#ffffff" stroke="{status_color}" stroke-width="0.9"/>
+  <rect x="8" y="8" width="{width - 16}" height="{height - 16}" rx="6" fill="#ffffff" stroke="{status_color}" stroke-width="0.9"/>
   <text x="18" y="25" class="title">Physical Contract Check</text>
   <text x="18" y="40" class="status">Status: {html_escape(status.upper())}</text>
   <text x="18" y="52" class="body">Checked {layer_count} mechanism layer(s): simulation parameters, visualization metadata, board recipe, and cut templates.</text>
@@ -957,6 +1344,698 @@ class FabricationAssemblyGuideExporter:
 </svg>
 '''
 
+    @staticmethod
+    def _wrapped_lines(text: object, *, max_chars: int, max_lines: int = 3) -> tuple[str, ...]:
+        words = " ".join(str(text or "").split()).split()
+        if not words:
+            return ("",)
+        lines: list[str] = []
+        current = ""
+        for word in words:
+            candidate = word if not current else f"{current} {word}"
+            if len(candidate) <= max_chars:
+                current = candidate
+                continue
+            if current:
+                lines.append(current)
+            current = word
+            if len(lines) >= max_lines:
+                break
+        if current and len(lines) < max_lines:
+            lines.append(current)
+        if len(lines) == max_lines and words:
+            original = " ".join(words)
+            if len(" ".join(lines)) < len(original):
+                lines[-1] = lines[-1].rstrip(" .,;") + "…"
+        return tuple(lines or ("",))
+
+    @staticmethod
+    def _text_lines(
+        *,
+        x: float,
+        y: float,
+        lines: Sequence[str],
+        class_name: str,
+        line_height: float,
+        anchor: str = "start",
+    ) -> str:
+        font_sizes = {
+            "instruction": 4.6,
+            "body": 3.25,
+            "body-strong": 3.55,
+            "tiny": 3.0,
+            "footer": 3.0,
+        }
+        font_size = font_sizes.get(class_name, 3.25)
+        return "".join(
+            f'<text x="{x:.1f}" y="{y + index * line_height:.1f}" '
+            f'class="{html_escape(class_name)}" text-anchor="{html_escape(anchor)}" '
+            f'font-family="Arial, Helvetica, sans-serif" font-size="{font_size:.2f}">'
+            f"{html_escape(line)}</text>"
+            for index, line in enumerate(lines)
+        )
+
+    @staticmethod
+    def _coord_to_xy(label: object, *, x: float, y: float, size: float) -> tuple[float, float] | None:
+        try:
+            point = board_coord_to_svg_xy(str(label), x=x, y=y, size=size)
+            return (float(point[0]), float(point[1]))
+        except AssemblyValidationError:
+            return None
+
+    @staticmethod
+    def _sequence_strings(value: object) -> tuple[str, ...]:
+        if isinstance(value, Sequence) and not isinstance(value, str):
+            return tuple(str(item) for item in value)
+        return ()
+
+    @classmethod
+    def _step_coords(cls, step: Mapping[str, object]) -> tuple[str, ...]:
+        return cls._sequence_strings(step.get("coords", ()))
+
+    @classmethod
+    def _step_coord_roles(cls, step: Mapping[str, object]) -> tuple[str, ...]:
+        return cls._sequence_strings(step.get("coord_roles", ()))
+
+    @classmethod
+    def _step_board_coords(cls, step: Mapping[str, object]) -> tuple[str, ...]:
+        coords = cls._step_coords(step)
+        roles = cls._step_coord_roles(step)
+        return tuple(coord for coord, role in zip(coords, roles, strict=False) if role == "board")
+
+    @classmethod
+    def _step_reference_coords(cls, step: Mapping[str, object]) -> tuple[str, ...]:
+        coords = cls._step_coords(step)
+        roles = cls._step_coord_roles(step)
+        return tuple(coord for coord, role in zip(coords, roles, strict=False) if role != "board")
+
+    @staticmethod
+    def _step_part_ids(step: Mapping[str, object]) -> tuple[str, ...]:
+        parts = step.get("parts", ())
+        if not isinstance(parts, Sequence) or isinstance(parts, str):
+            return ()
+        found: list[str] = []
+        for raw_part in parts:
+            part_id = raw_part.get("part") if isinstance(raw_part, Mapping) else raw_part
+            if isinstance(part_id, str) and part_id and part_id not in found:
+                found.append(part_id)
+        return tuple(found)
+
+    @staticmethod
+    def _step_stack_layers(step: Mapping[str, object]) -> tuple[Mapping[str, object], ...]:
+        stack = step.get("stack", ())
+        if not isinstance(stack, Sequence) or isinstance(stack, str):
+            return ()
+        return tuple(layer for layer in stack if isinstance(layer, Mapping))
+
+    @staticmethod
+    def _step_ghost_parts(step: Mapping[str, object]) -> tuple[str, ...]:
+        state = step.get("visual_state", {})
+        if not isinstance(state, Mapping):
+            return ()
+        ghosts = state.get("ghost_parts", ())
+        if not isinstance(ghosts, Sequence) or isinstance(ghosts, str):
+            return ()
+        return tuple(str(part) for part in ghosts)
+
+    def _stack_label(self, layer: Mapping[str, object]) -> str:
+        role = str(layer.get("role", ""))
+        label = str(layer.get("label", role))
+        if role == "paper-fastener":
+            return "Paper fastener"
+        if role == "fastener-tabs":
+            return "Tabs loose"
+        if role in {"spacer", "top-spacer"}:
+            part = str(layer.get("part", ""))
+            return self._part_label(part) if part else label.replace(" spacer", "")
+        if role == "moving-part":
+            part = str(layer.get("part", ""))
+            return self._part_label(part) if part else label
+        if role == "board":
+            return label.replace("Board hole ", "Board ")
+        if role.startswith("repeat"):
+            return label.replace("Repeat this stack", "Repeat")
+        return label
+
+    def _board_grid_svg(
+        self,
+        *,
+        x: float,
+        y: float,
+        size: float,
+        active: Sequence[str] = (),
+        references: Sequence[str] = (),
+        show_all_labels: bool = True,
+    ) -> str:
+        pitch = size / 14.0
+        active_set = {coord.upper() for coord in active}
+        ref_set = {coord.upper() for coord in references}
+        parts = [
+            f'<rect x="{x - 6:.1f}" y="{y - 6:.1f}" width="{size + 12:.1f}" height="{size + 12:.1f}" class="board-frame"/>'
+        ]
+        if show_all_labels:
+            for col in BOARD_COLUMNS:
+                cx = x + (col - 1) * pitch
+                parts.append(
+                    f'<text x="{cx:.1f}" y="{y - 9:.1f}" class="board-label" '
+                    f'text-anchor="middle" font-family="Arial, Helvetica, sans-serif" '
+                    f'font-size="2.35">{col}</text>'
+                )
+            for index, row in enumerate(BOARD_ROWS):
+                cy = y + index * pitch + 1.3
+                parts.append(
+                    f'<text x="{x - 10:.1f}" y="{cy:.1f}" class="board-label" '
+                    f'text-anchor="middle" font-family="Arial, Helvetica, sans-serif" '
+                    f'font-size="2.35">{row}</text>'
+                )
+        for row in BOARD_ROWS:
+            for col in BOARD_COLUMNS:
+                label = f"{row}{col}"
+                xy = self._coord_to_xy(label, x=x, y=y, size=size)
+                if xy is None:
+                    continue
+                cx, cy = xy
+                class_name = "board-hole"
+                if label in active_set:
+                    class_name = "board-hole active-hole"
+                elif label in ref_set:
+                    class_name = "board-hole reference-hole"
+                parts.append(
+                    f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="1.25" class="{class_name}" data-board-coord="{label}"/>'
+                )
+        for label in tuple(active_set) + tuple(ref_set):
+            xy = self._coord_to_xy(label, x=x, y=y, size=size)
+            if xy is None:
+                continue
+            cx, cy = xy
+            bubble_y = cy - 5.2 if cy > y + size * 0.18 else cy + 9.0
+            parts.append(
+                f'<rect x="{cx - 6:.1f}" y="{bubble_y - 5.2:.1f}" width="12" height="6.2" rx="2.4" class="coord-bubble"/>'
+                f'<text x="{cx:.1f}" y="{bubble_y - 1.0:.1f}" class="coord-bubble-text" '
+                f'text-anchor="middle" font-family="Arial, Helvetica, sans-serif" '
+                f'font-size="2.40">{html_escape(label)}</text>'
+            )
+        return "".join(parts)
+
+
+    @staticmethod
+    def _part_category(part_id: str) -> str:
+        category, _sep, _key = part_id.partition(":")
+        return category
+
+    @staticmethod
+    def _mini_gear_teeth(part_id: str) -> int:
+        _category, _sep, key = part_id.partition(":")
+        if key.startswith("g") and key[1:].isdigit():
+            return int(key[1:])
+        return 12
+
+    @staticmethod
+    def _mini_gear_path(cx: float, cy: float, radius: float, teeth: int) -> str:
+        points: list[tuple[float, float]] = []
+        safe_teeth = max(6, min(int(teeth), 32))
+        root = max(1.0, radius * 0.80)
+        for tooth in range(safe_teeth):
+            base = 2.0 * math.pi * tooth / safe_teeth
+            for fraction, point_radius in ((0.08, root), (0.28, radius), (0.56, radius), (0.82, root)):
+                theta = base + 2.0 * math.pi * fraction / safe_teeth
+                points.append(
+                    (cx + point_radius * math.cos(theta), cy + point_radius * math.sin(theta))
+                )
+        if not points:
+            return ""
+        commands = [f"M {points[0][0]:.1f} {points[0][1]:.1f}"]
+        commands.extend(f"L {x:.1f} {y:.1f}" for x, y in points[1:])
+        commands.append("Z")
+        return " ".join(commands)
+
+    @staticmethod
+    def _placement_state_class(state: str) -> str:
+        return "placed-part-new" if state == "new" else "placed-part-ghost"
+
+    @staticmethod
+    def _data_attrs(**values: object) -> str:
+        attrs: list[str] = []
+        for key, value in values.items():
+            if value is None:
+                continue
+            attrs.append(f'data-{key.replace("_", "-")}="{html_escape(str(value))}"')
+        return " ".join(attrs)
+
+    def _placement_points(
+        self,
+        coords: Sequence[str],
+        *,
+        x: float,
+        y: float,
+        size: float,
+    ) -> tuple[tuple[str, float, float], ...]:
+        points: list[tuple[str, float, float]] = []
+        for coord in coords:
+            xy = self._coord_to_xy(coord, x=x, y=y, size=size)
+            if xy is None:
+                continue
+            points.append((coord, xy[0], xy[1]))
+        return tuple(points)
+
+    def _draw_visual_part(
+        self,
+        part_id: str,
+        points: Sequence[tuple[str, float, float]],
+        *,
+        state: str,
+        step_n: int,
+        part_index: int,
+        coord_roles: Sequence[str] = (),
+    ) -> str:
+        if not points:
+            return ""
+        category = self._part_category(part_id)
+        color = self._part_color(part_id)
+        state_class = self._placement_state_class(state)
+        coord_labels = ",".join(point[0] for point in points)
+        role_labels = ",".join(coord_roles)
+        attrs = self._data_attrs(
+            step=step_n,
+            part_key=part_id,
+            placement_state=state,
+            board_coord=coord_labels,
+            coordinate_role=role_labels,
+            part_index=part_index,
+        )
+
+        def point_at(index: int = 0) -> tuple[float, float]:
+            _label, px, py = points[min(index, len(points) - 1)]
+            return px, py
+
+        if category == "ring_gears" and len(points) >= 2:
+            cx = sum(point[1] for point in points) / len(points)
+            cy = sum(point[2] for point in points) / len(points)
+            radius = max(10.0, max(math.hypot(cx - point[1], cy - point[2]) for point in points))
+            mount_holes = "".join(
+                f'<circle cx="{hx:.1f}" cy="{hy:.1f}" r="1.4" class="placed-part-hole {state_class}" {attrs}/>'
+                for _label, hx, hy in points
+            )
+            return (
+                f'<g class="placed-part visual-ring-gear {state_class}" {attrs}>'
+                f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{radius + 5.0:.1f}" '
+                f'fill="{html_escape(color)}" fill-opacity="0.20" stroke="#92400e" stroke-width="2.0"/>'
+                f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{max(4.0, radius * 0.58):.1f}" '
+                f'fill="#ffffff" fill-opacity="0.70" stroke="#92400e" stroke-width="1.0"/>'
+                f'{mount_holes}'
+                f'</g>'
+            )
+
+        if category == "gears":
+            px, py = point_at(max(0, part_index - 1))
+            teeth = self._mini_gear_teeth(part_id)
+            radius = max(6.2, min(11.5, teeth * 0.55))
+            hole_ring = "".join(
+                f'<circle cx="{px + radius * 0.50 * math.cos(2 * math.pi * i / 4):.1f}" '
+                f'cy="{py + radius * 0.50 * math.sin(2 * math.pi * i / 4):.1f}" r="1.0" '
+                f'class="placed-part-hole gear-handle-hole {state_class}" {attrs}/>'
+                for i in range(4)
+            )
+            return (
+                f'<g class="placed-part visual-gear {state_class}" {attrs}>'
+                f'<path d="{self._mini_gear_path(px, py, radius, teeth)}" fill="{html_escape(color)}" '
+                f'fill-opacity="0.58" stroke="#78350f" stroke-width="1.1" stroke-linejoin="round"/>'
+                f'<circle cx="{px:.1f}" cy="{py:.1f}" r="2.1" fill="#ffffff" stroke="#78350f" stroke-width="0.9"/>'
+                f'{hole_ring}'
+                f'</g>'
+            )
+
+        if category in {"linkages", "brackets", "followers"} and len(points) >= 2:
+            first = points[0]
+            last = points[-1]
+            x1, y1 = first[1], first[2]
+            x2, y2 = last[1], last[2]
+            width = 6.2 if category == "linkages" else 7.2
+            holes = "".join(
+                f'<circle cx="{px:.1f}" cy="{py:.1f}" r="1.7" class="placed-part-hole {category}-hole {state_class}" {attrs}/>'
+                for _label, px, py in (first, last)
+            )
+            return (
+                f'<g class="placed-part visual-bar {category} {state_class}" {attrs}>'
+                f'<path d="M {x1:.1f} {y1:.1f} L {x2:.1f} {y2:.1f}" fill="none" '
+                f'stroke="{html_escape(color)}" stroke-opacity="0.78" stroke-width="{width:.1f}" stroke-linecap="round"/>'
+                f'<path d="M {x1:.1f} {y1:.1f} L {x2:.1f} {y2:.1f}" fill="none" '
+                f'stroke="#1f2937" stroke-opacity="0.35" stroke-width="0.8" stroke-linecap="round"/>'
+                f'{holes}'
+                f'</g>'
+            )
+
+        if category == "cams":
+            px, py = point_at(max(0, part_index - 1))
+            return (
+                f'<path class="placed-part visual-cam {state_class}" {attrs} '
+                f'd="M {px - 9:.1f} {py:.1f} C {px - 7:.1f} {py - 10:.1f} {px + 7:.1f} {py - 8:.1f} {px + 10:.1f} {py - 1:.1f} '
+                f'C {px + 9:.1f} {py + 8:.1f} {px - 4:.1f} {py + 11:.1f} {px - 9:.1f} {py:.1f} Z" '
+                f'fill="{html_escape(color)}" fill-opacity="0.55" stroke="#831843" stroke-width="1.0"/>'
+                f'<circle cx="{px:.1f}" cy="{py:.1f}" r="2.0" class="placed-part-hole {state_class}" {attrs}/>'
+            )
+
+        if category == "spacers":
+            px, py = point_at()
+            return (
+                f'<g class="placed-part visual-spacer {state_class}" {attrs}>'
+                f'<circle cx="{px:.1f}" cy="{py:.1f}" r="4.0" fill="{html_escape(color)}" fill-opacity="0.34" stroke="#475569" stroke-width="0.8"/>'
+                f'<circle cx="{px:.1f}" cy="{py:.1f}" r="1.7" fill="#ffffff" stroke="#475569" stroke-width="0.55"/>'
+                f'</g>'
+            )
+
+        if part_id.startswith("hardware:"):
+            px, py = point_at()
+            return (
+                f'<g class="placed-part visual-fastener {state_class}" {attrs}>'
+                f'<circle cx="{px:.1f}" cy="{py:.1f}" r="4.6" fill="#fb923c" fill-opacity="0.42" stroke="#9a3412" stroke-width="1.0"/>'
+                f'<path d="M {px - 5:.1f} {py:.1f} L {px + 5:.1f} {py:.1f} M {px:.1f} {py - 5:.1f} L {px:.1f} {py + 5:.1f}" '
+                f'stroke="#9a3412" stroke-width="0.9" stroke-linecap="round"/>'
+                f'</g>'
+            )
+
+        px, py = point_at(max(0, part_index - 1))
+        return (
+            f'<circle class="placed-part visual-generic {state_class}" {attrs} '
+            f'cx="{px:.1f}" cy="{py:.1f}" r="5.2" fill="{html_escape(color)}" '
+            f'fill-opacity="0.45" stroke="#334155" stroke-width="0.8"/>'
+        )
+
+    def _step_visual_part_ids(self, step: Mapping[str, object]) -> tuple[str, ...]:
+        part_ids = self._step_part_ids(step)
+        if part_ids:
+            return part_ids
+        if any(layer.get("role") == "paper-fastener" for layer in self._step_stack_layers(step)):
+            return ("hardware:paper-fastener",)
+        return ()
+
+    def _placement_overlay_svg(
+        self,
+        steps: Sequence[Mapping[str, object]],
+        *,
+        x: float,
+        y: float,
+        size: float,
+        state: str,
+        current_step_n: int,
+    ) -> str:
+        rendered: list[str] = []
+        seen: set[tuple[str, tuple[str, ...], str]] = set()
+        for step in steps:
+            coords = self._step_coords(step)
+            points = self._placement_points(coords, x=x, y=y, size=size)
+            if not points:
+                continue
+            roles = self._step_coord_roles(step)
+            for part_index, part_id in enumerate(self._step_visual_part_ids(step), start=1):
+                key = (part_id, tuple(label for label, _px, _py in points), state)
+                if key in seen:
+                    continue
+                seen.add(key)
+                rendered.append(
+                    self._draw_visual_part(
+                        part_id,
+                        points,
+                        state=state,
+                        step_n=current_step_n,
+                        part_index=part_index,
+                        coord_roles=roles,
+                    )
+                )
+        return "".join(rendered)
+
+    def _placement_callout_svg(
+        self,
+        *,
+        coords: Sequence[str],
+        x: float,
+        y: float,
+        size: float,
+        from_x: float,
+        from_y: float,
+        step_n: int,
+    ) -> str:
+        points = self._placement_points(coords, x=x, y=y, size=size)
+        if not points:
+            return ""
+        _label, target_x, target_y = points[0]
+        return (
+            f'<path class="placement-callout-line" data-step="{step_n}" '
+            f'd="M {from_x:.1f} {from_y:.1f} C {(from_x + target_x) / 2:.1f} {from_y:.1f} '
+            f'{(from_x + target_x) / 2:.1f} {target_y:.1f} {target_x:.1f} {target_y:.1f}"/>'
+            f'<circle class="placement-target-halo" data-step="{step_n}" cx="{target_x:.1f}" cy="{target_y:.1f}" r="7.2"/>'
+        )
+
+    def _assembly_board_legend_svg(self) -> str:
+        width, height = ASSEMBLY_PAGE_SIZE_MM
+        board_size = 156.0
+        board_x = 18.0
+        board_y = 36.0
+        board_pitch = format_length_for_user(
+            grid_step_mm(DEFAULT_GRID_CELL_CM),
+            include_board_spaces=False,
+        )
+        return f'''<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="{width}mm" height="{height}mm" viewBox="0 0 {width} {height}">
+  <title>MotionSmith 15x15 board coordinate legend</title>
+  <defs>{self._assembly_page_style()}</defs>
+  <rect x="8" y="8" width="{width - 16}" height="{height - 16}" rx="5" class="page-border"/>
+  <text x="18" y="23" class="page-title">15×15 board coordinate map</text>
+  <text x="190" y="43" class="body-strong">Use row letters A–O and column numbers 1–15.</text>
+  <text x="190" y="57" class="body">Each guide step highlights the exact board holes or reference link holes to use.</text>
+  <text x="190" y="74" class="body">1 board space = {board_pitch}; the board has 15 holes across and 15 holes down.</text>
+  <text x="190" y="91" class="body">Keep paper fasteners loose until the motion check passes.</text>
+  <g id="board-legend">{self._board_grid_svg(x=board_x, y=board_y, size=board_size)}</g>
+</svg>
+'''
+
+    @staticmethod
+    def _assembly_page_style() -> str:
+        return '''<style>
+      .page-border { fill:#ffffff; stroke:#111827; stroke-width:0.8; }
+      .page-title { font-family:Arial, Helvetica, sans-serif; font-size:7px; font-weight:700; fill:#111827; }
+      .step-badge { fill:#2563eb; stroke:#1e40af; stroke-width:0.8; }
+      .step-badge-text { font-family:Arial, Helvetica, sans-serif; font-size:8px; font-weight:700; fill:#ffffff; }
+      .step-title { font-family:Arial, Helvetica, sans-serif; font-size:7px; font-weight:700; fill:#111827; }
+      .instruction { font-family:Arial, Helvetica, sans-serif; font-size:4.6px; fill:#374151; }
+      .section-label { font-family:Arial, Helvetica, sans-serif; font-size:4px; font-weight:700; fill:#111827; }
+      .body { font-family:Arial, Helvetica, sans-serif; font-size:3.25px; fill:#374151; }
+      .body-strong { font-family:Arial, Helvetica, sans-serif; font-size:3.55px; font-weight:700; fill:#111827; }
+      .tiny { font-family:Arial, Helvetica, sans-serif; font-size:3.1px; fill:#4b5563; }
+      .column-box { fill:#f8fafc; stroke:#cbd5e1; stroke-width:0.45; }
+      .part-card { stroke-width:0.65; rx:3; fill-opacity:0.22; }
+      .part-card-text { font-family:Arial, Helvetica, sans-serif; font-size:3.9px; font-weight:700; fill:#111827; }
+      .board-frame { fill:#ffffff; stroke:#94a3b8; stroke-width:0.7; stroke-dasharray:2 2; }
+      .board-label { font-family:Arial, Helvetica, sans-serif; font-size:2.35px; fill:#475569; }
+      .board-hole { fill:#ffffff; stroke:#60a5fa; stroke-width:0.55; }
+      .active-hole { fill:#fef3c7; stroke:#f97316; stroke-width:1.2; }
+      .reference-hole { fill:#eff6ff; stroke:#2563eb; stroke-width:1.0; stroke-dasharray:1.8 1.2; }
+      .placed-part-ghost { opacity:0.28; filter:none; }
+      .placed-part-new { opacity:0.98; }
+      .placed-part-hole { fill:#ffffff; stroke:#1f2937; stroke-width:0.55; }
+      .placement-callout-line { fill:none; stroke:#f97316; stroke-width:1.0; stroke-linecap:round; stroke-dasharray:3 1.8; }
+      .placement-target-halo { fill:#fed7aa; fill-opacity:0.25; stroke:#f97316; stroke-width:1.0; }
+      .coord-bubble { fill:#111827; stroke:#111827; stroke-width:0.2; }
+      .coord-bubble-text { font-family:Arial, Helvetica, sans-serif; font-size:2.7px; font-weight:700; fill:#ffffff; }
+      .stack-layer { fill:#ffffff; stroke:#64748b; stroke-width:0.55; stroke-dasharray:2 1.2; }
+      .stack-text { font-family:Arial, Helvetica, sans-serif; font-size:3.15px; fill:#111827; }
+      .check-box { fill:#fff7ed; stroke:#fb923c; stroke-width:0.5; }
+      .footer { font-family:Arial, Helvetica, sans-serif; font-size:3px; fill:#64748b; }
+    </style>'''
+
+    def _assembly_step_page_svg(
+        self,
+        recipe: Mapping[str, object],
+        step: Mapping[str, object],
+        *,
+        previous_steps: Sequence[Mapping[str, object]] = (),
+        page_index: int,
+        page_count: int,
+    ) -> str:
+        width, height = ASSEMBLY_PAGE_SIZE_MM
+        step_n = int(finite_float(step.get("n"), float(page_index)))
+        title = str(step.get("title", f"Step {step_n}"))
+        instruction_lines = self._wrapped_lines(step.get("instruction", ""), max_chars=78, max_lines=2)
+        check_lines = self._wrapped_lines(step.get("check", ""), max_chars=18, max_lines=4)
+        part_ids = self._step_part_ids(step)
+        stack_layers = self._step_stack_layers(step)
+        board_coords = self._step_board_coords(step)
+        reference_coords = self._step_reference_coords(step)
+        all_coords = self._step_coords(step)
+        ghost_parts = self._step_ghost_parts(step)
+        recipe_title = str(recipe.get("title", "Assembly"))
+        recipe_key = str(recipe.get("key", "recipe"))
+
+        left_x, left_w = 12.0, 58.0
+        board_x, board_w = 76.0, 132.0
+        right_x, right_w = 214.0, 53.0
+        body_y, body_h = 38.0, 142.0
+        board_size = 126.0
+        board_origin_x = board_x + (board_w - board_size) / 2.0
+        board_origin_y = body_y + 12.0
+        previous_placement_svg = self._placement_overlay_svg(
+            previous_steps,
+            x=board_origin_x,
+            y=board_origin_y,
+            size=board_size,
+            state="ghost",
+            current_step_n=step_n,
+        )
+        current_placement_svg = self._placement_overlay_svg(
+            (step,),
+            x=board_origin_x,
+            y=board_origin_y,
+            size=board_size,
+            state="new",
+            current_step_n=step_n,
+        )
+        placement_callout_svg = self._placement_callout_svg(
+            coords=all_coords,
+            x=board_origin_x,
+            y=board_origin_y,
+            size=board_size,
+            from_x=left_x + left_w - 2.0,
+            from_y=body_y + 31.0,
+            step_n=step_n,
+        )
+
+        part_cards: list[str] = []
+        shown_parts = list(part_ids)
+        if not shown_parts and any(layer.get("role") == "paper-fastener" for layer in stack_layers):
+            shown_parts = ["hardware:paper-fastener"]
+        if not shown_parts:
+            shown_parts = ["instruction:check-only"]
+        for index, part_id in enumerate(shown_parts[:7]):
+            y = body_y + 24.0 + index * 14.2
+            color = "#ef4444" if part_id.startswith("hardware:") else self._part_color(part_id)
+            label = "Paper fastener" if part_id.startswith("hardware:") else self._part_label(part_id)
+            if part_id.startswith("instruction:"):
+                color = "#94a3b8"
+                label = "No new cut part"
+            part_cards.append(
+                f'<rect x="{left_x + 3:.1f}" y="{y - 7:.1f}" width="{left_w - 8:.1f}" height="11" '
+                f'class="part-card" fill="{html_escape(color)}" stroke="{html_escape(color)}"/>'
+                f'<circle cx="{left_x + 9:.1f}" cy="{y - 1.5:.1f}" r="2.7" fill="{html_escape(color)}"/>'
+                f'<text x="{left_x + 15:.1f}" y="{y:.1f}" class="part-card-text">{html_escape(label)}</text>'
+            )
+
+        stack_rows: list[str] = []
+        for index, layer in enumerate(stack_layers[:9]):
+            y = body_y + 17.0 + index * 10.5
+            stack_rows.append(
+                f'<rect x="{right_x + 2:.1f}" y="{y - 6:.1f}" width="20" height="5.8" class="stack-layer"/>'
+                f'<text x="{right_x + 25:.1f}" y="{y - 1.4:.1f}" class="stack-text" '
+                f'font-family="Arial, Helvetica, sans-serif" font-size="3.15">'
+                f"{html_escape(self._stack_label(layer))}</text>"
+            )
+        coord_text = ", ".join(all_coords) if all_coords else "See board"
+        ghost_text = ", ".join(self._part_label(part) for part in ghost_parts[:4]) or "previous parts ghosted"
+        return f'''<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="{width}mm" height="{height}mm" viewBox="0 0 {width} {height}"
+     data-recipe-key="{html_escape(recipe_key)}" data-step="{step_n}" data-layout-kind="assembly-step-page">
+  <title>{html_escape(recipe_title)} — step {step_n}</title>
+  <defs>{self._assembly_page_style()}</defs>
+  <rect x="8" y="8" width="{width - 16}" height="{height - 16}" rx="5" class="page-border"/>
+  <circle cx="22" cy="23" r="10" class="step-badge"/>
+  <text x="22" y="26" class="step-badge-text" text-anchor="middle">{step_n}</text>
+  <text x="38" y="21" class="step-title">{html_escape(title)}</text>
+  <text x="38" y="30" class="body-strong">{html_escape(recipe_title)}</text>
+  {self._text_lines(x=100, y=22, lines=instruction_lines, class_name="instruction", line_height=5.6)}
+  <rect x="{left_x}" y="{body_y}" width="{left_w}" height="{body_h}" rx="4" class="column-box"/>
+  <rect x="{board_x}" y="{body_y}" width="{board_w}" height="{body_h}" rx="4" class="column-box"/>
+  <rect x="{right_x}" y="{body_y}" width="{right_w}" height="{body_h}" rx="4" class="column-box"/>
+  <text x="{left_x + 4}" y="{body_y + 8}" class="section-label">Add now</text>
+  {''.join(part_cards)}
+  <text x="{left_x + 4}" y="{body_y + body_h - 20}" class="tiny">Fasteners are hardware.</text>
+  <text x="{left_x + 4}" y="{body_y + body_h - 13}" class="tiny">Cut parts are in kit-parts PDF.</text>
+  <text x="{board_x + 4}" y="{body_y + 8}" class="section-label">Board placement: {html_escape(coord_text)}</text>
+  <g id="board-step-{step_n}">{self._board_grid_svg(x=board_origin_x, y=board_origin_y, size=board_size, active=board_coords, references=reference_coords)}</g>
+  <g id="layer-previous-step-ghost-step-{step_n}" data-step="{step_n}">{previous_placement_svg}</g>
+  <g id="layer-new-part-placement-step-{step_n}" data-step="{step_n}">{current_placement_svg}{placement_callout_svg}</g>
+  <text x="{board_x + 4}" y="{body_y + body_h - 11}" class="tiny">Context: {html_escape(ghost_text)}</text>
+  <text x="{right_x + 4}" y="{body_y + 8}" class="section-label">Fastener stack</text>
+  {''.join(stack_rows)}
+  <rect x="{right_x + 2}" y="{body_y + body_h - 39}" width="{right_w - 4}" height="31" rx="3" class="check-box"/>
+  <text x="{right_x + 5}" y="{body_y + body_h - 30}" class="section-label">Check</text>
+  {self._text_lines(x=right_x + 5, y=body_y + body_h - 22, lines=check_lines, class_name="body", line_height=4.2)}
+  <text x="12" y="{height - 13}" class="footer">Keep paper-fastener tabs loose until the final motion check passes.</text>
+  <text x="{width - 12}" y="{height - 13}" class="footer" text-anchor="end">{html_escape(recipe_key)} · page {page_index} of {page_count}</text>
+</svg>
+'''
+
+    def _assembly_step_page_svgs(
+        self,
+        package: Mapping[str, object],
+        *,
+        front_matter_pages: int = 2,
+    ) -> tuple[str, ...]:
+        raw_recipes = package.get("recipes", ())
+        recipes = (
+            [recipe for recipe in raw_recipes if isinstance(recipe, Mapping)]
+            if isinstance(raw_recipes, Sequence) and not isinstance(raw_recipes, str)
+            else []
+        )
+        total_steps = 0
+        for recipe in recipes:
+            raw_steps = recipe.get("steps", ())
+            if isinstance(raw_steps, Sequence) and not isinstance(raw_steps, str):
+                total_steps += len([step for step in raw_steps if isinstance(step, Mapping)])
+        page_count = front_matter_pages + total_steps
+        pages: list[str] = []
+        page_index = front_matter_pages + 1
+        for recipe in recipes:
+            raw_steps = recipe.get("steps", ())
+            steps = (
+                [step for step in raw_steps if isinstance(step, Mapping)]
+                if isinstance(raw_steps, Sequence) and not isinstance(raw_steps, str)
+                else []
+            )
+            for step in steps:
+                prior_steps = tuple(
+                    earlier_step
+                    for earlier_step in steps
+                    if isinstance(earlier_step.get("n"), int)
+                    and isinstance(step.get("n"), int)
+                    and int(earlier_step["n"]) < int(step["n"])
+                )
+                pages.append(
+                    self._assembly_step_page_svg(
+                        recipe,
+                        step,
+                        previous_steps=prior_steps,
+                        page_index=page_index,
+                        page_count=page_count,
+                    )
+                )
+                page_index += 1
+        return tuple(pages)
+
+    @staticmethod
+    def _inline_svg_fallback_name(index: int, source: str) -> str:
+        data_attrs = {
+            match.group("key").lower(): match.group("value")
+            for match in _SVG_DATA_ATTR_RE.finditer(source[:4096])
+        }
+        layout_kind = data_attrs.get("layout-kind", "")
+        recipe_key = data_attrs.get("recipe-key", "recipe")
+        step = data_attrs.get("step", "")
+        if layout_kind == "kit-parts-compact-cut-sheet":
+            return f"{index:02d}-kit-parts-cut-sheet.svg"
+        if layout_kind == "assembly-step-page" and step:
+            return f"{index:02d}-step-{step}-{recipe_key}.svg"
+
+        title_match = _SVG_TITLE_RE.search(source[:4096])
+        title = " ".join(title_match.group("title").lower().split()) if title_match else ""
+        if "selected fabrication checklist" in title:
+            return f"{index:02d}-checklist.svg"
+        if "coordinate legend" in title or "15x15 board" in title:
+            return f"{index:02d}-board-15x15.svg"
+        if "physical contract" in title:
+            return f"{index:02d}-physical-contract.svg"
+        if "kit parts" in title:
+            return f"{index:02d}-kit-parts-checklist.svg"
+        return f"{index:02d}-page.svg"
+
     def _render_pdf_or_copy_fallback(
         self,
         *,
@@ -965,15 +2044,19 @@ class FabricationAssemblyGuideExporter:
         fallback_dir: Path,
         page_size_mm: tuple[float, float] | None = None,
         scale_mode: str = "fit",
+        margin_points: float | None = None,
     ) -> tuple[Path, ...]:
         temp_pdf_path = pdf_path.with_name(f".{pdf_path.stem}.tmp{pdf_path.suffix}")
         if temp_pdf_path.is_file():
             temp_pdf_path.unlink()
         pdf_scale_mode: PageScaleMode = "actual-size" if scale_mode == "actual-size" else "fit"
+        effective_margin = (
+            PRINT_MARGIN_POINTS if page_size_mm and margin_points is None else float(margin_points or 0.0)
+        )
         if render_svgs_to_pdf(
             tuple(svg_sources),
             temp_pdf_path,
-            margin_points=PRINT_MARGIN_POINTS if page_size_mm else 0.0,
+            margin_points=effective_margin,
             page_size_mm=page_size_mm,
             scale_mode=pdf_scale_mode,
         ) and is_valid_pdf_file(temp_pdf_path):
@@ -991,7 +2074,7 @@ class FabricationAssemblyGuideExporter:
                 shutil.copy2(source, target)
                 copied.append(target)
             elif isinstance(source, str):
-                target = fallback_dir / f"{index:02d}-checklist.svg"
+                target = fallback_dir / self._inline_svg_fallback_name(index, source)
                 target.write_text(source, encoding="utf-8")
                 copied.append(target)
         return tuple(copied)
@@ -1109,27 +2192,27 @@ This folder is a self-contained `assembly/` package exported from Automataii.
         readme_target.write_text(self._export_readme(summaries), encoding="utf-8")
         copied.append(readme_target)
 
-        board_source = self._resolve_assembly_asset("board-15x15.svg")
         guide_sources: list[str | Path] = [
             self._selected_parts_checklist_svg(package),
-            board_source,
+            self._assembly_board_legend_svg(),
         ]
         if contract is not None:
             guide_sources.insert(1, self._physical_contract_svg(contract))
-        for summary in summaries:
-            source = self._resolve_assembly_asset(summary.guide_svg)
-            guide_sources.append(source)
+        guide_sources.extend(
+            self._assembly_step_page_svgs(package, front_matter_pages=len(guide_sources))
+        )
         guide_outputs = self._render_pdf_or_copy_fallback(
             svg_sources=guide_sources,
             pdf_path=package_dir / "assembly-guide.pdf",
             fallback_dir=package_dir / "svg-fallback" / "assembly",
-            page_size_mm=PRINT_PAGE_SIZE_MM,
+            page_size_mm=ASSEMBLY_PAGE_SIZE_MM,
         )
         copied.extend(guide_outputs)
         pdf_files.extend(path for path in guide_outputs if path.suffix.lower() == ".pdf")
         fallback_files.extend(path for path in guide_outputs if path.suffix.lower() != ".pdf")
 
-        part_sources = self._quantity_part_sources(package)
+        packed_part_pages = self._packed_kit_parts_cut_sheet_svgs(package)
+        part_sources: tuple[str | Path, ...] = packed_part_pages or self._quantity_part_sources(package)
         if part_sources:
             part_outputs = self._render_pdf_or_copy_fallback(
                 svg_sources=(self._kit_parts_cover_svg(package), *part_sources),
@@ -1137,6 +2220,7 @@ This folder is a self-contained `assembly/` package exported from Automataii.
                 fallback_dir=package_dir / "svg-fallback" / "parts",
                 page_size_mm=PRINT_PAGE_SIZE_MM,
                 scale_mode="actual-size",
+                margin_points=0.0,
             )
             copied.extend(part_outputs)
             pdf_files.extend(path for path in part_outputs if path.suffix.lower() == ".pdf")

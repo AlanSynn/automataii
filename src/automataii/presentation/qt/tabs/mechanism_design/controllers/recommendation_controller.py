@@ -196,8 +196,16 @@ class RecommendationController(QObject):
             )
             return
 
+        physical_context = (
+            self._instantiation_service.physical_context()
+            if self._instantiation_service
+            else None
+        )
         dialog = MechanismRecommendationDialog(
-            enabled_parts[target_part_name], generated_paths_file, parent=parent_widget
+            enabled_parts[target_part_name],
+            generated_paths_file,
+            parent=parent_widget,
+            physical_context=physical_context,
         )
         dialog.setWindowTitle(f"Mechanism Recommendations for {target_part_name}")
         dialog.mechanism_preview_selected.connect(self._on_preview_selected)

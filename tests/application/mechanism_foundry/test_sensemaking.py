@@ -74,7 +74,8 @@ def test_build_context_uses_previous_and_current_point_snapshots():
     )
 
     assert context.change_line == "Input link: 40 mm → 65 mm"
-    assert "Joint B moved about 50 mm" in context.evidence_line
+    assert "Joint B moved about 1.97 in" in context.evidence_line
+    assert "2.5 board spaces" in context.evidence_line
     assert "larger or smaller circle" in context.effect_line
 
 
@@ -136,8 +137,8 @@ def test_build_context_moves_gear_and_slider_evidence_out_of_view():
 def test_value_formatting_keeps_panel_learner_friendly():
     service = SensemakingService()
 
-    assert service.format_value(40.0, "mm") == "40 mm"
-    assert service.format_value(40.25, "mm") == "40.2 mm"
+    assert service.format_value(40.0, "mm") == "1.57 in · 2 board spaces"
+    assert service.format_value(40.25, "mm") == "1.58 in · 2 board spaces"
     assert service.format_value(math.nan, "mm") == "—"
     assert service.format_value("joint_b") == "joint_b"
 

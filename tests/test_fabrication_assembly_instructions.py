@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import inspect
 import json
 import math
@@ -12,7 +13,6 @@ from typing import Any, cast
 import pytest
 from pdf_helpers import (
     assert_pdf_has_printable_pages,
-    assert_pdf_page_matches_svg_bbox,
     assert_pdf_page_uses_area,
     assert_pdf_pages_fit_standard_print_sheet,
     nonwhite_bbox,
@@ -42,6 +42,9 @@ from automataii.shared.fabrication_assembly import (
     BOARD_COLUMNS,
     BOARD_ROWS,
     AssemblyValidationError,
+    BoardCoord,
+    board_coord_to_centered_mm,
+    board_coord_to_svg_xy,
     manifest_part_index,
     validate_assembly_package,
 )
@@ -70,6 +73,20 @@ REQUIRED_LAYER_IDS = {
 }
 
 
+def test_board_coordinate_helpers_define_the_1_to_1_scene_and_svg_frames() -> None:
+    assert BoardCoord.from_label("A1").board_space_xy(origin="top-left") == (0.0, 0.0)
+    assert BoardCoord.from_label("O15").board_space_xy(origin="top-left") == (14.0, 14.0)
+    assert BoardCoord.from_label("H8").board_space_xy(origin="center") == (0.0, 0.0)
+    assert board_coord_to_centered_mm("H6", 20.0) == (-40.0, 0.0)
+    assert board_coord_to_centered_mm("H9", 20.0) == (20.0, 0.0)
+    assert board_coord_to_centered_mm("I8", 20.0) == (0.0, 20.0)
+    assert board_coord_to_svg_xy("A1", x=12.0, y=12.0, size=280.0) == (12.0, 12.0)
+    assert board_coord_to_svg_xy("O15", x=12.0, y=12.0, size=280.0) == (
+        292.0,
+        292.0,
+    )
+
+
 def _load_json(path: Path) -> dict[str, Any]:
     return cast(dict[str, Any], json.loads(path.read_text(encoding="utf-8")))
 
@@ -85,6 +102,14 @@ def _text_content(root: ET.Element) -> str:
 def _svg_text_values(svg: str) -> list[str]:
     root = ET.fromstring(svg)
     return [element.text or "" for element in root.iter(f"{SVG_NS}text")]
+
+
+def _svg_dimensions_mm_from_text(svg: str) -> tuple[float, float]:
+    root = ET.fromstring(svg)
+    return (
+        float(root.attrib["width"].removesuffix("mm")),
+        float(root.attrib["height"].removesuffix("mm")),
+    )
 
 
 def _path_numbers(path_data: str) -> list[float]:
@@ -210,13 +235,13 @@ def test_assembly_recipe_package_schema_references_and_bidirectionality(tmp_path
         sum(
             int(part["count"])
             for part in cast(list[dict[str, Any]], planetary_recipe["parts"])
-            if part["part"] == "gears:g14"
+            if part["part"] == "gears:g24"
         )
         == planetary_defaults["planet_count"]
     )
     assert planetary_recipe["app_mapping"]["mechanism_type"] == "planetary_gear"
     assert any(
-        part["part"] == "ring_gears:ring-g12-g14"
+        part["part"] == "ring_gears:ring-g8-g24"
         for part in cast(list[dict[str, Any]], planetary_recipe["parts"])
     )
     assert planetary_recipe["compatibility"][0]["compatible"] is True
@@ -240,7 +265,7 @@ def test_assembly_recipe_package_schema_references_and_bidirectionality(tmp_path
     )
     assert ring_step["coord_roles"] == ["board", "board", "board", "board"]
     assert any(
-        layer["role"] == "fixed-part" and layer["part"] == "ring_gears:ring-g12-g14"
+        layer["role"] == "fixed-part" and layer["part"] == "ring_gears:ring-g8-g24"
         for layer in cast(list[dict[str, Any]], ring_step["stack"])
     )
 
@@ -280,6 +305,89 @@ def test_assembly_recipe_package_schema_references_and_bidirectionality(tmp_path
     assert "board" not in {
         str(layer["role"]) for layer in cast(list[dict[str, Any]], slider_block_step["stack"])
     }
+
+
+def test_assembly_z_stack_semantics_reject_board_locked_moving_joints(
+    tmp_path: Path,
+) -> None:
+    manifest = write_fabrication_templates(tmp_path)
+    package = _load_json(tmp_path / "assembly" / "recipes.json")
+
+    validate_assembly_package(package, manifest)
+
+    for recipe in cast(list[dict[str, Any]], package["recipes"]):
+        for step in cast(list[dict[str, Any]], recipe["steps"]):
+            stack = cast(list[dict[str, Any]], step["stack"])
+            roles = [str(layer["role"]) for layer in stack]
+            for layer in stack:
+                if layer["role"] in {"spacer", "top-spacer"}:
+                    assert layer["part"] == "spacers:s10"
+            if "moving-part" in roles:
+                assert roles.index("paper-fastener") < roles.index("spacer")
+                assert roles.index("spacer") < roles.index("moving-part")
+                assert roles.index("moving-part") < roles.index("top-spacer")
+                assert roles.index("top-spacer") < roles.index("fastener-tabs")
+            if "fixed-part" in roles:
+                assert roles.index("board") < roles.index("paper-fastener")
+                assert roles.index("paper-fastener") < roles.index("spacer")
+                assert roles.index("spacer") < roles.index("fixed-part")
+                assert roles.index("fixed-part") < roles.index("fastener-tabs")
+            if "board" not in set(cast(list[str], step["coord_roles"])):
+                assert "board" not in roles
+
+    mutated = copy.deepcopy(package)
+    planetary = next(
+        recipe for recipe in mutated["recipes"] if recipe["key"] == "planetary-gear-basic"
+    )
+    planet_step = next(
+        step
+        for step in planetary["steps"]
+        if step["app_mapping"]["component_role"] == "planet-gear"
+    )
+    planet_step["stack"][0]["role"] = "board"
+
+    with pytest.raises(AssemblyValidationError, match="board stack conflicts|pinned to board"):
+        validate_assembly_package(mutated, manifest)
+
+
+def test_assembly_validation_rejects_wrong_spacer_and_pitch(tmp_path: Path) -> None:
+    manifest = write_fabrication_templates(tmp_path)
+    package = _load_json(tmp_path / "assembly" / "recipes.json")
+
+    wrong_spacer = copy.deepcopy(package)
+    first_moving_step = next(
+        step
+        for recipe in wrong_spacer["recipes"]
+        for step in recipe["steps"]
+        if any(layer.get("role") == "spacer" for layer in step["stack"])
+    )
+    spacer_layer = next(layer for layer in first_moving_step["stack"] if layer["role"] == "spacer")
+    spacer_layer["part"] = "gears:g8"
+
+    with pytest.raises(AssemblyValidationError, match="S10 spacers"):
+        validate_assembly_package(wrong_spacer, manifest)
+
+    wrong_pitch = copy.deepcopy(package)
+    wrong_pitch["hardware"]["board_pitch_mm"] = 25.0
+    with pytest.raises(AssemblyValidationError, match="board pitch"):
+        validate_assembly_package(wrong_pitch, manifest)
+
+
+def test_assembly_gear_text_disambiguates_identical_gears(tmp_path: Path) -> None:
+    write_fabrication_templates(tmp_path)
+    package = _load_json(tmp_path / "assembly" / "recipes.json")
+
+    gear_linkage = next(
+        recipe for recipe in package["recipes"] if recipe["key"] == "gear-linkage-crank"
+    )
+    mesh_step = next(
+        step
+        for step in gear_linkage["steps"]
+        if step["app_mapping"]["component_role"] == "driven-gear"
+    )
+
+    assert "output G" in mesh_step["instruction"]
+    assert "drive G" in mesh_step["instruction"]
 
 
 def test_assembly_svg_cards_have_testable_layers_and_non_overlapping_layout(
@@ -334,7 +442,7 @@ def test_assembly_svg_cards_have_testable_layers_and_non_overlapping_layout(
         if recipe["key"] == "planetary-gear-basic":
             assert "Carrier ref" in visible_text
             assert "Carrier hole" in visible_text
-            assert "R40" in visible_text
+            assert "R56" in visible_text
         if recipe["key"] == "gear-linkage-crank":
             assert "Gear/handle ref" in visible_text
             assert "Gear handle hole" in visible_text
@@ -481,6 +589,81 @@ def test_application_exporter_lists_and_exports_pdf_board_guides(tmp_path: Path)
     assert not (package_dir / "svg-fallback").exists()
 
 
+def test_full_manual_package_exports_only_current_pdf_manuals_without_fallback(
+    tmp_path: Path,
+) -> None:
+    write_fabrication_templates(tmp_path)
+    exporter = FabricationAssemblyGuideExporter(tmp_path)
+
+    result = exporter.export_guides(tmp_path / "manual-package")
+    package_dir = result.package_dir
+
+    assert set(result.recipe_keys) == EXPECTED_RECIPE_KEYS
+    assert result.fallback_files == ()
+    assert set(result.pdf_files) == {
+        package_dir / "assembly-guide.pdf",
+        package_dir / "kit-parts-to-cut.pdf",
+    }
+    assert (package_dir / "recipes.json").is_file()
+    assert (package_dir / "README.md").is_file()
+    assert not (package_dir / "index.html").exists()
+    assert not any(package_dir.glob("*.svg"))
+    assert not (package_dir / "parts").exists()
+    assert not (package_dir / "svg-fallback").exists()
+
+    exported_recipes = _load_json(package_dir / "recipes.json")
+    recipes = cast(list[dict[str, Any]], exported_recipes["recipes"])
+    expected_guide_pages = 2 + sum(
+        len(cast(list[dict[str, Any]], recipe["steps"])) for recipe in recipes
+    )
+    packed_part_pages = exporter._packed_kit_parts_cut_sheet_svgs(exported_recipes)
+    expected_part_pages = 1 + len(packed_part_pages)
+    ungrouped_part_pages = 1 + sum(exporter._package_part_counts(exported_recipes).values())
+    assert expected_part_pages < ungrouped_part_pages
+    assert packed_part_pages
+    assert 'data-layout-kind="kit-parts-compact-cut-sheet"' in packed_part_pages[0]
+
+    assert_pdf_has_printable_pages(
+        package_dir / "assembly-guide.pdf",
+        expected_pages=expected_guide_pages,
+    )
+    assert_pdf_pages_fit_standard_print_sheet(
+        package_dir / "assembly-guide.pdf",
+        expected_pages=expected_guide_pages,
+    )
+    for page in range(expected_guide_pages):
+        assert_pdf_page_uses_area(
+            package_dir / "assembly-guide.pdf",
+            page=page,
+            min_width_ratio=0.55,
+            min_height_ratio=0.35,
+        )
+
+    assert_pdf_has_printable_pages(
+        package_dir / "kit-parts-to-cut.pdf",
+        expected_pages=expected_part_pages,
+    )
+    assert_pdf_pages_fit_standard_print_sheet(
+        package_dir / "kit-parts-to-cut.pdf",
+        expected_pages=expected_part_pages,
+    )
+    kit_page_sizes = pdf_page_sizes_mm(package_dir / "kit-parts-to-cut.pdf")
+    assert len(kit_page_sizes) == expected_part_pages
+    assert all(width <= 216.0 and height <= 280.0 for width, height in kit_page_sizes)
+    for page in range(expected_part_pages):
+        _bbox, nonwhite = nonwhite_bbox(
+            render_pdf_page(package_dir / "kit-parts-to-cut.pdf", page=page),
+            stride=2,
+        )
+        assert nonwhite > 40, (package_dir / "kit-parts-to-cut.pdf", page)
+
+    readme = (package_dir / "README.md").read_text(encoding="utf-8")
+    assert "assembly-guide.pdf" in readme
+    assert "kit-parts-to-cut.pdf" in readme
+    assert "LEGO-style step cards" in readme
+    assert "If PDF rendering is unavailable" in readme
+
+
 def test_export_guides_writes_package_for_each_recipe_key(tmp_path: Path) -> None:
     write_fabrication_templates(tmp_path)
     exporter = FabricationAssemblyGuideExporter(tmp_path)
@@ -496,11 +679,15 @@ def test_export_guides_writes_package_for_each_recipe_key(tmp_path: Path) -> Non
         assert (package_dir / "assembly-guide.pdf").is_file()
         assert (package_dir / "kit-parts-to-cut.pdf").is_file()
         assert not (package_dir / "svg-fallback").exists()
-        assert_pdf_has_printable_pages(package_dir / "assembly-guide.pdf", expected_pages=3)
-        assert_pdf_pages_fit_standard_print_sheet(
-            package_dir / "assembly-guide.pdf", expected_pages=3
+        selected_recipe = cast(dict[str, Any], selected_recipes["recipes"][0])
+        expected_pages = 2 + len(cast(list[dict[str, Any]], selected_recipe["steps"]))
+        assert_pdf_has_printable_pages(
+            package_dir / "assembly-guide.pdf", expected_pages=expected_pages
         )
-        for page in range(3):
+        assert_pdf_pages_fit_standard_print_sheet(
+            package_dir / "assembly-guide.pdf", expected_pages=expected_pages
+        )
+        for page in range(expected_pages):
             assert_pdf_page_uses_area(
                 package_dir / "assembly-guide.pdf",
                 page=page,
@@ -514,34 +701,123 @@ def test_export_guides_writes_package_for_each_recipe_key(tmp_path: Path) -> Non
 def test_part_cut_pdf_uses_standard_pages_without_scaling_small_parts(tmp_path: Path) -> None:
     write_fabrication_templates(tmp_path)
     exporter = FabricationAssemblyGuideExporter(tmp_path)
+    package = exporter._selected_package(included_keys={"gear-train-basic"})
+    packed_pages = exporter._packed_kit_parts_cut_sheet_svgs(package)
+    assert len(packed_pages) == 1
+    assert packed_pages[0].count('class="packed-kit-part"') > 1
+    assert 'width="215.9mm" height="279.4mm"' in packed_pages[0]
+
     result = exporter.export_guides(tmp_path / "exported-guides", recipe_keys={"gear-train-basic"})
     pdf_path = result.package_dir / "kit-parts-to-cut.pdf"
 
     sizes = pdf_page_sizes_mm(pdf_path)
-    assert len(sizes) >= 3
-    assert all(max(width, height) <= 300.0 for width, height in sizes)
+    assert len(sizes) == 2
+    assert all(width <= 216.0 and height <= 280.0 for width, height in sizes)
 
     image = render_pdf_page(pdf_path, page=1)
     bbox, _count = nonwhite_bbox(image, stride=2)
     content_width = bbox[2] - bbox[0] + 1
     content_height = bbox[3] - bbox[1] + 1
-    assert content_width / image.width() < 0.45
-    assert content_height / image.height() < 0.45
-    assert bbox[0] > image.width() * 0.20
-    assert bbox[1] > image.height() * 0.20
+    assert content_width / image.width() > 0.35
+    assert content_height / image.height() > 0.18
+    assert bbox[0] >= 0
+    assert bbox[1] >= 0
 
 
-def test_assembly_recipe_pdf_page_matches_source_svg_layout(tmp_path: Path) -> None:
+def test_generated_package_cover_svgs_fit_their_print_pages(tmp_path: Path) -> None:
+    write_fabrication_templates(tmp_path)
+    exporter = FabricationAssemblyGuideExporter(tmp_path)
+    package = exporter._selected_package(
+        included_keys={summary.key for summary in exporter.list_guides()}
+    )
+
+    selected_width, selected_height = _svg_dimensions_mm_from_text(
+        exporter._selected_parts_checklist_svg(package)
+    )
+    assert (selected_width, selected_height) == assembly_export.ASSEMBLY_PAGE_SIZE_MM
+
+    kit_width, kit_height = _svg_dimensions_mm_from_text(exporter._kit_parts_cover_svg(package))
+    assert (kit_width, kit_height) == assembly_export.PRINT_PAGE_SIZE_MM
+
+    contract = exporter.build_app_physical_contract(
+        {"gear_train": {"type": "gear_train", "params": {"grid_system_enabled": True}}}
+    )
+    contract_width, contract_height = _svg_dimensions_mm_from_text(
+        exporter._physical_contract_svg(contract)
+    )
+    assert contract_width == assembly_export.ASSEMBLY_PAGE_SIZE_MM[0]
+    assert contract_height <= assembly_export.ASSEMBLY_PAGE_SIZE_MM[1]
+
+
+def test_assembly_recipe_pdf_uses_readable_step_pages_instead_of_scaled_static_svg(
+    tmp_path: Path,
+) -> None:
     write_fabrication_templates(tmp_path)
     exporter = FabricationAssemblyGuideExporter(tmp_path)
     result = exporter.export_guides(tmp_path / "exported-guides", recipe_keys={"gear-train-basic"})
 
-    assert_pdf_page_matches_svg_bbox(
-        result.package_dir / "assembly-guide.pdf",
-        tmp_path / "assembly" / "01-gear-train-basic.svg",
-        page=2,
-        margin_points=18.0,
+    guide_pdf = result.package_dir / "assembly-guide.pdf"
+    selected_recipes = _load_json(result.package_dir / "recipes.json")
+    recipe = cast(dict[str, Any], selected_recipes["recipes"][0])
+    expected_pages = 2 + len(cast(list[dict[str, Any]], recipe["steps"]))
+
+    assert_pdf_has_printable_pages(guide_pdf, expected_pages=expected_pages)
+    assert_pdf_pages_fit_standard_print_sheet(guide_pdf, expected_pages=expected_pages)
+    sizes = pdf_page_sizes_mm(guide_pdf)
+    assert all(width > height for width, height in sizes), sizes
+    for page in range(expected_pages):
+        assert_pdf_page_uses_area(
+            guide_pdf,
+            page=page,
+            min_width_ratio=0.55,
+            min_height_ratio=0.35,
+        )
+
+    # The source SVG recipe is now a compact page-sized preview, and the PDF
+    # guide still renders every step as its own Letter-landscape card.
+    source_root = _svg_root(tmp_path / "assembly" / "01-gear-train-basic.svg")
+    assert float(source_root.attrib["width"].removesuffix("mm")) <= 300.0
+    assert float(source_root.attrib["height"].removesuffix("mm")) <= 300.0
+
+
+def test_assembly_pdf_step_pages_show_visual_part_placement_and_ghost_context(
+    tmp_path: Path,
+) -> None:
+    write_fabrication_templates(tmp_path)
+    exporter = FabricationAssemblyGuideExporter(tmp_path)
+    package = exporter._selected_package(included_keys={"gear-linkage-crank"})
+
+    step_pages = exporter._assembly_step_page_svgs(package)
+    step_four = next(page for page in step_pages if 'data-step="4"' in page)
+    root = ET.fromstring(step_four)
+    elements = list(root.iter())
+
+    new_parts = [
+        element
+        for element in elements
+        if element.attrib.get("data-placement-state") == "new"
+    ]
+    ghost_parts = [
+        element
+        for element in elements
+        if element.attrib.get("data-placement-state") == "ghost"
+    ]
+    assert new_parts
+    assert ghost_parts
+    assert any(element.attrib.get("data-part-key") == "linkages:linkage-4-cell" for element in new_parts)
+    assert any(element.attrib.get("data-part-key") == "gears:g24" for element in ghost_parts)
+    assert any(
+        "visual-bar" in element.attrib.get("class", "")
+        and element.attrib.get("data-placement-state") == "new"
+        for element in elements
     )
+    assert any("placement-callout-line" in element.attrib.get("class", "") for element in elements)
+    assert any("placement-target-halo" in element.attrib.get("class", "") for element in elements)
+
+    result = exporter.export_guides(tmp_path / "visual-guide", recipe_keys={"gear-linkage-crank"})
+    guide_pdf = result.package_dir / "assembly-guide.pdf"
+    assert_pdf_has_printable_pages(guide_pdf)
+    assert_pdf_page_uses_area(guide_pdf, page=5, min_width_ratio=0.55, min_height_ratio=0.35)
 
 
 def test_runtime_foundry_visible_mechanisms_have_assembly_guides(tmp_path: Path) -> None:
@@ -662,8 +938,12 @@ def test_application_exporter_falls_back_to_svg_sources_when_pdf_unavailable(
     assert not any(path.name.startswith(".assembly-guide.tmp") for path in package_dir.iterdir())
     assert (package_dir / "svg-fallback" / "assembly" / "01-checklist.svg").is_file()
     assert (package_dir / "svg-fallback" / "assembly" / "02-board-15x15.svg").is_file()
-    assert (package_dir / "svg-fallback" / "assembly" / "03-01-gear-train-basic.svg").is_file()
-    assert (package_dir / "svg-fallback" / "parts" / "02-gear-12t.svg").is_file()
+    assert (
+        package_dir / "svg-fallback" / "assembly" / "03-step-1-gear-train-basic.svg"
+    ).is_file()
+    compact_cut_sheet = package_dir / "svg-fallback" / "parts" / "02-kit-parts-cut-sheet.svg"
+    assert compact_cut_sheet.is_file()
+    assert "kit-parts-compact-cut-sheet" in compact_cut_sheet.read_text(encoding="utf-8")
 
 
 def test_application_exporter_rejects_renderer_success_with_non_pdf_outputs(
@@ -744,7 +1024,7 @@ def test_assembly_export_readme_and_pdf_cover_explain_character_attachment(tmp_p
                         "stack": [
                             {"label": "fastener head", "order": 1, "role": "paper-fastener"},
                             {"label": "character arm", "order": 2, "role": "moving-part"},
-                            {"label": "spacer", "order": 3, "role": "spacer", "part": "spacers:s8"},
+                            {"label": "spacer", "order": 3, "role": "spacer", "part": "spacers:s10"},
                             {"label": "board", "order": 4, "role": "board"},
                         ],
                     },
@@ -758,7 +1038,7 @@ def test_assembly_export_readme_and_pdf_cover_explain_character_attachment(tmp_p
     assert "Use it like a LEGO guide book" in cover
     assert "Needed parts and hardware only" in cover
     assert "linkages:linkage-2-cell" in cover
-    assert "spacers:s8" in cover
+    assert "spacers:s10" in cover
     assert "x1" in cover
     assert "Paper Fastener" in cover
     assert "{y - 2}" not in cover
@@ -928,32 +1208,32 @@ def test_active_part_ids_helper_contract_and_physical_contract_echo(tmp_path: Pa
 
     assert active_part_ids_from_layer(
         {
-            "active_part_ids": ["gears:g12", "gears:g12", 42],
+            "active_part_ids": ["gears:g24", "gears:g24", 42],
             "app_highlight_ids": ["ignored:lower-precedence"],
         }
-    ) == ("gears:g12",)
-    assert active_part_ids_from_layer({"app_highlight_ids": ["gears:g16"]}) == ("gears:g16",)
+    ) == ("gears:g24",)
+    assert active_part_ids_from_layer({"app_highlight_ids": ["gears:g40"]}) == ("gears:g40",)
     assert active_part_ids_from_layer(
         {"fabrication": {"active_part_ids": ["linkages:linkage-4-cell"]}}
     ) == ("linkages:linkage-4-cell",)
-    assert active_part_ids_from_layer({"active_part_ids": "gears:g12"}) == ()
+    assert active_part_ids_from_layer({"active_part_ids": "gears:g24"}) == ()
     selection = FabricationLayerSelection.from_layer_data(
-        {"source_type": "gear_train", "fabrication_part_ids": ["gears:g12"]}
+        {"source_type": "gear_train", "fabrication_part_ids": ["gears:g24"]}
     )
     assert selection.mechanism_type == "gear_train"
-    assert selection.active_part_ids == ("gears:g12",)
+    assert selection.active_part_ids == ("gears:g24",)
     assert selection.active_part_ids_source == "fabrication_part_ids"
 
     contract = exporter.build_app_physical_contract(
         {
             "gear": {
                 "type": "gear_train",
-                "active_part_ids": ["gears:g12", "gears:g16"],
+                "active_part_ids": ["gears:g24"],
                 "params": {
                     "grid_system_enabled": True,
                     "grid_cell_cm": 2.0,
-                    "gear1_teeth": 12,
-                    "gear2_teeth": 16,
+                    "gear1_teeth": 24,
+                    "gear2_teeth": 24,
                 },
             }
         },
@@ -962,8 +1242,18 @@ def test_active_part_ids_helper_contract_and_physical_contract_echo(tmp_path: Pa
 
     layers = cast(list[dict[str, Any]], contract["layers"])
     assert layers[0]["recipe_key"] == "gear-train-basic"
-    assert layers[0]["active_part_ids_from_app"] == ["gears:g12", "gears:g16"]
+    assert layers[0]["active_part_ids_from_app"] == ["gears:g24"]
     assert layers[0]["active_part_ids_source"] == "active_part_ids"
+    placements = cast(list[dict[str, Any]], layers[0]["recipe_board_placements"])
+    points = {
+        point["coord"]: point
+        for placement in placements
+        for point in cast(list[dict[str, Any]], placement["points"])
+    }
+    assert points["H6"]["board_space_xy"] == [-2.0, 0.0]
+    assert points["H6"]["centered_mm"] == [-40.0, 0.0]
+    assert points["H9"]["board_space_xy"] == [1.0, 0.0]
+    assert points["H9"]["centered_mm"] == [20.0, 0.0]
 
 
 def test_foundry_default_mechanisms_match_physical_recipe_parts(tmp_path: Path) -> None:
@@ -1000,8 +1290,8 @@ def test_exported_guides_include_physical_contract_and_quantity_aware_part_pdf(
                 "params": {
                     "grid_system_enabled": True,
                     "grid_cell_cm": 2.0,
-                    "gear1_teeth": 12,
-                    "gear2_teeth": 16,
+                    "gear1_teeth": 24,
+                    "gear2_teeth": 24,
                 },
             }
         },
@@ -1021,6 +1311,46 @@ def test_exported_guides_include_physical_contract_and_quantity_aware_part_pdf(
     assert (package_dir / "kit-parts-to-cut.pdf").is_file()
     assert package_dir / "kit-parts-to-cut.pdf" in result.pdf_files
     assert result.contract_warnings == ()
+
+
+def test_export_guides_contract_page_keeps_step_page_numbers_consistent(
+    tmp_path: Path,
+) -> None:
+    write_fabrication_templates(tmp_path)
+    exporter = FabricationAssemblyGuideExporter(tmp_path)
+    contract = exporter.build_app_physical_contract(
+        {
+            "gear": {
+                "type": "gear_train",
+                "params": {
+                    "grid_system_enabled": True,
+                    "grid_cell_cm": 2.0,
+                    "gear1_teeth": 24,
+                    "gear2_teeth": 24,
+                },
+            }
+        },
+        recipe_keys={"gear-train-basic"},
+    )
+
+    result = exporter.export_guides(
+        tmp_path / "exported-guides",
+        recipe_keys={"gear-train-basic"},
+        app_contract=contract,
+    )
+    package = _load_json(result.package_dir / "recipes.json")
+    recipe = cast(dict[str, Any], cast(list[dict[str, Any]], package["recipes"])[0])
+    steps = cast(list[dict[str, Any]], recipe["steps"])
+    expected_pages = 3 + len(steps)
+
+    assert_pdf_has_printable_pages(
+        result.package_dir / "assembly-guide.pdf",
+        expected_pages=expected_pages,
+    )
+
+    step_pages = exporter._assembly_step_page_svgs(package, front_matter_pages=3)
+    assert f"page 4 of {expected_pages}" in step_pages[0]
+    assert f"page {expected_pages} of {expected_pages}" in step_pages[-1]
 
 
 def test_export_guides_surfaces_active_part_recipe_mismatch_in_contract_report(

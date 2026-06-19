@@ -227,7 +227,7 @@ class EditorView(QGraphicsView):
         self._setup_hover_controls()
 
         # Unit and DPI settings
-        self.display_unit = "cm"  # Default unit: 'cm', 'inch', or 'px'
+        self.display_unit = "inch"  # Default unit: 'cm', 'inch', or 'px'
         self.grid_enabled = True
         self.grid_cell_size_cm = 1.0
         try:

@@ -67,7 +67,7 @@ def test_foundry_configs_tolerate_smaller_explicit_profile_shapes():
 
     assert configs["four_bar"].initial_parameters()["ground_link"] == 90.0
     assert configs["four_bar"].initial_parameters()["input_link"] == 30.0
-    assert configs["gear_train"].initial_parameters()["gear1_teeth"] == 10
+    assert configs["gear_train"].initial_parameters()["gear1_teeth"] == 14
     assert configs["gear_train"].initial_parameters()["gear2_teeth"] == 14
     assert configs["planetary_gear"].initial_parameters()["sun_teeth"] == 10
     assert configs["planetary_gear"].initial_parameters()["planet_teeth"] == 14

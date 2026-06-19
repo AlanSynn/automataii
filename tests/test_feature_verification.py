@@ -382,6 +382,38 @@ class TestProductionBranding:
             window.close()
         assert app is not None
 
+    def test_main_window_starts_on_character_selection_after_saved_tab_restore(self, monkeypatch):
+        """Saved workspace state may restore tab order, but startup screen stays Character."""
+        from PyQt6.QtWidgets import QApplication
+
+        from automataii.presentation.qt.main_window import AutomataDesigner
+        from automataii.presentation.qt.windows.components import WorkspaceLayoutManager
+
+        original_restore = WorkspaceLayoutManager.restore_workspace_layout
+
+        def restore_to_mechanism_design(self, *, restore_current_tab=True):
+            original_restore(self, restore_current_tab=restore_current_tab)
+            index = self._find_tab_index_by_id("tab_mechanism_design")
+            assert index >= 0
+            self._tab_widget.setCurrentIndex(index)
+
+        monkeypatch.setattr(
+            WorkspaceLayoutManager,
+            "restore_workspace_layout",
+            restore_to_mechanism_design,
+        )
+
+        app = QApplication.instance() or QApplication([])
+        window = AutomataDesigner(experiment_mode=False)
+        try:
+            current_tab = window.tab_widget.currentWidget()
+            assert current_tab is window.image_proc_tab
+            assert current_tab.objectName() == "tab_character_selection"
+            assert window.tab_widget.tabText(window.tab_widget.currentIndex()) == "Character Selection"
+        finally:
+            window.close()
+        assert app is not None
+
     def test_options_menu_opens_reusable_live_preferences_dialog(self):
         from PyQt6.QtWidgets import QApplication, QDialog
 

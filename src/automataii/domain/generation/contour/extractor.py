@@ -126,6 +126,41 @@ class AdvancedContourExtractor:
             self.logger.error(f"Error extracting contours from {png_path}: {e}")
             return []
 
+    def extract_manufacturing_contours_from_alpha_mask(
+        self, alpha_mask: np.ndarray
+    ) -> list[ManufacturingContour]:
+        """Extract manufacturing contours from an already-loaded alpha mask.
+
+        The editor renders ``CharacterPartItem`` from its current pixmap, not
+        necessarily from a pristine file on disk.  Blueprint export can pass
+        that pixmap's alpha mask here so the cut sheet follows the same visible
+        shape the user sees in the editor.
+        """
+        if not isinstance(alpha_mask, np.ndarray) or alpha_mask.size == 0:
+            return []
+
+        try:
+            processed_mask = self._preprocess_mask(alpha_mask)
+            contours, _ = cv2.findContours(
+                processed_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            )
+
+            manufacturing_contours: list[ManufacturingContour] = []
+            for contour in contours:
+                area = cv2.contourArea(contour)
+                if area < self.min_area:
+                    continue
+                epsilon = _nonnegative_finite_float(self.tolerance, 2.0)
+                simplified_contour = cv2.approxPolyDP(contour, epsilon, True)
+                svg_path = self._contour_to_svg_path(simplified_contour)
+                manufacturing_contours.append(
+                    ManufacturingContour(contour, simplified_contour, svg_path)
+                )
+            return manufacturing_contours
+        except Exception as e:
+            self.logger.error("Error extracting contours from alpha mask: %s", e)
+            return []
+
     def _extract_alpha_mask(self, image: np.ndarray) -> np.ndarray | None:
         """Extract alpha mask from image based on format."""
         if not isinstance(image, np.ndarray) or image.size == 0:

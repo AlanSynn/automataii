@@ -480,14 +480,19 @@ class ParameterMapper:
     ) -> None:
         """Setup parameters for gear mechanism."""
         full_sim_data = _dict_or_empty(layer_data.get("full_simulation_data", {}))
+        profile = self._profile_for_params(params)
+        default_gear_radius = 30.0
+        if profile.gear_presets:
+            default_gear_preset = profile.gear_presets[min(1, len(profile.gear_presets) - 1)]
+            default_gear_radius = default_gear_preset.teeth * profile.gear_radius_per_tooth_mm
 
         radius_1 = _first_positive_finite_float(
-            40.0,
+            default_gear_radius,
             params.get("gear1_radius"),
             params.get("r1"),
         )
         radius_2 = _first_positive_finite_float(
-            60.0,
+            default_gear_radius,
             params.get("gear2_radius"),
             params.get("r2"),
         )
@@ -501,7 +506,6 @@ class ParameterMapper:
         params["gear2_radius"] = radius_2
         params["r1"] = radius_1
         params["r2"] = radius_2
-        profile = self._profile_for_params(params)
         if grid_enabled_from_params(params):
             params.update(snap_gear_params(params, profile=profile))
 
@@ -561,12 +565,20 @@ class ParameterMapper:
         """Set default positions for gear mechanism."""
         gear1_x = _finite_float(params.get("gear1_x"), 400.0)
         gear1_y = _finite_float(params.get("gear1_y"), 300.0)
-        r1 = _first_positive_finite_float(40.0, params.get("gear1_radius"), params.get("r1"))
-        r2 = _first_positive_finite_float(60.0, params.get("gear2_radius"), params.get("r2"))
+        profile = self._profile_for_params(params)
+        default_gear_radius = 30.0
+        if profile.gear_presets:
+            default_gear_preset = profile.gear_presets[min(1, len(profile.gear_presets) - 1)]
+            default_gear_radius = default_gear_preset.teeth * profile.gear_radius_per_tooth_mm
+        r1 = _first_positive_finite_float(
+            default_gear_radius, params.get("gear1_radius"), params.get("r1")
+        )
+        r2 = _first_positive_finite_float(
+            default_gear_radius, params.get("gear2_radius"), params.get("r2")
+        )
 
         params["gear1_x"] = gear1_x
         params["gear1_y"] = gear1_y
-        profile = self._profile_for_params(params)
         params["gear2_x"] = _finite_float(
             params.get("gear2_x"),
             gear1_x + gear_center_distance(r1, r2, params.get("gear_clearance"), profile=profile),

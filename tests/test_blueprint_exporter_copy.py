@@ -66,7 +66,7 @@ def test_blueprint_package_accepts_svg_fallback_assembly_export(
                 guide_svg="assembly/01-gear-train-basic.svg",
                 step_count=4,
                 app_mechanism_type="gear_train",
-                app_highlight_ids=("gears:g12",),
+                app_highlight_ids=("gears:g24",),
             )
 
         def build_app_physical_contract(self, _mechanism_layers, *, recipe_keys):
@@ -694,8 +694,8 @@ def test_cam_blueprint_instructions_are_parameter_driven() -> None:
     assert "Maximum radius" not in instructions
     assert "Minimum radius" not in instructions
     assert "generated CAM profile" in instructions
-    assert "Base radius/reference: 22.0 mm" in instructions
-    assert "Lift/eccentricity input: 7.0 mm" in instructions
+    assert "Base radius/reference: 0.87 in · 1.1 board spaces" in instructions
+    assert "Lift/eccentricity input: 0.28 in · 0.3 board spaces" in instructions
     assert "Lobes: 3" in instructions
     assert "Harmonic: 0.60" in instructions
 
@@ -718,7 +718,7 @@ def test_gear_blueprint_instructions_preserve_grid_disabled_freeform_teeth() -> 
 
     assert "Estimated teeth: 12" in instructions
     assert "Estimated teeth: 18" in instructions
-    assert "Center distance: 94.0 mm" in instructions
+    assert "Center distance: 3.7 in · 4.7 board spaces" in instructions
 
 
 def test_gear_blueprint_instructions_use_radius_aliases() -> None:
@@ -737,11 +737,11 @@ def test_gear_blueprint_instructions_use_radius_aliases() -> None:
         scale_factor=1.0,
     )
 
-    assert "Pitch diameter: 72.0 mm" in instructions
-    assert "Pitch diameter: 108.0 mm" in instructions
+    assert "Pitch diameter: 2.83 in · 3.6 board spaces" in instructions
+    assert "Pitch diameter: 4.25 in · 5.4 board spaces" in instructions
     assert "Estimated teeth: 12" in instructions
     assert "Estimated teeth: 18" in instructions
-    assert "Center distance: 94.0 mm" in instructions
+    assert "Center distance: 3.7 in · 4.7 board spaces" in instructions
 
 
 def test_gear_dimension_dialog_uses_explicit_clearance(monkeypatch) -> None:
@@ -800,7 +800,7 @@ def test_gear_dimension_dialog_uses_explicit_clearance(monkeypatch) -> None:
 
     exporter.show_mechanism_dimensions("gear")
 
-    assert "Center Distance: 94.0 mm" in captured["text"]
+    assert "Center Distance: 3.7 in · 4.7 board spaces" in captured["text"]
     assert captured["exec"] == "called"
 
 

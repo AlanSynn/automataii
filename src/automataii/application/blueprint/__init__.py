@@ -3,6 +3,11 @@
 from .composer import (
     BlueprintComposer,
     BlueprintCompositionResult,
+    BlueprintLayoutCompositionResult,
 )
 
-__all__ = ["BlueprintComposer", "BlueprintCompositionResult"]
+__all__ = [
+    "BlueprintComposer",
+    "BlueprintCompositionResult",
+    "BlueprintLayoutCompositionResult",
+]

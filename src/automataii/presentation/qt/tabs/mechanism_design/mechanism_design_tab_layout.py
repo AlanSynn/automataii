@@ -184,6 +184,24 @@ class MechanismDesignTabLayout:
         generation_group.setStyleSheet(self._get_group_style())
         generation_layout = QVBoxLayout(generation_group)
 
+        physical_mode_label = QLabel(
+            "Fabrication-ready preset mode ON — G1/G3/G5/G7 gears + S10 spacer + 4 mm holes"
+        )
+        physical_mode_label.setWordWrap(True)
+        physical_mode_label.setStyleSheet("""
+            QLabel {
+                color: #0f5132;
+                font-size: 11px;
+                font-weight: 650;
+                background-color: #d1e7dd;
+                border: 1px solid #badbcc;
+                border-radius: 8px;
+                padding: 6px 8px;
+            }
+        """)
+        generation_layout.addWidget(physical_mode_label)
+        self._created_widgets["physical_mode_label"] = physical_mode_label
+
         # Primary mechanism action button row
         buttons_layout = QHBoxLayout()
         buttons_layout.setSpacing(8)

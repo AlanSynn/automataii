@@ -142,6 +142,18 @@ class TestAnimationFrameCoordinatorDefensiveChecks:
 class TestMechanismTypeHandling:
     """Test handling of different mechanism types in recommendation flow."""
 
+    def test_recommendation_physical_banner_defaults_to_fabrication_ready(self):
+        from automataii.presentation.qt.dialogs.recommendation_dialog import (
+            _recommendation_physical_mode_summary,
+        )
+        from automataii.shared.physical_kit import physical_context_from_settings
+
+        assert "Fabrication-ready preset mode ON" in _recommendation_physical_mode_summary(None)
+        assert "G1/G3/G5/G7" in _recommendation_physical_mode_summary(None)
+        assert "Simulation-only" in _recommendation_physical_mode_summary(
+            physical_context_from_settings(False, 2.0)
+        )
+
     @pytest.mark.parametrize(
         "mechanism_type,internal_type",
         [
@@ -675,6 +687,48 @@ class TestRecommendationTemplateSearchContracts:
         assert best["scores"]["path_direction"] == "forward"
         assert best["reverse_direction"] is True
         assert best["parameters"]["reverse_direction"] is True
+
+    def test_best_recommendations_snap_template_params_to_fabrication_presets(self):
+        import numpy as np
+
+        from automataii.presentation.qt.dialogs.recommendation_dialog import (
+            MechanismRecommendationDialog,
+        )
+
+        user_path = np.asarray([[0.0, 0.0], [1.0, 2.0], [2.0, 0.0]], dtype=float)
+        dialog = MechanismRecommendationDialog.__new__(MechanismRecommendationDialog)
+        dialog.user_motion_path_np = user_path
+        dialog.physical_context = None
+        dialog.generated_paths_data = [
+            {
+                "name": "freeform-fourbar",
+                "type": "4-bar Coupler",
+                "parameters": {"l1": 45.1, "l2": 11.8, "l3": 80.2, "l4": 60.6},
+                "path_coordinates": user_path.tolist(),
+                "path_coordinates_np": user_path.copy(),
+            },
+            {
+                "name": "freeform-planetary",
+                "type": "Planetary Gear",
+                "parameters": {"r_sun": 18.0, "r_planet": 36.0, "arm_length": 13.0},
+                "path_coordinates": user_path.tolist(),
+                "path_coordinates_np": user_path.copy(),
+            },
+        ]
+        dialog._get_mechanism_points_orig = MagicMock(return_value=None)
+
+        result = MechanismRecommendationDialog._get_best_recommendations(dialog)
+
+        fourbar = result[0]
+        gears = result[2]
+        assert fourbar is not None
+        assert fourbar["fabrication_ready"] is True
+        assert (fourbar["parameters"]["l1"], fourbar["parameters"]["l2"]) == (40.0, 40.0)
+        assert (fourbar["parameters"]["l3"], fourbar["parameters"]["l4"]) == (80.0, 80.0)
+        assert gears is not None
+        assert gears["parameters"]["sun_teeth"] == 8
+        assert gears["parameters"]["planet_teeth"] == 24
+        assert gears["parameters"]["arm_length"] == 40.0
 
     def test_equal_path_reverse_direction_tie_is_input_order_independent(self):
         import numpy as np

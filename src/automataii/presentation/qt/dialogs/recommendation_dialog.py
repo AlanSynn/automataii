@@ -44,8 +44,13 @@ from automataii.presentation.qt.gear_rendering import (
 )
 from automataii.presentation.qt.tabs.cam_geometry import build_pear_cam_profile
 from automataii.shared.physical_kit import (
+    PhysicalKitContext,
+    fabrication_ready_params,
+    gear_attachment_grid_offsets_mm,
     gear_center_distance,
     gear_clearance_from_params,
+    grid_enabled_from_params,
+    physical_context_mode_summary,
     physical_profile_from_params,
 )
 from automataii.utils.paths import resolve_path
@@ -126,6 +131,31 @@ def _candidate_reverse_direction(row: dict[str, Any]) -> bool:
     return _coerce_reverse_direction(params.get("reverse_direction"), False)
 
 
+def _dialog_physical_context(dialog: object) -> PhysicalKitContext | None:
+    """Read optional dialog context without requiring QObject initialization in tests."""
+    try:
+        context = cast(Any, dialog).physical_context
+    except (AttributeError, RuntimeError):
+        return None
+    return context if isinstance(context, PhysicalKitContext) else None
+
+
+def _recommendation_physical_mode_summary(context: PhysicalKitContext | None) -> str:
+    if context is None:
+        return cast(
+            str,
+            physical_context_mode_summary(
+                PhysicalKitContext(
+                    enabled=True,
+                    grid_cell_cm=2.0,
+                    grid_pitch_choice="2cm",
+                    profile=physical_profile_from_params({}),
+                )
+            ),
+        )
+    return cast(str, physical_context_mode_summary(context))
+
+
 def _cumulative_arc_length(points: np.ndarray) -> np.ndarray:
     """Compute cumulative arc length for a 2D polyline.
 
@@ -199,6 +229,49 @@ MECHANISM_TYPE_USER_DISPLAY_3_BAR = "3-Bar Linkage"
 MECHANISM_TYPE_USER_DISPLAY_CAM = "Cam & Follower"
 
 DEFAULT_NUM_SAMPLES_FOR_PATH = 100  # Default number of points to sample from QPainterPath
+
+_RECOMMENDATION_PHYSICAL_TYPE_MAPPING: dict[str, str] = {
+    "4-bar Coupler": "four_bar",
+    "3-bar Output": "four_bar",
+    "Four-Bar": "four_bar",
+    "Four-Bar Linkage": "four_bar",
+    "Cam Profile": "cam_follower",
+    "Cam-Follower": "cam_follower",
+    "Cam Follower": "cam_follower",
+    "Cam & Follower": "cam_follower",
+    "Cam": "cam_follower",
+    "Gear Train": "gear_train",
+    "Gear Contact": "gear_train",
+    "Simple Gear": "gear_train",
+    "Gears": "gear_train",
+    "Planetary Gear": "planetary_gear",
+}
+
+
+def _recommendation_physical_type(json_type: object, family: object = None) -> str:
+    for value in (json_type, family):
+        if isinstance(value, str):
+            mapped = _RECOMMENDATION_PHYSICAL_TYPE_MAPPING.get(value.strip())
+            if mapped:
+                return mapped
+    return str(json_type or family or "").strip()
+
+
+def _fabrication_ready_recommendation_params(
+    json_type: object,
+    family: object,
+    params: dict[str, Any],
+    physical_context: PhysicalKitContext | None,
+) -> dict[str, object]:
+    """Snap recommendation params to the same physical contract used by Design/Fabrication."""
+    payload: dict[str, object] = dict(params)
+    if physical_context is not None:
+        payload.update(physical_context.as_params())
+    ready_params = fabrication_ready_params(
+        _recommendation_physical_type(json_type, family),
+        payload,
+    )
+    return dict(ready_params)
 
 
 def qpainterpath_to_numpy_array(
@@ -835,10 +908,35 @@ class MechanismPreviewWidget(QGraphicsView):
             radius_screen = QLineF(center_screen, edge_screen).length()
             polygon = gear_outline_polygon(center_screen, radius_screen, teeth, angle)
             self._preview_scene.addPolygon(polygon, QPen(color, 4), QBrush(color.lighter(170)))
-            hole_radius = gear_hole_radius(radius_screen)
-            for hole_center in gear_attachment_hole_centers(
-                center_screen, radius_screen, angle, count=4
-            ):
+            profile = physical_profile_from_params(params)
+            if grid_enabled_from_params(params):
+                hole_edge = to_screen_coords(
+                    center + np.array([max(profile.hole_diameter_mm / 2.0, 0.5), 0.0])
+                )
+                hole_radius = max(1.5, QLineF(center_screen, hole_edge).length())
+                hole_centers = tuple(
+                    to_screen_coords(
+                        center
+                        + np.array(
+                            [
+                                dx * np.cos(angle) - dy * np.sin(angle),
+                                dx * np.sin(angle) + dy * np.cos(angle),
+                            ],
+                            dtype=float,
+                        )
+                    )
+                    for dx, dy in gear_attachment_grid_offsets_mm(
+                        radius,
+                        params.get("grid_cell_cm", 2.0),
+                        profile=profile,
+                    )
+                )
+            else:
+                hole_radius = gear_hole_radius(radius_screen)
+                hole_centers = gear_attachment_hole_centers(
+                    center_screen, radius_screen, angle, count=4
+                )
+            for hole_center in hole_centers:
                 self._preview_scene.addEllipse(
                     hole_center.x() - hole_radius,
                     hole_center.y() - hole_radius,
@@ -1109,11 +1207,13 @@ class MechanismRecommendationDialog(QDialog):
         generated_paths_filepath: str,
         num_samples_user_path: int = DEFAULT_NUM_SAMPLES_FOR_PATH,
         parent: QWidget | None = None,
+        physical_context: PhysicalKitContext | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Mechanism Recommendations")
         self.setMinimumSize(1050, 650)
         self.selected_mechanism_data: dict[str, Any] | None = None
+        self.physical_context = physical_context
 
         self.user_motion_path_original = user_motion_path
         self.user_motion_path_np = qpainterpath_to_numpy_array(
@@ -1151,6 +1251,28 @@ class MechanismRecommendationDialog(QDialog):
             }
         """)
         main_layout.addWidget(subtitle_label)
+
+        physical_mode_label = QLabel(_recommendation_physical_mode_summary(self.physical_context))
+        physical_mode_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        physical_mode_label.setWordWrap(True)
+        physical_context_enabled = self.physical_context.enabled if self.physical_context else True
+        physical_color = "#0f5132" if physical_context_enabled else "#7a4b00"
+        physical_bg = "#d1e7dd" if physical_context_enabled else "#fff3cd"
+        physical_border = "#badbcc" if physical_context_enabled else "#ffecb5"
+        physical_mode_label.setStyleSheet(
+            f"""
+            QLabel {{
+                font-size: 13px;
+                font-weight: 650;
+                color: {physical_color};
+                background-color: {physical_bg};
+                border: 1px solid {physical_border};
+                border-radius: 10px;
+                padding: 8px 10px;
+            }}
+        """
+        )
+        main_layout.addWidget(physical_mode_label)
 
         # Use scroll area to handle multiple recommendations properly
         scroll_area = QScrollArea()
@@ -1396,6 +1518,15 @@ class MechanismRecommendationDialog(QDialog):
             raw_params = gen_path_data.get("parameters", {})
             params = dict(raw_params) if isinstance(raw_params, dict) else {}
             params["reverse_direction"] = reverse_direction
+            params = dict(
+                _fabrication_ready_recommendation_params(
+                    json_type_str,
+                    family,
+                    params,
+                    _dialog_physical_context(self),
+                )
+            )
+            params["reverse_direction"] = reverse_direction
 
             preview_data = {
                 "name": gen_path_data.get("name", f"{json_type_str} Mechanism"),
@@ -1411,6 +1542,7 @@ class MechanismRecommendationDialog(QDialog):
                     "path_direction": "reversed" if matched_reversed else "forward",
                 },
                 "parameters": params,
+                "fabrication_ready": grid_enabled_from_params(params),
                 "reverse_direction": reverse_direction,
                 "path_coordinates_np": gen_path_np,
                 "path_coordinates": gen_path_data.get("path_coordinates"),

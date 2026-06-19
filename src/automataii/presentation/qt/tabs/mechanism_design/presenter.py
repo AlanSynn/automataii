@@ -734,6 +734,11 @@ class MechanismDesignPresenter(QObject):
         self.mechanism_enabled_state[result.mechanism_id] = True
         self._mark_mechanism_iteration_cache_dirty()
 
+        # Recommendation templates may start from free-form simulation data.
+        # Recompute the layer immediately after preset snapping so Design
+        # visuals/animation use the same physical params that Fabrication exports.
+        self._tab._regenerate_foundry_layer_simulation(result.mechanism_id, layer_data)
+
         # Initialize path trace
         self._path_trace_manager.init_trace(result.mechanism_id, self._scene)
 

@@ -5,6 +5,7 @@ Processes character part PNG files for blueprint generation.
 Integrates with existing body parts extractor workflow.
 """
 
+import base64
 import logging
 import math
 import os
@@ -44,6 +45,132 @@ class PNGBlueprintProcessor:
     def _safe_svg_text(value: object) -> str:
         return escape_xml(str(value or ""), quote=True)
 
+    @staticmethod
+    def _part_name(part_item: Any) -> str:
+        part_info = getattr(part_item, "part_info", None)
+        if isinstance(part_info, dict):
+            return str(part_info.get("name", "unknown"))
+        return str(getattr(part_info, "name", "unknown"))
+
+    @staticmethod
+    def _pixmap_from_item(part_item: Any) -> Any | None:
+        pixmap = getattr(part_item, "part_pixmap", None)
+        if pixmap is None:
+            pixmap_getter = getattr(part_item, "pixmap", None)
+            if callable(pixmap_getter):
+                try:
+                    pixmap = pixmap_getter()
+                except Exception:
+                    pixmap = None
+        try:
+            if pixmap is None or pixmap.isNull() or pixmap.width() <= 0 or pixmap.height() <= 0:
+                return None
+        except Exception:
+            return None
+        return pixmap
+
+    @staticmethod
+    def _pixmap_to_rgba_array(pixmap: Any) -> Any | None:
+        """Return the current editor pixmap as an RGBA NumPy array via duck typing."""
+        try:
+            image = pixmap.toImage().convertToFormat(pixmap.toImage().Format.Format_RGBA8888)
+            width = int(image.width())
+            height = int(image.height())
+            if width <= 0 or height <= 0:
+                return None
+            ptr = image.bits()
+            ptr.setsize(int(image.sizeInBytes()))
+            import numpy as np
+
+            raw = np.frombuffer(ptr, dtype=np.uint8).reshape((height, int(image.bytesPerLine())))
+            rgba = raw[:, : width * 4].reshape((height, width, 4)).copy()
+            return rgba
+        except Exception:
+            return None
+
+    @staticmethod
+    def _rgba_array_to_data_uri(rgba: Any) -> str | None:
+        try:
+            import cv2
+
+            bgra = cv2.cvtColor(rgba, cv2.COLOR_RGBA2BGRA)
+            ok, encoded = cv2.imencode(".png", bgra)
+            if not ok:
+                return None
+            return f"data:image/png;base64,{base64.b64encode(encoded.tobytes()).decode('ascii')}"
+        except Exception:
+            return None
+
+    def _process_editor_pixmap(self, part_item: Any) -> ManufacturingContour | None:
+        """Extract the contour from the pixmap currently shown in the editor.
+
+        This is the highest-fidelity source for cut sheets because it includes
+        ROI scaling and anti-aliased alpha exactly as the user sees it.
+        """
+        pixmap = self._pixmap_from_item(part_item)
+        if pixmap is None:
+            return None
+        rgba = self._pixmap_to_rgba_array(pixmap)
+        if rgba is None:
+            return None
+        try:
+            alpha = rgba[:, :, 3]
+        except Exception:
+            return None
+        contours = self.extractor.extract_manufacturing_contours_from_alpha_mask(alpha)
+        if not contours:
+            return None
+        largest_contour = max(contours, key=lambda c: c.area)
+        try:
+            largest_contour.coordinate_space = "displayed_roi"
+            largest_contour.source_image_size_px = (float(rgba.shape[1]), float(rgba.shape[0]))
+            largest_contour.source_image_data_uri = self._rgba_array_to_data_uri(rgba)
+            # Keep the original file path as a fallback texture source.
+            fallback_path = self._resolve_part_png_path(part_item)
+            if fallback_path:
+                largest_contour.source_image_path = fallback_path
+        except Exception:
+            logging.debug("Suppressed exception", exc_info=True)
+        logging.debug(
+            "Extracted editor-visible contour for part '%s' from current pixmap",
+            self._part_name(part_item),
+        )
+        return largest_contour
+
+    def _resolve_part_png_path(self, part_item: Any) -> str | None:
+        """Resolve a part texture path, mirroring CharacterPartItem lookup."""
+        if not hasattr(part_item, "part_info") or not part_item.part_info:
+            return None
+
+        project_dir = None
+        try:
+            if hasattr(part_item, "project_dir") and part_item.project_dir:
+                project_dir = Path(part_item.project_dir)
+        except Exception:
+            project_dir = None
+
+        if hasattr(part_item.part_info, "image_path"):
+            raw_path = part_item.part_info.image_path
+        elif isinstance(part_item.part_info, dict):
+            raw_path = part_item.part_info.get("image_path")
+        else:
+            raw_path = None
+
+        png_path_str: str | None = None
+        if raw_path and Path(raw_path).is_absolute() and Path(raw_path).exists():
+            png_path_str = str(raw_path)
+        elif raw_path and project_dir and (project_dir / raw_path).exists():
+            png_path_str = str(project_dir / raw_path)
+        elif raw_path:
+            resolved = resolve_path(str(raw_path))
+            if resolved.exists():
+                png_path_str = str(resolved)
+        if not png_path_str and project_dir and hasattr(part_item.part_info, "name"):
+            fallback = project_dir / f"{part_item.part_info.name}.png"
+            if fallback.exists():
+                png_path_str = str(fallback)
+        return png_path_str if png_path_str and os.path.exists(png_path_str) else None
+
     def process_part_png(self, part_item: Any) -> ManufacturingContour | None:
         """
         Process a single part item to extract manufacturing contours.
@@ -55,45 +182,16 @@ class PNGBlueprintProcessor:
             ManufacturingContour object or None if processing fails
         """
         try:
+            editor_contour = self._process_editor_pixmap(part_item)
+            if editor_contour is not None:
+                return editor_contour
+
             # Get PNG path from part_info
             if not hasattr(part_item, "part_info") or not part_item.part_info:
                 logging.warning("Part item has no part_info")
                 return None
 
-            # Discover project_dir if available on the item
-            project_dir = None
-            try:
-                if hasattr(part_item, "project_dir") and part_item.project_dir:
-                    project_dir = Path(part_item.project_dir)
-            except Exception:
-                project_dir = None
-
-            # Resolve image path robustly (mirror CharacterPartItem logic)
-            png_path_str: str | None = None
-            if hasattr(part_item.part_info, "image_path"):
-                raw_path = part_item.part_info.image_path
-            elif isinstance(part_item.part_info, dict):
-                raw_path = part_item.part_info.get("image_path")
-            else:
-                logging.warning(f"Unknown part_info format: {type(part_item.part_info)}")
-                raw_path = None
-
-            # 1) Absolute path if valid
-            if raw_path and Path(raw_path).is_absolute() and Path(raw_path).exists():
-                png_path_str = raw_path
-            # 2) Relative to project_dir
-            elif raw_path and project_dir and (project_dir / raw_path).exists():
-                png_path_str = str(project_dir / raw_path)
-            # 3) Repo/app-resource relative path (dummy/example character assets).
-            elif raw_path:
-                resolved = resolve_path(str(raw_path))
-                if resolved.exists():
-                    png_path_str = str(resolved)
-            # 4) Fallback: project_dir/name.png
-            if not png_path_str and project_dir and hasattr(part_item.part_info, "name"):
-                fallback = project_dir / f"{part_item.part_info.name}.png"
-                if fallback.exists():
-                    png_path_str = str(fallback)
+            png_path_str = self._resolve_part_png_path(part_item)
 
             if not png_path_str or not os.path.exists(png_path_str):
                 logging.warning(
@@ -114,6 +212,17 @@ class PNGBlueprintProcessor:
             # Attach source image path for downstream texture embedding
             try:
                 largest_contour.source_image_path = png_path_str
+                image = None
+                try:
+                    import cv2
+
+                    image = cv2.imread(str(png_path_str), cv2.IMREAD_UNCHANGED)
+                except Exception:
+                    image = None
+                if image is not None and len(getattr(image, "shape", ())) >= 2:
+                    source_h, source_w = image.shape[:2]
+                    largest_contour.source_image_size_px = (float(source_w), float(source_h))
+                    largest_contour.coordinate_space = "source_png"
             except Exception:
                 logging.debug("Suppressed exception", exc_info=True)
             return largest_contour

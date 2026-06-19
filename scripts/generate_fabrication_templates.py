@@ -16,6 +16,7 @@ import sys
 from dataclasses import dataclass
 from itertools import combinations
 from pathlib import Path
+from typing import cast
 from xml.sax.saxutils import escape
 
 import numpy as np
@@ -33,15 +34,18 @@ from automataii.shared.fabrication_assembly import (  # noqa: E402
     ASSEMBLY_SCHEMA_VERSION,
     BOARD_COLUMNS,
     BOARD_ROWS,
+    board_coord_to_svg_xy,
     build_default_assembly_package,
 )
 from automataii.shared.physical_kit import (  # noqa: E402
     DEFAULT_GRID_CELL_CM,
+    DEFAULT_GRID_PITCH_MM,
     DEFAULT_PHYSICAL_KIT_PROFILE,
     CamPreset,
     FollowerPreset,
     GearPreset,
     PhysicalKitProfile,
+    gear_attachment_grid_offsets_mm,
     gear_radius_for_teeth,
     grid_step_mm,
 )
@@ -65,6 +69,19 @@ DRILL = "#0071bc"
 SCORE = "#777777"
 TEXT = "#333333"
 FILL = "#ffffff"
+PRINTABLE_LANDSCAPE_MM = (279.4, 215.9)
+PRINTABLE_PORTRAIT_MM = (215.9, 279.4)
+COMPLETE_KIT_CUT_SHEET_PATH = "complete-kit-cut-sheet.svg"
+COMPLETE_KIT_CUT_SHEET_SIZE_MM = (420.0, 380.0)
+COMPLETE_KIT_CUT_SHEET_SIZE_CANDIDATES_MM = (
+    COMPLETE_KIT_CUT_SHEET_SIZE_MM,
+    (500.0, 420.0),
+    (560.0, 460.0),
+    (640.0, 500.0),
+    (720.0, 560.0),
+    (840.0, 640.0),
+    (1000.0, 700.0),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +95,23 @@ class SvgTemplate:
     height_mm: float
     elements: tuple[str, ...]
     metadata: dict[str, object]
+
+
+@dataclass(frozen=True, slots=True)
+class CutSheetPartTemplate:
+    part_id: str
+    label: str
+    elements: tuple[str, ...]
+    width_mm: float
+    height_mm: float
+
+
+@dataclass(frozen=True, slots=True)
+class CutSheetPlacement:
+    part: CutSheetPartTemplate
+    x_mm: float
+    y_mm: float
+    rotated: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,6 +148,14 @@ class SpacerPreset:
     outer_diameter_mm: float
 
 
+@dataclass(frozen=True, slots=True)
+class HandlePreset:
+    key: str
+    label: str
+    path: str
+    kind: str
+
+
 BRACKET_PRESETS: tuple[BracketPreset, ...] = (
     BracketPreset(
         "2-hole-straight",
@@ -144,10 +186,16 @@ BRACKET_PRESETS: tuple[BracketPreset, ...] = (
 )
 
 SPACER_PRESETS: tuple[SpacerPreset, ...] = (
-    SpacerPreset("s8", "S8 micro spacer", "spacers/spacer-s8.svg", 8.0),
-    SpacerPreset("s10", "S10 standard spacer", "spacers/spacer-s10.svg", 10.0),
-    SpacerPreset("s12", "S12 wide spacer", "spacers/spacer-s12.svg", 12.0),
-    SpacerPreset("s16", "S16 isolation spacer", "spacers/spacer-s16.svg", 16.0),
+    SpacerPreset("s10", "S10 spacer", "spacers/spacer-s10.svg", 10.0),
+)
+
+HANDLE_PRESETS: tuple[HandlePreset, ...] = (
+    HandlePreset(
+        "folding-fork-tripod",
+        "Triangular paper-tent glue handle",
+        "handles/handle-folding-fork-tripod.svg",
+        "folding_fork_tripod",
+    ),
 )
 
 
@@ -356,15 +404,14 @@ def _translate(element: str, dx: float, dy: float) -> str:
 
 
 def _gear_geometry(preset: GearPreset, spec: FabricationSpec) -> GearGeometry:
-    pitch_radius = gear_radius_for_teeth(preset.teeth, profile=spec.profile)
-    tooth_depth = spec.profile.gear_radius_per_tooth_mm
+    pitch_scale = spec.pitch_mm / DEFAULT_GRID_PITCH_MM
+    pitch_radius = gear_radius_for_teeth(preset.teeth, profile=spec.profile) * pitch_scale
+    tooth_depth = spec.profile.gear_radius_per_tooth_mm * pitch_scale
     root_radius = max(spec.hole_radius_mm + 8.0, pitch_radius - tooth_depth * 1.25)
     outer_radius = pitch_radius + tooth_depth * 1.2
     max_attachment_radius = root_radius - spec.hole_radius_mm - 4.0
     candidate_radii = (spec.pitch_mm, spec.pitch_mm * 2.0, spec.pitch_mm * 3.0)
     attachment_radii = tuple(r for r in candidate_radii if r <= max_attachment_radius)
-    if not attachment_radii:
-        attachment_radii = (max(spec.hole_radius_mm + 5.0, max_attachment_radius),)
     return GearGeometry(
         pitch_radius_mm=pitch_radius,
         root_radius_mm=root_radius,
@@ -411,17 +458,17 @@ def _gear_attachment_offsets(
     """Return linkage/bracket/handle holes that remain inside the gear root profile.
 
     Larger gears use board-grid offsets so brackets and linkages align directly to
-    the 20 mm pegboard pitch. Compact gears get a four-hole crank/handle ring only
-    when a separate profile-sized hole can fit without overlapping the axle.
+    the 20 mm pegboard pitch. The smallest one-space gear intentionally exposes
+    only the axle hole; non-grid fallback holes would break board compatibility.
     """
-    max_attachment_radius = geometry.root_radius_mm - spec.hole_radius_mm - 4.0
-    minimum_separate_hole_radius = spec.hole_diameter_mm + 2.0
-    if max_attachment_radius < minimum_separate_hole_radius:
-        return ()
-    grid_offsets = _grid_attachment_offsets(max_attachment_radius, spec.pitch_mm)
-    if len(grid_offsets) >= 4:
-        return grid_offsets
-    return _radial_attachment_offsets(max_attachment_radius, 4)
+    return cast(
+        tuple[tuple[float, float], ...],
+        gear_attachment_grid_offsets_mm(
+            geometry.pitch_radius_mm,
+            spec.pitch_mm / 10.0,
+            profile=spec.profile,
+        ),
+    )
 
 
 def _attachment_hole_pattern(
@@ -459,6 +506,7 @@ def _gear_elements(
     preset: GearPreset, spec: FabricationSpec, *, label: bool = True
 ) -> tuple[list[str], dict[str, object]]:
     geometry = _gear_geometry(preset, spec)
+    board_space_diameter = geometry.pitch_radius_mm * 2.0 / spec.pitch_mm
     margin = 8.0
     cx = geometry.outer_radius_mm + margin
     cy = geometry.outer_radius_mm + margin
@@ -518,6 +566,9 @@ def _gear_elements(
         "pitch_radius_mm": round(geometry.pitch_radius_mm, 3),
         "outer_radius_mm": round(geometry.outer_radius_mm, 3),
         "root_radius_mm": round(geometry.root_radius_mm, 3),
+        "board_space_diameter": round(board_space_diameter, 3),
+        "board_space_radius": round(geometry.pitch_radius_mm / spec.pitch_mm, 3),
+        "mesh_center_distance_rule": "pitch radii sum; odd board-space pitch diameters mesh on whole board-space centers",
         "hole_diameter_mm": spec.hole_diameter_mm,
         "attachment_hole_count": attachment_count,
         "attachment_hole_pattern": attachment_pattern,
@@ -541,10 +592,10 @@ def _gear_template(preset: GearPreset, spec: FabricationSpec) -> SvgTemplate:
     metadata["path"] = path
     return SvgTemplate(
         path=path,
-        title=f"Automataii fabrication gear {preset.teeth} teeth",
+        title=f"Automataii fabrication gear {preset.label} ({preset.teeth} teeth)",
         desc=(
-            f"{preset.label} gear with {_fmt(spec.hole_diameter_mm)} mm axle and "
-            "linkage/bracket/crank/handle holes."
+            f"{preset.label} with {_fmt(spec.hole_diameter_mm)} mm axle. "
+            "Attachment holes, when present, sit on the board grid."
         ),
         width_mm=width,
         height_mm=height,
@@ -580,8 +631,9 @@ def _ring_inner_outline_path(
 
 def _ring_gear_template(sun: GearPreset, planet: GearPreset, spec: FabricationSpec) -> SvgTemplate:
     ring_teeth = _planetary_ring_teeth(sun, planet)
-    pitch_radius = gear_radius_for_teeth(ring_teeth, profile=spec.profile)
-    tooth_depth = spec.profile.gear_radius_per_tooth_mm
+    pitch_scale = spec.pitch_mm / DEFAULT_GRID_PITCH_MM
+    pitch_radius = gear_radius_for_teeth(ring_teeth, profile=spec.profile) * pitch_scale
+    tooth_depth = spec.profile.gear_radius_per_tooth_mm * pitch_scale
     tip_radius = max(spec.hole_radius_mm + 12.0, pitch_radius - tooth_depth * 1.15)
     root_radius = pitch_radius + tooth_depth * 0.85
     mount_radius = spec.pitch_mm * 4.0
@@ -1098,6 +1150,240 @@ def _spacer_template(preset: SpacerPreset, spec: FabricationSpec) -> SvgTemplate
     )
 
 
+def _handle_folding_fork_tripod_elements(
+    preset: HandlePreset, spec: FabricationSpec, *, label: bool
+) -> tuple[list[str], dict[str, object], float, float]:
+    """Return a simple rectangular paper-tent handle with two visible slit cuts."""
+
+    scale = spec.pitch_mm / DEFAULT_PHYSICAL_KIT_PROFILE.default_pitch_mm
+    width = 192.0 * scale
+    body_left = 48.0 * scale
+    body_right = 176.0 * scale
+    seam_right = 188.0 * scale
+    y_top = 10.0 * scale
+    panel_height = 10.0 * scale
+    y_fold_1 = y_top + panel_height
+    y_fold_2 = y_fold_1 + panel_height
+    y_bottom = y_fold_2 + panel_height
+    height = y_bottom + 10.0 * scale
+    tab_left = 6.0 * scale
+    tab_length = body_left - tab_left
+    insert_strip_width = panel_height
+    fold_panel_count = 4
+    manual_fold_count_per_tab = fold_panel_count - 1
+    folded_panel_width = insert_strip_width / fold_panel_count
+    handle_grip_length = body_right - body_left
+    triangular_prism_side = panel_height
+    triangular_prism_height = triangular_prism_side * math.sqrt(3.0) / 2.0
+    seam_tab_width = seam_right - body_right
+    nominal_cardstock_thickness = 0.5 * scale
+    max_material_thickness = (
+        math.sqrt(max(0.0, spec.hole_diameter_mm**2 - folded_panel_width**2))
+        / fold_panel_count
+    )
+    folded_tab_diameter = math.hypot(
+        folded_panel_width,
+        nominal_cardstock_thickness * fold_panel_count,
+    )
+    recommended_material_thickness = min(0.6 * scale, max_material_thickness)
+    split_cut_count = 2
+    tab_strips = (
+        (y_top, y_fold_1),
+        (y_fold_1, y_fold_2),
+        (y_fold_2, y_bottom),
+    )
+    glue_score_rects = tuple(
+        (
+            tab_left + 2.0 * scale,
+            y0 + 2.0 * scale,
+            tab_length - 4.0 * scale,
+            insert_strip_width - 4.0 * scale,
+        )
+        for y0, _y1 in tab_strips
+    )
+    effective_glue_zone_area = sum(
+        score_width * score_height for _x, _y, score_width, score_height in glue_score_rects
+    )
+    double_sided_effective_glue_area = effective_glue_zone_area * 2.0
+    glue_foot_area = tab_length * insert_strip_width * len(tab_strips)
+    fold_lines = (
+        ((body_left, y_fold_1), (seam_right, y_fold_1), "prism-panel-fold"),
+        ((body_left, y_fold_2), (seam_right, y_fold_2), "prism-panel-fold"),
+        ((body_right, y_top), (body_right, y_bottom), "seam-glue-fold"),
+    )
+    split_cuts = (
+        ((tab_left, y_fold_1), (body_left, y_fold_1), "rectangular-tab-split-cut"),
+        ((tab_left, y_fold_2), (body_left, y_fold_2), "rectangular-tab-split-cut"),
+    )
+    elements = [
+        _rect(
+            tab_left,
+            y_top,
+            seam_right - tab_left,
+            y_bottom - y_top,
+            (
+                "cut handle-outline folding-fork-tripod-outline triangular-prism-handle-outline "
+                "paper-tent-handle-outline simple-rectangular-slit-handle-outline "
+                "no-thin-neck-handle-outline"
+            ),
+            extra={
+                "handle_key": preset.key,
+                "handle_kind": preset.kind,
+                "hole_diameter_mm": spec.hole_diameter_attr,
+                "insert_strip_width_mm": _fmt(insert_strip_width),
+                "split_cut_count": split_cut_count,
+                "manual_fold_count_per_tab": manual_fold_count_per_tab,
+                "folded_panel_width_mm": _fmt(folded_panel_width),
+                "folded_rectangular_tab_diameter_mm": _fmt(folded_tab_diameter),
+                "max_material_thickness_mm": _fmt(max_material_thickness),
+                "triangular_prism_side_mm": _fmt(triangular_prism_side),
+            },
+        )
+    ]
+    for idx, (start, end, role) in enumerate(split_cuts):
+        elements.append(
+            _path(
+                f"M {_fmt(start[0])} {_fmt(start[1])} L {_fmt(end[0])} {_fmt(end[1])}",
+                "cut tab-split-cut rectangular-tab-split-cut",
+                extra={"split_cut_index": idx, "cut_role": role},
+            )
+        )
+    for idx, (start, end, role) in enumerate(fold_lines):
+        elements.append(
+            _path(
+                f"M {_fmt(start[0])} {_fmt(start[1])} L {_fmt(end[0])} {_fmt(end[1])}",
+                "score fold-line prism-fold-line",
+                extra={"fold_index": idx, "fold_role": role},
+            )
+        )
+    seam_score = (
+        body_right + 2.0 * scale,
+        y_top + 3.0 * scale,
+        seam_tab_width - 4.0 * scale,
+        y_bottom - y_top - 6.0 * scale,
+    )
+    elements.append(
+        _rect(
+            seam_score[0],
+            seam_score[1],
+            seam_score[2],
+            seam_score[3],
+            "score prism-seam-glue-zone handle-glue-zone",
+            extra={"glue_zone": "close-triangular-prism-seam"},
+        )
+    )
+    for idx, (x, y, score_width, score_height) in enumerate(glue_score_rects):
+        elements.append(
+            _rect(
+                x,
+                y,
+                score_width,
+                score_height,
+                "score glue-foot-score handle-glue-zone rectangular-tab-glue-zone",
+                extra={
+                    "glue_foot_index": idx,
+                    "glue_zone": "after-4mm-hole-pass-through",
+                    "score_area_mm2": _fmt(score_width * score_height),
+                },
+            )
+        )
+    if label:
+        elements.append(_text(width / 2.0, height + 6.0, preset.label))
+        height += 10.0
+    metadata: dict[str, object] = {
+        "key": preset.key,
+        "label": preset.label,
+        "path": preset.path,
+        "kind": preset.kind,
+        "pitch_mm": round(spec.pitch_mm, 3),
+        "hole_diameter_mm": spec.hole_diameter_mm,
+        "hole_count": 0,
+        "insert_tab_count": len(tab_strips),
+        "prong_count": 0,
+        "split_cut_count": split_cut_count,
+        "fold_line_count": len(fold_lines),
+        "fold_panel_count": fold_panel_count,
+        "manual_fold_count_per_tab": manual_fold_count_per_tab,
+        "insert_strip_width_mm": round(insert_strip_width, 3),
+        "rectangular_tab_width_mm": round(insert_strip_width, 3),
+        "pass_through_tab_width_mm": round(insert_strip_width, 3),
+        "pass_through_tab_length_mm": round(tab_length, 3),
+        "folded_panel_width_mm": round(folded_panel_width, 3),
+        "nominal_cardstock_thickness_mm": round(nominal_cardstock_thickness, 3),
+        "recommended_material_thickness_mm": round(recommended_material_thickness, 3),
+        "max_material_thickness_mm": round(max_material_thickness, 3),
+        "folded_rectangular_tab_diameter_mm": round(folded_tab_diameter, 3),
+        "folded_single_bundle_diameter_mm": round(folded_tab_diameter, 3),
+        "double_side_fallback": False,
+        "glue_foot_count": len(tab_strips),
+        "glue_foot_area_mm2": round(glue_foot_area, 3),
+        "effective_glue_zone_area_mm2": round(effective_glue_zone_area, 3),
+        "double_sided_effective_glue_area_mm2": round(double_sided_effective_glue_area, 3),
+        "glue_foot_centers_mm": [
+            [round(tab_left + tab_length / 2.0, 3), round((y0 + y1) / 2.0, 3)]
+            for y0, y1 in tab_strips
+        ],
+        "glue_score_rects_mm": [
+            [round(x, 3), round(y, 3), round(score_width, 3), round(score_height, 3)]
+            for x, y, score_width, score_height in glue_score_rects
+        ],
+        "handle_grip_length_mm": round(handle_grip_length, 3),
+        "grip_width_mm": round(triangular_prism_side, 3),
+        "triangular_prism_side_mm": round(triangular_prism_side, 3),
+        "triangular_prism_height_mm": round(triangular_prism_height, 3),
+        "seam_glue_tab_width_mm": round(seam_tab_width, 3),
+        "overall_length_mm": round(width, 3),
+        "width_mm": round(width, 3),
+        "height_mm": round(height if not label else height - 10.0, 3),
+        "net_width_mm": round(width, 3),
+        "net_height_mm": round(height if not label else height - 10.0, 3),
+        "attachment_style": "paper_tent_simple_rectangle_slits_fold_to_fit_4mm_then_hot_glue",
+        "fabrication_note": (
+            "Simple rectangle handle: cut the outer rectangle and the two visible left-side "
+            "slits, score the three prism folds on the right, fold each 10 mm tab strip into "
+            "four layers so it fits the 4 mm hole, then hot-glue the strips."
+        ),
+        "sanity_check": {
+            "single_replacement_handle": True,
+            "simple_rectangle_outline": True,
+            "two_visible_split_cuts": split_cut_count == 2,
+            "folded_rectangular_tab_fits_4mm_hole": folded_tab_diameter <= spec.hole_diameter_mm,
+            "material_thickness_limit_ok": max_material_thickness >= 0.6 - 1e-9,
+            "rectangular_insert_tabs": True,
+            "no_thin_neck": insert_strip_width >= 10.0 * scale,
+            "four_layer_fold_to_fit": fold_panel_count == 4,
+            "triangular_prism_net": True,
+            "seam_tab_present": seam_tab_width >= 10.0 * scale,
+            "effective_glue_zone_area_ok": effective_glue_zone_area >= 600.0 * scale * scale,
+            "comfortable_grip_length": handle_grip_length >= spec.pitch_mm * 6.0,
+        },
+    }
+    return elements, metadata, width, height
+
+def _handle_elements(
+    preset: HandlePreset, spec: FabricationSpec, *, label: bool = True
+) -> tuple[list[str], dict[str, object], float, float]:
+    if preset.kind == "folding_fork_tripod":
+        return _handle_folding_fork_tripod_elements(preset, spec, label=label)
+    raise ValueError(f"Unsupported handle kind: {preset.kind!r}")
+
+
+def _handle_template(preset: HandlePreset, spec: FabricationSpec) -> SvgTemplate:
+    elements, metadata, width, height = _handle_elements(preset, spec)
+    return SvgTemplate(
+        path=preset.path,
+        title=f"Automataii fabrication handle {preset.key}",
+        desc=(
+            f"{preset.label}. Cut the simple rectangle and two visible left-side slits, "
+            "fold each resulting tab strip into four layers, pass through a "
+            f"{_fmt(spec.hole_diameter_mm)} mm hole, then hot-glue."
+        ),
+        width_mm=width,
+        height_mm=height,
+        elements=tuple(elements),
+        metadata=metadata,
+    )
+
 def _cam_params_for_preset(preset: CamPreset, spec: FabricationSpec) -> dict[str, float]:
     return dict(preset.params_mm(spec.pitch_mm / 10.0))
 
@@ -1318,8 +1604,8 @@ def _sheet_template(
     elements: list[str],
     spec: FabricationSpec,
     *,
-    width_mm: float = 420.0,
-    height_mm: float = 320.0,
+    width_mm: float = PRINTABLE_LANDSCAPE_MM[0],
+    height_mm: float = PRINTABLE_LANDSCAPE_MM[1],
 ) -> SvgTemplate:
     title = f"Automataii fabrication sheet {key}: {label}"
     desc = (
@@ -1352,19 +1638,291 @@ def _sheet_label(title: str, subtitle: str) -> list[str]:
     ]
 
 
+def _complete_cut_part_templates(spec: FabricationSpec) -> tuple[CutSheetPartTemplate, ...]:
+    """Return one actual-size template for every physical kit part type."""
+
+    parts: list[CutSheetPartTemplate] = []
+    for preset in spec.profile.gear_presets:
+        elements, _metadata = _gear_elements(preset, spec, label=False)
+        geometry = _gear_geometry(preset, spec)
+        size = geometry.outer_radius_mm * 2.0 + 16.0
+        parts.append(
+            CutSheetPartTemplate(
+                part_id=f"gears:{preset.key}",
+                label=f"G{preset.teeth}",
+                elements=tuple(elements),
+                width_mm=size,
+                height_mm=size,
+            )
+        )
+
+    ring = _ring_gear_template(spec.profile.gear_presets[0], spec.profile.gear_presets[1], spec)
+    parts.append(
+        CutSheetPartTemplate(
+            part_id=f"ring_gears:{ring.metadata['key']}",
+            label=f"R{ring.metadata['internal_teeth']}",
+            elements=tuple(element for element in ring.elements if "<text" not in element),
+            width_mm=ring.width_mm,
+            height_mm=ring.width_mm,
+        )
+    )
+
+    for cells in spec.profile.linkage_length_cells:
+        elements, _metadata = _linkage_elements(cells, spec, label=False)
+        parts.append(
+            CutSheetPartTemplate(
+                part_id=f"linkages:linkage-{cells}-cell",
+                label=f"L{cells}",
+                elements=tuple(elements),
+                width_mm=cells * spec.pitch_mm + 28.0,
+                height_mm=28.0,
+            )
+        )
+
+    for preset in spec.profile.cam_presets:
+        elements, _metadata, width, height = _cam_elements(preset, spec, label=False)
+        parts.append(
+            CutSheetPartTemplate(
+                part_id=f"cams:{preset.key}",
+                label=preset.key.title(),
+                elements=tuple(elements),
+                width_mm=width,
+                height_mm=height,
+            )
+        )
+
+    for preset in spec.profile.follower_presets:
+        elements, _metadata, width, height = _follower_elements(preset, spec, label=False)
+        parts.append(
+            CutSheetPartTemplate(
+                part_id=f"followers:{preset.key}",
+                label=preset.key.upper(),
+                elements=tuple(elements),
+                width_mm=width,
+                height_mm=height,
+            )
+        )
+
+    for preset in BRACKET_PRESETS:
+        elements, _metadata, width, height = _bracket_elements(preset, spec, label=False)
+        parts.append(
+            CutSheetPartTemplate(
+                part_id=f"brackets:{preset.key}",
+                label=preset.key,
+                elements=tuple(elements),
+                width_mm=width,
+                height_mm=height,
+            )
+        )
+
+    for preset in SPACER_PRESETS:
+        elements, _metadata, width, height = _spacer_elements(preset, spec, label=False)
+        parts.append(
+            CutSheetPartTemplate(
+                part_id=f"spacers:{preset.key}",
+                label=preset.key.upper(),
+                elements=tuple(elements),
+                width_mm=width,
+                height_mm=height,
+            )
+        )
+
+    for preset in HANDLE_PRESETS:
+        elements, _metadata, width, height = _handle_elements(preset, spec, label=False)
+        parts.append(
+            CutSheetPartTemplate(
+                part_id=f"handles:{preset.key}",
+                label=preset.key,
+                elements=tuple(elements),
+                width_mm=width,
+                height_mm=height,
+            )
+        )
+    return tuple(parts)
+
+
+def _pack_complete_cut_sheet_parts(
+    parts: tuple[CutSheetPartTemplate, ...],
+    *,
+    width_mm: float,
+    height_mm: float,
+) -> tuple[CutSheetPlacement, ...]:
+    margin = 8.0
+    header_height = 18.0
+    gap = 3.0
+    free_rectangles: list[tuple[float, float, float, float]] = [
+        (
+            margin,
+            margin + header_height,
+            width_mm - 2.0 * margin,
+            height_mm - 2.0 * margin - header_height,
+        )
+    ]
+    placements: list[CutSheetPlacement] = []
+    sorted_parts = sorted(
+        parts,
+        key=lambda part: (-(part.width_mm * part.height_mm), -max(part.width_mm, part.height_mm)),
+    )
+    for part in sorted_parts:
+        best: tuple[tuple[float, float, int, bool], int, float, float, float, float, bool] | None
+        best = None
+        for rect_index, (x, y, rect_width, rect_height) in enumerate(free_rectangles):
+            for rotated, part_width, part_height in (
+                (False, part.width_mm, part.height_mm),
+                (True, part.height_mm, part.width_mm),
+            ):
+                if part_width > rect_width or part_height > rect_height:
+                    continue
+                score = (
+                    min(rect_width - part_width, rect_height - part_height),
+                    max(rect_width - part_width, rect_height - part_height),
+                    rect_index,
+                    rotated,
+                )
+                if best is None or score < best[0]:
+                    best = (score, rect_index, x, y, part_width, part_height, rotated)
+        if best is None:
+            raise ValueError(
+                f"{COMPLETE_KIT_CUT_SHEET_PATH} cannot fit {part.part_id} "
+                f"on {_fmt(width_mm)} × {_fmt(height_mm)} mm"
+            )
+
+        _score, rect_index, x, y, part_width, part_height, rotated = best
+        placements.append(CutSheetPlacement(part=part, x_mm=x, y_mm=y, rotated=rotated))
+        _old_x, _old_y, rect_width, rect_height = free_rectangles.pop(rect_index)
+        right = (
+            x + part_width + gap,
+            y,
+            rect_width - part_width - gap,
+            part_height,
+        )
+        below = (
+            x,
+            y + part_height + gap,
+            rect_width,
+            rect_height - part_height - gap,
+        )
+        for rect in (right, below):
+            if rect[2] > 4.0 and rect[3] > 4.0:
+                free_rectangles.append(rect)
+        free_rectangles.sort(key=lambda rect: (rect[1], rect[0], rect[3], rect[2]))
+    return tuple(placements)
+
+
+def _placed_complete_part_group(placement: CutSheetPlacement) -> str:
+    part = placement.part
+    if placement.rotated:
+        transform = (
+            f"translate({_fmt(placement.x_mm)} {_fmt(placement.y_mm)}) "
+            f"rotate(90) translate(0 -{_fmt(part.height_mm)})"
+        )
+        label_x = placement.x_mm
+        label_y = max(4.0, placement.y_mm - 1.4)
+    else:
+        transform = f"translate({_fmt(placement.x_mm)} {_fmt(placement.y_mm)})"
+        label_x = placement.x_mm
+        label_y = max(4.0, placement.y_mm - 1.4)
+    return (
+        f'  <g class="complete-cut-part" data-part-id="{escape(part.part_id)}" '
+        f'data-rotated="{str(placement.rotated).lower()}" '
+        f'transform="{transform}">\n'
+        f"{chr(10).join(part.elements)}\n"
+        "  </g>\n"
+        f'  <text x="{_fmt(label_x)}" y="{_fmt(label_y)}" class="tiny" '
+        f'text-anchor="start">{escape(part.label)}</text>'
+    )
+
+
+def _complete_kit_cut_sheet(spec: FabricationSpec) -> SvgTemplate:
+    parts = _complete_cut_part_templates(spec)
+    placements: tuple[CutSheetPlacement, ...] | None = None
+    width_mm, height_mm = COMPLETE_KIT_CUT_SHEET_SIZE_MM
+    for candidate_width, candidate_height in COMPLETE_KIT_CUT_SHEET_SIZE_CANDIDATES_MM:
+        try:
+            placements = _pack_complete_cut_sheet_parts(
+                parts,
+                width_mm=candidate_width,
+                height_mm=candidate_height,
+            )
+        except ValueError:
+            continue
+        width_mm, height_mm = candidate_width, candidate_height
+        break
+    if placements is None:
+        raise ValueError(f"{COMPLETE_KIT_CUT_SHEET_PATH} cannot fit generated kit parts")
+    letter_area = PRINTABLE_LANDSCAPE_MM[0] * PRINTABLE_LANDSCAPE_MM[1]
+    part_area = sum(part.width_mm * part.height_mm for part in parts)
+    elements = [
+        *_sheet_label(
+            "Complete kit cut sheet",
+            "One actual-size cutter-bed master with every unique physical part type",
+        ),
+        _text(
+            12.0,
+            24.0,
+            "Actual size. Larger than Letter because all unique parts exceed one Letter page area.",
+            class_name="tiny",
+            anchor="start",
+        ),
+        *[_placed_complete_part_group(placement) for placement in placements],
+    ]
+    return SvgTemplate(
+        path=COMPLETE_KIT_CUT_SHEET_PATH,
+        title="Automataii complete kit cut sheet",
+        desc=(
+            "One-page actual-size cutter-bed sheet containing every unique fabrication part type. "
+            "Use the Letter sheets for home-printable subsets."
+        ),
+        width_mm=width_mm,
+        height_mm=height_mm,
+        elements=tuple(elements),
+        metadata={
+            "path": COMPLETE_KIT_CUT_SHEET_PATH,
+            "width_mm": width_mm,
+            "height_mm": height_mm,
+            "actual_size": True,
+            "letter_size": False,
+            "part_count": len(parts),
+            "unique_part_ids": [part.part_id for part in parts],
+            "actual_part_area_mm2": round(part_area, 3),
+            "letter_area_mm2": round(letter_area, 3),
+            "letter_fit_possible": part_area <= letter_area,
+            "note": "All unique parts are packed on one actual-size cutter-bed page.",
+        },
+    )
+
+
 def _build_sheets(spec: FabricationSpec) -> list[SvgTemplate]:
     pitch_mm = spec.pitch_mm
     sheets: list[SvgTemplate] = []
 
     gear_sheet = _sheet_label(
-        "01 Gear set",
+        "01 Gear set A",
         f"Gears include {_fmt(spec.hole_diameter_mm)} mm axle + linkage/bracket/crank/handle holes",
     )
-    gear_positions = [(12.0, 28.0), (118.0, 28.0), (12.0, 150.0), (144.0, 150.0)]
-    for gear_preset, (x, y) in zip(spec.profile.gear_presets, gear_positions, strict=True):
+    gear_positions = [(12.0, 30.0), (62.0, 30.0), (154.0, 30.0)]
+    for gear_preset, (x, y) in zip(spec.profile.gear_presets[:3], gear_positions, strict=True):
         elements, _ = _gear_elements(gear_preset, spec, label=False)
         gear_sheet.extend(_translate(element, x, y) for element in elements)
-    sheets.append(_sheet_template("01-gear-set", "Gear set", ["gears"], gear_sheet, spec))
+    sheets.append(_sheet_template("01-gear-set", "Gear set A", ["gears"], gear_sheet, spec))
+
+    large_gear_sheet = _sheet_label(
+        "10 Gear set B",
+        "Large 7-space gear on its own Letter page at actual size",
+    )
+    elements, _ = _gear_elements(spec.profile.gear_presets[3], spec, label=False)
+    large_gear_sheet.extend(_translate(element, 28.0, 36.0) for element in elements)
+    sheets.append(
+        _sheet_template(
+            "10-gear-set-large",
+            "Gear set B",
+            ["gears"],
+            large_gear_sheet,
+            spec,
+            width_mm=PRINTABLE_PORTRAIT_MM[0],
+            height_mm=PRINTABLE_PORTRAIT_MM[1],
+        )
+    )
 
     ring_sheet = _sheet_label(
         "09 Planetary ring gear",
@@ -1373,7 +1931,7 @@ def _build_sheets(spec: FabricationSpec) -> list[SvgTemplate]:
     ring_template = _ring_gear_template(
         spec.profile.gear_presets[0], spec.profile.gear_presets[1], spec
     )
-    ring_sheet.extend(_translate(element, 12.0, 28.0) for element in ring_template.elements)
+    ring_sheet.extend(_translate(element, 10.0, 28.0) for element in ring_template.elements)
     sheets.append(
         _sheet_template(
             "09-planetary-ring-set",
@@ -1381,21 +1939,21 @@ def _build_sheets(spec: FabricationSpec) -> list[SvgTemplate]:
             ["ring_gears"],
             ring_sheet,
             spec,
-            width_mm=220.0,
-            height_mm=240.0,
+            width_mm=PRINTABLE_PORTRAIT_MM[0],
+            height_mm=PRINTABLE_PORTRAIT_MM[1],
         )
     )
 
     linkage_sheet = _sheet_label("02 Linkage set", "2/4/6/8-cell board-compatible linkage bars")
     for idx, cells in enumerate(spec.profile.linkage_length_cells):
         elements, _ = _linkage_elements(cells, spec, label=False)
-        linkage_sheet.extend(_translate(element, 10.0, 30.0 + idx * 38.0) for element in elements)
+        linkage_sheet.extend(_translate(element, 12.0, 30.0 + idx * 38.0) for element in elements)
     sheets.append(
         _sheet_template("02-linkage-set", "Linkage set", ["linkages"], linkage_sheet, spec)
     )
 
     cam_sheet = _sheet_label("03 Cam set", "Circle, eccentric, oval, and pear cams")
-    cam_positions = [(12.0, 24.0), (112.0, 24.0), (12.0, 116.0), (112.0, 116.0)]
+    cam_positions = [(16.0, 24.0), (116.0, 24.0), (16.0, 118.0), (116.0, 118.0)]
     for cam_preset, (x, y) in zip(spec.profile.cam_presets, cam_positions, strict=True):
         elements, _, _, _ = _cam_elements(cam_preset, spec, label=False)
         cam_sheet.extend(_translate(element, x, y) for element in elements)
@@ -1405,20 +1963,20 @@ def _build_sheets(spec: FabricationSpec) -> list[SvgTemplate]:
         "04 Prototype set A", "Starter mix: two gears, two linkages, two cams, brackets"
     )
     for gear_preset, (x, y) in zip(
-        spec.profile.gear_presets[:2], [(10.0, 28.0), (112.0, 28.0)], strict=True
+        spec.profile.gear_presets[:2], [(14.0, 26.0), (104.0, 26.0)], strict=True
     ):
         elements, _ = _gear_elements(gear_preset, spec, label=False)
         prototype_a.extend(_translate(element, x, y) for element in elements)
-    for cells, (x, y) in zip((2, 4), [(10.0, 128.0), (10.0, 162.0)], strict=True):
+    for cells, (x, y) in zip((2, 4), [(14.0, 118.0), (14.0, 150.0)], strict=True):
         elements, _ = _linkage_elements(cells, spec, label=False)
         prototype_a.extend(_translate(element, x, y) for element in elements)
     for cam_preset, (x, y) in zip(
-        spec.profile.cam_presets[:2], [(190.0, 28.0), (190.0, 112.0)], strict=True
+        spec.profile.cam_presets[:2], [(190.0, 26.0), (190.0, 108.0)], strict=True
     ):
         elements, _, _, _ = _cam_elements(cam_preset, spec, label=False)
         prototype_a.extend(_translate(element, x, y) for element in elements)
     for bracket_preset, (x, y) in zip(
-        BRACKET_PRESETS[:2], [(10.0, 204.0), (80.0, 204.0)], strict=True
+        BRACKET_PRESETS[:2], [(14.0, 180.0), (84.0, 180.0)], strict=True
     ):
         elements, _, _, _ = _bracket_elements(bracket_preset, spec, label=False)
         prototype_a.extend(_translate(element, x, y) for element in elements)
@@ -1436,20 +1994,20 @@ def _build_sheets(spec: FabricationSpec) -> list[SvgTemplate]:
         "05 Prototype set B", "Extended mix: larger gears, longer linkages, profile cams, brackets"
     )
     for gear_preset, (x, y) in zip(
-        spec.profile.gear_presets[2:], [(10.0, 24.0), (132.0, 24.0)], strict=True
+        spec.profile.gear_presets[2:3], [(12.0, 24.0)], strict=True
     ):
         elements, _ = _gear_elements(gear_preset, spec, label=False)
         prototype_b.extend(_translate(element, x, y) for element in elements)
-    for cells, (x, y) in zip((6, 8), [(10.0, 150.0), (10.0, 178.0)], strict=True):
+    for cells, (x, y) in zip((6, 8), [(12.0, 118.0), (12.0, 154.0)], strict=True):
         elements, _ = _linkage_elements(cells, spec, label=False)
         prototype_b.extend(_translate(element, x, y) for element in elements)
     for cam_preset, (x, y) in zip(
-        spec.profile.cam_presets[2:], [(218.0, 112.0), (218.0, 24.0)], strict=True
+        spec.profile.cam_presets[2:], [(12.0, 194.0), (112.0, 186.0)], strict=True
     ):
         elements, _, _, _ = _cam_elements(cam_preset, spec, label=False)
         prototype_b.extend(_translate(element, x, y) for element in elements)
     for bracket_preset, (x, y) in zip(
-        BRACKET_PRESETS[2:], [(10.0, 210.0), (70.0, 210.0)], strict=True
+        BRACKET_PRESETS[2:], [(166.0, 122.0), (166.0, 158.0)], strict=True
     ):
         elements, _, _, _ = _bracket_elements(bracket_preset, spec, label=False)
         prototype_b.extend(_translate(element, x, y) for element in elements)
@@ -1460,6 +2018,8 @@ def _build_sheets(spec: FabricationSpec) -> list[SvgTemplate]:
             ["gears", "linkages", "cams", "brackets"],
             prototype_b,
             spec,
+            width_mm=PRINTABLE_PORTRAIT_MM[0],
+            height_mm=PRINTABLE_PORTRAIT_MM[1],
         )
     )
 
@@ -1481,7 +2041,7 @@ def _build_sheets(spec: FabricationSpec) -> list[SvgTemplate]:
         "Slotted cam followers: guide on fixed "
         f"{_fmt(spec.hole_diameter_mm)} mm pins, output holes move with the cam",
     )
-    follower_positions = [(10.0, 30.0), (110.0, 30.0), (210.0, 30.0), (310.0, 30.0)]
+    follower_positions = [(12.0, 32.0), (78.0, 32.0), (144.0, 32.0), (210.0, 32.0)]
     for follower_preset, (x, y) in zip(
         spec.profile.follower_presets,
         follower_positions,
@@ -1505,8 +2065,21 @@ def _build_sheets(spec: FabricationSpec) -> list[SvgTemplate]:
         )
         for col in range(spacer_copies_per_size):
             elements, _, _, _ = _spacer_elements(spacer_preset, spec, label=False)
-            spacer_sheet.extend(_translate(element, 86.0 + col * 30.0, y) for element in elements)
+            spacer_sheet.extend(_translate(element, 82.0 + col * 22.0, y) for element in elements)
     sheets.append(_sheet_template("08-spacer-set", "Spacer set", ["spacers"], spacer_sheet, spec))
+
+    handle_sheet = _sheet_label(
+        "11 Handle set",
+        "Simple rectangle: cut two left slits, fold the three 10 mm strips into 4 mm-hole tabs",
+    )
+    handle_positions = ((12.0, 34.0),)
+    for handle_preset, (x, y) in zip(HANDLE_PRESETS, handle_positions, strict=True):
+        elements, _, _, _ = _handle_elements(handle_preset, spec, label=False)
+        handle_sheet.append(
+            _text(x, y - 3.0, handle_preset.label, class_name="tiny", anchor="start")
+        )
+        handle_sheet.extend(_translate(element, x, y) for element in elements)
+    sheets.append(_sheet_template("11-handle-set", "Handle set", ["handles"], handle_sheet, spec))
 
     return sheets
 
@@ -1539,6 +2112,7 @@ def _part_color(part_id: str) -> str:
         "followers": "#34d399",
         "brackets": "#a78bfa",
         "spacers": "#94a3b8",
+        "handles": "#fb7185",
     }.get(category, "#e5e7eb")
 
 
@@ -1633,10 +2207,14 @@ def _step_ghost_parts(step: dict[str, object]) -> list[str]:
 
 
 def _coord_to_board_xy(coord: str, x: float, y: float, size: float) -> tuple[float, float]:
-    row = coord[0].upper()
-    col = int(coord[1:])
-    pitch = size / max(1, len(BOARD_COLUMNS) - 1)
-    return x + (col - 1) * pitch, y + BOARD_ROWS.index(row) * pitch
+    return board_coord_to_svg_xy(coord, x=x, y=y, size=size)
+
+
+def _short_svg_text(value: object, *, max_chars: int) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= max_chars:
+        return text
+    return text[: max(1, max_chars - 1)].rstrip(" ,.;:") + "…"
 
 
 def _mini_gear_teeth(part_id: str) -> int:
@@ -1841,11 +2419,10 @@ def _assembly_board_grid_elements(
         elements.append(_text(x + (col - 1) * pitch, y - 7.0, str(col), class_name="tiny"))
     for row_index, row in enumerate(BOARD_ROWS):
         elements.append(_text(x - 7.0, y + row_index * pitch + 1.0, row, class_name="tiny"))
-    for row_index, row in enumerate(BOARD_ROWS):
+    for row in BOARD_ROWS:
         for col in BOARD_COLUMNS:
             label = f"{row}{col}"
-            cx = x + (col - 1) * pitch
-            cy = y + row_index * pitch
+            cx, cy = _coord_to_board_xy(label, x, y, size)
             class_name = "drill board-hole"
             extra: dict[str, object] = {"board_coord": label}
             if step is not None:
@@ -1872,19 +2449,13 @@ def _assembly_board_grid_elements(
 
 def _assembly_board_template(spec: FabricationSpec) -> SvgTemplate:
     board_size = spec.pitch_mm * (len(BOARD_COLUMNS) - 1)
+    width_mm = 300.0
+    height_mm = 300.0
     elements = [
-        _text(12.0, 14.0, "15x15 hole coordinate map", anchor="start"),
-        _text(
-            12.0,
-            22.0,
-            "15 rows x 15 columns = 225 board holes.",
-            class_name="tiny",
-            anchor="start",
-        ),
         '  <g id="layer-board-grid">',
         *_assembly_board_grid_elements(
-            x=30.0,
-            y=42.0,
+            x=12.0,
+            y=12.0,
             size=board_size,
             hole_radius=spec.hole_diameter_mm / 2.0,
         ),
@@ -1894,8 +2465,8 @@ def _assembly_board_template(spec: FabricationSpec) -> SvgTemplate:
         path="assembly/board-15x15.svg",
         title="Automataii 15x15 hole assembly board map",
         desc="225-hole coordinate board used by Automataii fabrication assembly guides.",
-        width_mm=330.0,
-        height_mm=335.0,
+        width_mm=width_mm,
+        height_mm=height_mm,
         elements=tuple(elements),
         metadata={
             "key": "board-15x15",
@@ -2175,38 +2746,241 @@ def _assembly_recipe_template(recipe: dict[str, object], spec: FabricationSpec) 
     step_dicts = (
         [step for step in steps if isinstance(step, dict)] if isinstance(steps, list) else []
     )
-    panel_gap = 6.0
-    height = 52.0 + sum(_assembly_step_panel_height(step) + panel_gap for step in step_dicts)
+    width_mm, height_mm = PRINTABLE_LANDSCAPE_MM
+    mechanism_type = str(recipe["mechanism_type"])
+    layer_content: dict[str, list[str]] = {
+        "layer-board-grid": [],
+        "layer-previous-step-ghost": [],
+        "layer-existing-parts": [],
+        "layer-new-part-highlight": [],
+        "layer-fasteners": [],
+        "layer-spacers": [],
+        "layer-motion-arrows": [],
+        "layer-callouts": [],
+        "layer-labels": [],
+        "layer-stack-diagram": [],
+    }
     elements: list[str] = [
-        _text(10.0, 12.0, str(recipe["title"]), anchor="start"),
+        _rect(8.0, 8.0, width_mm - 16.0, height_mm - 16.0, "score step-card"),
+        _text(14.0, 17.0, str(recipe["title"]), anchor="start"),
         _text(
-            10.0,
-            20.0,
-            "Follow one card at a time. Keep fasteners loose until motion is smooth.",
+            14.0,
+            25.0,
+            "Source SVG preview. Export Blueprint Package for the full PDF step cards.",
             class_name="tiny",
             anchor="start",
         ),
-        '  <g id="layer-board-grid"></g>',
-        '  <g id="layer-previous-step-ghost"></g>',
-        '  <g id="layer-existing-parts"></g>',
-        '  <g id="layer-new-part-highlight"></g>',
-        '  <g id="layer-fasteners"></g>',
-        '  <g id="layer-spacers"></g>',
-        '  <g id="layer-motion-arrows"></g>',
-        '  <g id="layer-callouts"></g>',
-        '  <g id="layer-labels"></g>',
-        '  <g id="layer-stack-diagram"></g>',
+        _text(14.0, 35.0, "Parts to add now", class_name="small", anchor="start"),
+        _text(103.0, 35.0, "Board/ref", class_name="small", anchor="start"),
+        _text(151.0, 35.0, "Fastener stack", class_name="small", anchor="start"),
     ]
-    current_y = 28.0
-    for step in step_dicts:
-        elements.extend(_assembly_step_panel(recipe, step, current_y))
-        current_y += _assembly_step_panel_height(step) + panel_gap
+    card_w = 122.0
+    card_h = 49.0
+    card_gap_x = 10.0
+    card_gap_y = 9.0
+    card_origin_x = 14.0
+    card_origin_y = 42.0
+    for step_index, step in enumerate(step_dicts):
+        card_col = step_index % 2
+        card_row = step_index // 2
+        x = card_origin_x + card_col * (card_w + card_gap_x)
+        y = card_origin_y + card_row * (card_h + card_gap_y)
+        raw_step_n = step.get("n")
+        step_n = raw_step_n if isinstance(raw_step_n, int) else step_index + 1
+        title = str(step.get("title", f"Step {step_n}"))
+        coords = _step_coord_labels(step)
+        board_coords = _board_coord_labels(step)
+        reference_coords = _reference_coord_labels(step)
+        part_ids = _step_part_ids(step)
+        stack_layers = _step_stack_layers(step)
+        coord_heading = _coord_heading_for_step(step)
+        elements.append(_rect(x, y, card_w, card_h, "score step-card"))
+        elements.append(_layout_box(step_n, "parts", x + 5.0, y + 15.0, 46.0, 10.0))
+        elements.append(_layout_box(step_n, "board", x + 87.0, y + 9.0, 28.0, 17.0))
+        elements.append(_layout_box(step_n, "stack", x + 5.0, y + 26.0, 103.0, 9.0))
+        elements.append(_layout_box(step_n, "check", x + 5.0, y + 36.0, 103.0, 8.0))
+        layer_content["layer-callouts"].append(
+            _text(x + 5.0, y + 8.0, f"{step_n}", class_name="coord-label", anchor="start")
+        )
+        layer_content["layer-callouts"].append(
+            _text(
+                x + 16.0,
+                y + 7.6,
+                _short_svg_text(title, max_chars=29),
+                class_name="part-card-label",
+                anchor="start",
+            )
+        )
+        if part_ids:
+            for part_index, part_id in enumerate(part_ids[:2]):
+                label = _short_svg_text(_part_label(part_id), max_chars=14)
+                token_x = x + 7.0 + part_index * 25.0
+                color = _part_color(part_id)
+                layer_content["layer-existing-parts"].append(
+                    _rect(
+                        token_x,
+                        y + 16.0,
+                        22.0,
+                        7.5,
+                        "score part-card",
+                        extra={"step": step_n, "part_key": part_id, "part_index": part_index + 1},
+                        style=f"fill:{color};fill-opacity:0.22;stroke:{color};stroke-width:0.5",
+                    )
+                )
+                layer_content["layer-existing-parts"].append(
+                    _text(token_x + 11.0, y + 21.0, label, class_name="tiny")
+                )
+        else:
+            layer_content["layer-fasteners"].append(
+                _rect(
+                    x + 7.0,
+                    y + 16.0,
+                    34.0,
+                    7.5,
+                    "score part-card",
+                    extra={"step": step_n, "part_key": "hardware:paper-fastener", "part_index": 1},
+                    style="fill:#f97316;fill-opacity:0.18;stroke:#f97316;stroke-width:0.5",
+                )
+            )
+            layer_content["layer-fasteners"].append(
+                _text(x + 24.0, y + 21.0, "Paper fastener", class_name="tiny")
+            )
+        layer_content["layer-labels"].append(
+            _text(
+                x + 58.0,
+                y + 15.0,
+                _short_svg_text(f"{coord_heading}: {', '.join(coords)}", max_chars=30),
+                class_name="tiny",
+                anchor="start",
+            )
+        )
+        for coord_index, coord in enumerate(board_coords[:4]):
+            marker_x = x + 92.0 + coord_index * 5.0
+            marker_y = y + 22.0
+            layer_content["layer-board-grid"].append(
+                _circle(
+                    marker_x,
+                    marker_y,
+                    1.15,
+                    "drill board-hole active-board-hole",
+                    extra={"step": step_n, "board_coord": coord},
+                )
+            )
+            layer_content["layer-new-part-highlight"].append(
+                _circle(
+                    marker_x,
+                    marker_y,
+                    1.8,
+                    "score new-part-highlight",
+                    extra={
+                        "step": step_n,
+                        "board_coord": coord,
+                        "app_mechanism": mechanism_type,
+                    },
+                )
+            )
+        for coord_index, coord in enumerate(reference_coords[:4]):
+            marker_x = x + 92.0 + (len(board_coords[:4]) + coord_index) * 5.0
+            marker_y = y + 22.0
+            layer_content["layer-board-grid"].append(
+                _circle(
+                    marker_x,
+                    marker_y,
+                    1.15,
+                    "drill board-hole reference-coordinate",
+                    extra={"step": step_n, "board_coord": coord},
+                )
+            )
+            layer_content["layer-new-part-highlight"].append(
+                _circle(
+                    marker_x,
+                    marker_y,
+                    1.8,
+                    "score reference-marker",
+                    extra={
+                        "step": step_n,
+                        "reference_coord": coord,
+                        "app_mechanism": mechanism_type,
+                    },
+                )
+            )
+        for stack_index, layer in enumerate(stack_layers[:1]):
+            label = _short_svg_text(_stack_label(layer), max_chars=24)
+            part_key = str(layer.get("part", ""))
+            role = str(layer.get("role", "layer"))
+            layer_content["layer-stack-diagram"].append(
+                _rect(
+                    x + 7.0,
+                    y + 27.0 + stack_index * 7.0,
+                    9.0,
+                    4.6,
+                    "score stack-layer",
+                    extra={
+                        "step": step_n,
+                        "stack_layer": stack_index + 1,
+                        "stack_role": role,
+                        "part_key": part_key,
+                    },
+                )
+            )
+            layer_content["layer-stack-diagram"].append(
+                _text(
+                    x + 19.0,
+                    y + 31.0 + stack_index * 7.0,
+                    label,
+                    class_name="tiny",
+                    anchor="start",
+                )
+            )
+            if role in {"spacer", "top-spacer"}:
+                layer_content["layer-spacers"].append(
+                    _circle(
+                        x + 13.0,
+                        y + 29.3 + stack_index * 7.0,
+                        1.0,
+                        "score spacer-part",
+                        extra={"step": step_n, "part_key": part_key},
+                    )
+                )
+            if role == "paper-fastener":
+                layer_content["layer-fasteners"].append(
+                    _circle(
+                        x + 13.0,
+                        y + 29.3 + stack_index * 7.0,
+                        0.9,
+                        "drill fastener",
+                        extra={"step": step_n, "part_key": "hardware:paper-fastener"},
+                    )
+                )
+        repeat_labels = [
+            str(layer.get("label", ""))
+            for layer in stack_layers
+            if str(layer.get("role", "")) == "repeat-fastener-sites"
+            and str(layer.get("label", "")).strip()
+        ]
+        for repeat_index, label in enumerate(repeat_labels[:1]):
+            layer_content["layer-stack-diagram"].append(
+                _text(
+                    x + 19.0,
+                    y + 45.0 + repeat_index * 3.5,
+                    label,
+                    class_name="tiny",
+                    anchor="start",
+                )
+            )
+    for layer_id, content in layer_content.items():
+        elements.append(f'  <g id="{layer_id}">')
+        elements.extend(content)
+        elements.append("  </g>")
     return SvgTemplate(
         path=str(recipe["guide_svg"]),
         title=f"Automataii assembly guide {recipe['key']}",
-        desc=f"Board-coordinate assembly guide for {recipe['title']}.",
-        width_mm=560.0,
-        height_mm=height,
+        desc=(
+            f"Printable source SVG preview for {recipe['title']}; "
+            "the app export composes full PDF step cards."
+        ),
+        width_mm=width_mm,
+        height_mm=height_mm,
         elements=tuple(elements),
         metadata={
             "key": recipe["key"],
@@ -2252,27 +3026,29 @@ def _assembly_all_part_ids(assembly_package: dict[str, object]) -> list[str]:
 
 def _assembly_parts_overview_template(assembly_package: dict[str, object]) -> SvgTemplate:
     part_ids = _assembly_all_part_ids(assembly_package)
-    columns = 4
-    card_w = 126.0
-    card_h = 22.0
-    gap = 8.0
-    rows = max(1, math.ceil(len(part_ids) / columns))
-    height = 34.0 + rows * (card_h + gap)
+    width_mm, height_mm = PRINTABLE_LANDSCAPE_MM
+    columns = 3
+    card_w = 80.0
+    card_h = 11.0
+    gap_x = 7.0
+    gap_y = 4.0
+    max_rows = 10
     elements: list[str] = [
         _text(10.0, 12.0, "Printable part checklist", anchor="start"),
         _text(
             10.0,
             21.0,
-            "Print/cut these kit templates, then follow a board-coordinate guide.",
+            "Source SVG preview. The app exports quantity-aware kit-parts-to-cut.pdf.",
             class_name="tiny",
             anchor="start",
         ),
     ]
-    for idx, part_id in enumerate(part_ids):
+    shown_part_ids = part_ids[: columns * max_rows]
+    for idx, part_id in enumerate(shown_part_ids):
         col = idx % columns
         row = idx // columns
-        x = 12.0 + col * (card_w + gap)
-        y = 30.0 + row * (card_h + gap)
+        x = 12.0 + col * (card_w + gap_x)
+        y = 30.0 + row * (card_h + gap_y)
         color = _part_color(part_id)
         elements.extend(
             [
@@ -2286,28 +3062,44 @@ def _assembly_parts_overview_template(assembly_package: dict[str, object]) -> Sv
                     style=f"fill:{color};fill-opacity:0.2;stroke:{color};stroke-width:0.6",
                 ),
                 _circle(
-                    x + 12.0,
-                    y + 11.0,
-                    7.0,
+                    x + 7.0,
+                    y + 5.5,
+                    3.2,
                     "score part-token",
                     extra={"part_key": part_id, "part_index": idx + 1},
                 ),
                 _text(
-                    x + 25.0,
-                    y + 9.5,
-                    _part_label(part_id),
+                    x + 14.0,
+                    y + 5.0,
+                    _short_svg_text(_part_label(part_id), max_chars=18),
                     class_name="part-card-label",
                     anchor="start",
                 ),
-                _text(x + 25.0, y + 16.0, part_id, class_name="tiny", anchor="start"),
+                _text(
+                    x + 14.0,
+                    y + 9.0,
+                    _short_svg_text(part_id, max_chars=33),
+                    class_name="tiny",
+                    anchor="start",
+                ),
             ]
+        )
+    if len(part_ids) > len(shown_part_ids):
+        elements.append(
+            _text(
+                10.0,
+                height_mm - 12.0,
+                f"See recipes.json for {len(part_ids) - len(shown_part_ids)} more part type(s).",
+                class_name="tiny",
+                anchor="start",
+            )
         )
     return SvgTemplate(
         path="assembly/parts-overview.svg",
         title="Automataii assembly printable part checklist",
-        desc="Large visual checklist for parts used by the board assembly guides.",
-        width_mm=560.0,
-        height_mm=height,
+        desc="Compact visual checklist for parts used by the board assembly guides.",
+        width_mm=width_mm,
+        height_mm=height_mm,
         elements=tuple(elements),
         metadata={
             "key": "parts-overview",
@@ -2465,7 +3257,8 @@ def _assembly_index_html(
         recipe_sections.append(
             '<section class="guide">'
             f"<h2>{html.escape(str(recipe.get('title', 'Assembly guide')))}</h2>"
-            f'<p><a href="{guide_href}">Open printable board guide</a></p>'
+            f'<p><a href="{guide_href}">Open SVG source preview</a> '
+            "(print the app-exported assembly-guide.pdf for full step cards)</p>"
             "<h3>Print/cut these parts first</h3>"
             f'<div class="parts-grid">{"".join(parts_cards)}</div>'
             "<h3>Assembly order</h3>"
@@ -2536,7 +3329,9 @@ def _readme_text(spec: FabricationSpec, manifest: dict[str, object]) -> str:
     managed_count = (
         len(manifest["managed_files"]) if isinstance(manifest["managed_files"], list) else 0
     )
-    gear_teeth = ", ".join(str(preset.teeth) for preset in spec.profile.gear_presets)
+    gear_teeth = ", ".join(
+        f"{preset.label} ({preset.teeth} teeth)" for preset in spec.profile.gear_presets
+    )
     linkage_lengths = ", ".join(str(cells) for cells in spec.profile.linkage_length_cells)
     cam_names = ", ".join(preset.key for preset in spec.profile.cam_presets)
     sheet_count = len(manifest["sheets"]) if isinstance(manifest["sheets"], list) else 0
@@ -2548,28 +3343,33 @@ This directory contains fabrication-ready SVG masters for the physical Automatai
 ## Two supported workflows
 
 1. **Board assembly** — open `assembly/`, choose a guide SVG, and follow the board-coordinate step cards with the pre-fabricated kit parts.
-2. **Self-fabrication** — use the individual SVGs in `gears/`, `ring_gears/`, `linkages/`, `cams/`, `followers/`, `brackets/`, and `spacers/` to make replacement or custom parts with a laser cutter, CNC router, 3D-print workflow, scroll saw, table saw plus drill jig, or similar shop process.
+2. **Self-fabrication** — use the individual SVGs in `gears/`, `ring_gears/`, `linkages/`, `cams/`, `followers/`, `brackets/`, `spacers/`, and `handles/` to make replacement or custom parts with a laser cutter, CNC router, 3D-print workflow, scroll saw, table saw plus drill jig, or similar shop process.
 
-For a repeatable workshop set, cut/print the {sheet_count} workshop sheets in `sheets/`,
+For a repeatable workshop set, use `complete-kit-cut-sheet.svg` when you have a
+cutter bed large enough for one actual-size master. It intentionally exceeds Letter
+size because all unique parts cannot physically fit on one Letter page at 1:1.
+For home printers, cut/print the {sheet_count} Letter workshop sheets in `sheets/`,
 sort the parts, then use the matching `assembly/` guide.
 
 ## Physical assumptions
 
 - Default committed pitch: `{pitch_mm:.1f} mm` (`{pitch_mm / 10.0:.2f} cm`) board spacing.
 - Nominal axle/linkage/bracket hole diameter: `{spec.hole_diameter_mm:.1f} mm`.
-- Gear presets: {gear_teeth} teeth.
+- Gear presets: {gear_teeth}.
 - Linkage lengths: {linkage_lengths} board cells.
 - Cam presets: {cam_names}.
 - Follower presets: round-nose, roller-pin, flat-shoe, linkage-output.
 - Bracket presets: 2-hole straight, 3-hole straight, L 3-hole, triangle 3-hole.
-- Spacer presets: 8, 10, 12, and 16 mm outside-diameter stackable washers.
+- Spacer preset: S10 only, a 10 mm outside-diameter stackable washer.
+- Handle preset: triangular paper-tent glue handle only; previous crank/tripod
+  handles are intentionally removed from the generated package.
 - Default profile key: `{spec.profile.key}`. Legacy `ms4n` / `motionsmith-ms4n`
   identifiers are compatibility labels; the committed fabrication contract is
   this 20.0 mm / {spec.hole_diameter_mm:.1f} mm board unless a custom output directory is generated.
 - Red paths are cuts, blue circles are drill/cut holes, gray lines are score/reference geometry.
-- Gear attachment-hole pattern: larger gears use board-grid attachment holes where they fit.
-  Compact gears and cams use radial crank/linkage/handle holes only when a separate {_fmt(spec.hole_diameter_mm)} mm
-  hole can preserve enough material around the axle.
+- Gear attachment-hole pattern: gears expose only axle holes or board-grid attachment holes;
+  no gear uses non-grid fallback holes. Cams may use radial crank/linkage/handle holes only
+  when a separate {_fmt(spec.hole_diameter_mm)} mm hole can preserve enough material around the axle.
 - Follower guide geometry: followers use {_fmt(spec.hole_diameter_mm)} mm-wide vertical slots, not fixed round board holes,
   so fixed board pins/brackets can constrain the part while still allowing cam lift travel.
 
@@ -2582,20 +3382,25 @@ These files are nominal geometry, not material-specific kerf compensation. Befor
 `kit/` and `fabrication/` are intentionally separate physical-asset packages:
 
 - `kit/` contains the existing educational/module-oriented MS4N activity sheets, prompt cards, checks, and broad classroom materials.
-- `fabrication/` is the nominal-millimetre manufacturing package for the constrained physical parts requested here: gears, planetary ring gears, linkage bars, cams, followers, brackets, spacers, and workshop cut sheets.
+- `fabrication/` is the nominal-millimetre manufacturing package for the constrained physical parts requested here: gears, planetary ring gears, linkage bars, cams, followers, brackets, spacers, handles, and workshop cut sheets.
 - Shared physical assumptions should come from `automataii.shared.physical_kit`; do not hand-edit generated `fabrication/` SVGs without updating the generator and sync test.
 
 ## Contents
 
 - `manifest.json` — machine-readable inventory and dimensions.
+- `complete-kit-cut-sheet.svg` — one actual-size cutter-bed page containing every unique physical part type.
 - `assembly/` — board-coordinate assembly guides, recipe data, and the 15x15 hole / 225-hole board map.
-- `gears/` — one SVG per gear preset; each gear includes a {_fmt(spec.hole_diameter_mm)} mm axle hole and {_fmt(spec.hole_diameter_mm)} mm linkage/bracket/crank/handle attachment holes.
+- `gears/` — one SVG per gear preset; every gear includes a {_fmt(spec.hole_diameter_mm)} mm axle hole, and larger gears include {_fmt(spec.hole_diameter_mm)} mm linkage/bracket/crank/handle holes on the board grid.
 - `ring_gears/` — fixed internal ring gear for the planetary guide, with board-mount holes.
 - `linkages/` — one SVG per linkage length; holes are spaced on the board pitch.
 - `cams/` — one SVG per cam preset; each cam includes a {_fmt(spec.hole_diameter_mm)} mm axle hole and {_fmt(spec.hole_diameter_mm)} mm linkage/bracket/crank/handle attachment holes.
 - `followers/` — slotted cam follower parts with {_fmt(spec.hole_diameter_mm)} mm guide slots and {_fmt(spec.hole_diameter_mm)} mm linkage/output holes.
 - `brackets/` — bracket plates for the pegboard/bracket assembly style shown in the reference image.
 - `spacers/` — washer spacers for stack clearance between the board, gears, cams, links, and brackets.
+- `handles/` — one simple rectangular paper-tent handle: cut the outer rectangle
+  and the two visible left-side slits, score the prism folds on the right, fold
+  each 10 mm tab strip into a four-layer bundle, pass through a 4 mm hole, then
+  hot-glue. No thin neck is used.
 - `sheets/` — {sheet_count} workshop sheets for pre-fabricated sets.
 
 Managed files in this generated package: {managed_count}.
@@ -2682,9 +3487,12 @@ def write_fabrication_templates(
     follower_templates = [_follower_template(preset, spec) for preset in profile.follower_presets]
     bracket_templates = [_bracket_template(preset, spec) for preset in BRACKET_PRESETS]
     spacer_templates = [_spacer_template(preset, spec) for preset in SPACER_PRESETS]
+    handle_templates = [_handle_template(preset, spec) for preset in HANDLE_PRESETS]
+    complete_cut_sheet_template = _complete_kit_cut_sheet(spec)
     sheet_templates = _build_sheets(spec)
 
     fabrication_svg_templates = [
+        complete_cut_sheet_template,
         *gear_templates,
         *ring_gear_templates,
         *linkage_templates,
@@ -2692,6 +3500,7 @@ def write_fabrication_templates(
         *follower_templates,
         *bracket_templates,
         *spacer_templates,
+        *handle_templates,
         *sheet_templates,
     ]
     base_manifest: dict[str, object] = {
@@ -2713,7 +3522,9 @@ def write_fabrication_templates(
             "followers": [template.metadata for template in follower_templates],
             "brackets": [template.metadata for template in bracket_templates],
             "spacers": [template.metadata for template in spacer_templates],
+            "handles": [template.metadata for template in handle_templates],
         },
+        "complete_cut_sheet": complete_cut_sheet_template.metadata,
         "sheets": [template.metadata for template in sheet_templates],
         "managed_files": [],
     }

@@ -13,7 +13,10 @@ from PyQt6.QtWidgets import QMessageBox, QWidget
 from automataii.application.fabrication import FabricationLayerSelection
 from automataii.infrastructure.telemetry import telemetry_span
 from automataii.shared.physical_kit import (
+    DEFAULT_DISPLAY_UNIT_SYSTEM,
     DEFAULT_GRID_CELL_CM,
+    FABRICATION_HOLE_DIAMETER_INCH_LABEL,
+    format_length_for_user,
     gear_center_distance,
     gear_clearance_from_params,
     gear_teeth_from_params,
@@ -282,7 +285,7 @@ class BlueprintExporter:
 
             with telemetry_span(
                 "ui.blueprint.export_all",
-                unit_system="metric",
+                unit_system=DEFAULT_DISPLAY_UNIT_SYSTEM,
                 mechanism_count=len(mechanism_layers),
                 part_count=len(part_items),
                 recipe_count=len(recipe_keys),
@@ -298,7 +301,7 @@ class BlueprintExporter:
                     mechanism_layers=mechanism_layers,
                     file_path=output_dir / cut_sheet_name,
                     snapshot_png_bytes=None,
-                    unit_system="metric",
+                    unit_system=DEFAULT_DISPLAY_UNIT_SYSTEM,
                     output_format=output_format,
                 )
                 cut_sheet_success = bool(getattr(cut_sheet_result, "success", cut_sheet_result))
@@ -490,14 +493,14 @@ class BlueprintExporter:
 
             unit_group = QButtonGroup()
 
-            metric_radio = QRadioButton("Metric (millimeters)")
-            metric_radio.setChecked(True)
-            unit_group.addButton(metric_radio, 0)
-            layout.addWidget(metric_radio)
-
-            imperial_radio = QRadioButton("Imperial (inches/feet)")
+            imperial_radio = QRadioButton("Imperial (inches + board spaces)")
+            imperial_radio.setChecked(True)
             unit_group.addButton(imperial_radio, 1)
             layout.addWidget(imperial_radio)
+
+            metric_radio = QRadioButton("Metric (millimeters)")
+            unit_group.addButton(metric_radio, 0)
+            layout.addWidget(metric_radio)
 
             button_box = QDialogButtonBox(
                 QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -634,9 +637,8 @@ class BlueprintExporter:
         scene_width = scene_rect.width()
         scene_height = scene_rect.height()
 
-        mm_per_inch = 25.4
-        letter_width_mm = 8.5 * mm_per_inch
-        letter_height_mm = 11 * mm_per_inch
+        letter_width_mm = 8.5 * 25.4
+        letter_height_mm = 11 * 25.4
 
         margin_factor = 0.9
         scale_x = (letter_width_mm * margin_factor) / scene_width if scene_width > 0 else 1
@@ -645,7 +647,9 @@ class BlueprintExporter:
 
         dimensions_text = "=== MECHANISM DIMENSIONS ===\n"
         dimensions_text += f"Type: {mech_type}\n"
-        dimensions_text += f"Scale: 1 pixel = {scale_factor:.2f} mm\n"
+        dimensions_text += (
+            f"Scale: 1 pixel = {format_length_for_user(scale_factor, include_board_spaces=False)}\n"
+        )
         dimensions_text += 'Printable on: Letter size (8.5" x 11")\n\n'
 
         if mech_type == "4_bar_linkage":
@@ -654,29 +658,23 @@ class BlueprintExporter:
             L3 = params.get("L3", 0) * scale_factor
             L4 = params.get("L4", 0) * scale_factor
 
-            dimensions_text += "Link Lengths (mm):\n"
-            dimensions_text += f'  Ground Link (L1): {L1:.1f} mm ({L1 / mm_per_inch:.2f}")\n'
-            dimensions_text += f'  Crank (L2): {L2:.1f} mm ({L2 / mm_per_inch:.2f}")\n'
-            dimensions_text += f'  Coupler (L3): {L3:.1f} mm ({L3 / mm_per_inch:.2f}")\n'
-            dimensions_text += f'  Rocker (L4): {L4:.1f} mm ({L4 / mm_per_inch:.2f}")\n'
+            dimensions_text += "Link Lengths (in / board spaces):\n"
+            dimensions_text += f"  Ground Link (L1): {format_length_for_user(L1)}\n"
+            dimensions_text += f"  Crank (L2): {format_length_for_user(L2)}\n"
+            dimensions_text += f"  Coupler (L3): {format_length_for_user(L3)}\n"
+            dimensions_text += f"  Rocker (L4): {format_length_for_user(L4)}\n"
 
         elif mech_type == "cam":
             base_radius = params.get("base_radius", 0) * scale_factor
             eccentricity = params.get("eccentricity", 0) * scale_factor
             rod_length = params.get("follower_rod_length", 0) * scale_factor
 
-            dimensions_text += "Cam Dimensions (mm):\n"
-            dimensions_text += (
-                f'  Base Radius: {base_radius:.1f} mm ({base_radius / mm_per_inch:.2f}")\n'
-            )
-            dimensions_text += (
-                f'  Eccentricity: {eccentricity:.1f} mm ({eccentricity / mm_per_inch:.2f}")\n'
-            )
-            dimensions_text += f"  Max Radius: {base_radius + eccentricity:.1f} mm\n"
-            dimensions_text += f"  Min Radius: {base_radius - eccentricity:.1f} mm\n"
-            dimensions_text += (
-                f'  Follower Rod Length: {rod_length:.1f} mm ({rod_length / mm_per_inch:.2f}")\n'
-            )
+            dimensions_text += "Cam Dimensions (in / board spaces):\n"
+            dimensions_text += f"  Base Radius: {format_length_for_user(base_radius)}\n"
+            dimensions_text += f"  Eccentricity: {format_length_for_user(eccentricity)}\n"
+            dimensions_text += f"  Max Radius: {format_length_for_user(base_radius + eccentricity)}\n"
+            dimensions_text += f"  Min Radius: {format_length_for_user(base_radius - eccentricity)}\n"
+            dimensions_text += f"  Follower Rod Length: {format_length_for_user(rod_length)}\n"
 
         elif mech_type == "gear":
             r1 = (
@@ -690,10 +688,13 @@ class BlueprintExporter:
             profile = physical_profile_from_params(params)
             clearance = gear_clearance_from_params(params, profile=profile) * scale_factor
 
-            dimensions_text += "Gear Dimensions (mm):\n"
-            dimensions_text += f'  Gear 1 Radius: {r1:.1f} mm ({r1 / mm_per_inch:.2f}")\n'
-            dimensions_text += f'  Gear 2 Radius: {r2:.1f} mm ({r2 / mm_per_inch:.2f}")\n'
-            dimensions_text += f"  Center Distance: {gear_center_distance(r1, r2, clearance, profile=profile):.1f} mm\n"
+            dimensions_text += "Gear Dimensions (in / board spaces):\n"
+            dimensions_text += f"  Gear 1 Radius: {format_length_for_user(r1)}\n"
+            dimensions_text += f"  Gear 2 Radius: {format_length_for_user(r2)}\n"
+            dimensions_text += (
+                "  Center Distance: "
+                f"{format_length_for_user(gear_center_distance(r1, r2, clearance, profile=profile))}\n"
+            )
             dimensions_text += f"  Gear Ratio: {r2 / r1:.2f}:1\n" if r1 else "  Gear Ratio: n/a\n"
 
         elif mech_type == "planetary_gear":
@@ -701,15 +702,11 @@ class BlueprintExporter:
             r_planet = params.get("r_planet", 0) * scale_factor
             arm_length = params.get("arm_length", 0) * scale_factor
 
-            dimensions_text += "Planetary Gear Dimensions (mm):\n"
-            dimensions_text += f'  Sun Gear Radius: {r_sun:.1f} mm ({r_sun / mm_per_inch:.2f}")\n'
-            dimensions_text += (
-                f'  Planet Gear Radius: {r_planet:.1f} mm ({r_planet / mm_per_inch:.2f}")\n'
-            )
-            dimensions_text += (
-                f'  Arm Length: {arm_length:.1f} mm ({arm_length / mm_per_inch:.2f}")\n'
-            )
-            dimensions_text += f"  Orbital Radius: {r_sun + r_planet:.1f} mm\n"
+            dimensions_text += "Planetary Gear Dimensions (in / board spaces):\n"
+            dimensions_text += f"  Sun Gear Radius: {format_length_for_user(r_sun)}\n"
+            dimensions_text += f"  Planet Gear Radius: {format_length_for_user(r_planet)}\n"
+            dimensions_text += f"  Arm Length: {format_length_for_user(arm_length)}\n"
+            dimensions_text += f"  Orbital Radius: {format_length_for_user(r_sun + r_planet)}\n"
 
         msg_box = QMessageBox()
         msg_box.setWindowTitle("Mechanism Dimensions")
@@ -940,7 +937,6 @@ class BlueprintExporter:
     ) -> str:
         """Generate printable assembly instructions text for the mechanism."""
         instructions = "=== CONSTRUCTION INSTRUCTIONS ===\n\n"
-        mm_per_inch = 25.4
 
         if mech_type == "4_bar_linkage":
             instructions += "Materials Needed:\n"
@@ -953,11 +949,13 @@ class BlueprintExporter:
             L2 = params.get("L2", 0) * scale_factor
             L3 = params.get("L3", 0) * scale_factor
             L4 = params.get("L4", 0) * scale_factor
-            instructions += f'   - Ground link: {L1:.1f} mm ({L1 / mm_per_inch:.2f}")\n'
-            instructions += f'   - Crank: {L2:.1f} mm ({L2 / mm_per_inch:.2f}")\n'
-            instructions += f'   - Coupler: {L3:.1f} mm ({L3 / mm_per_inch:.2f}")\n'
-            instructions += f'   - Rocker: {L4:.1f} mm ({L4 / mm_per_inch:.2f}")\n\n'
-            instructions += "2. Drill holes at both ends of each bar (5-6mm diameter)\n"
+            instructions += f"   - Ground link: {format_length_for_user(L1)}\n"
+            instructions += f"   - Crank: {format_length_for_user(L2)}\n"
+            instructions += f"   - Coupler: {format_length_for_user(L3)}\n"
+            instructions += f"   - Rocker: {format_length_for_user(L4)}\n\n"
+            instructions += (
+                f"2. Drill holes at both ends of each bar ({FABRICATION_HOLE_DIAMETER_INCH_LABEL})\n"
+            )
             instructions += "3. Mount ground link to base plate\n"
             instructions += "4. Connect crank to left ground pivot\n"
             instructions += "5. Connect rocker to right ground pivot\n"
@@ -993,20 +991,16 @@ class BlueprintExporter:
             )
             instructions += "Materials Needed:\n"
             instructions += "- Cam material (wood, acrylic, or metal)\n"
-            instructions += (
-                f'- Follower rod: {rod_length:.1f} mm ({rod_length / mm_per_inch:.2f}")\n'
-            )
+            instructions += f"- Follower rod: {format_length_for_user(rod_length)}\n"
             instructions += "- Linear bearing or guide\n"
             instructions += "- Rotation shaft and bearing\n\n"
             instructions += "Cam Profile Creation:\n"
             instructions += "1. Use the generated CAM profile from the blueprint/SVG export:\n"
             instructions += (
-                f"   - Base radius/reference: {base_radius:.1f} mm "
-                f'({base_radius / mm_per_inch:.2f}")\n'
+                f"   - Base radius/reference: {format_length_for_user(base_radius)}\n"
             )
             instructions += (
-                f"   - Lift/eccentricity input: {eccentricity:.1f} mm "
-                f'({eccentricity / mm_per_inch:.2f}")\n'
+                f"   - Lift/eccentricity input: {format_length_for_user(eccentricity)}\n"
             )
             if "cam_lobes" in params or "profile_harmonic" in params:
                 lobes = max(1, int(_finite_float(params.get("cam_lobes"), 1.0)))
@@ -1020,7 +1014,9 @@ class BlueprintExporter:
             instructions += "2. Mark center hole for shaft\n"
             instructions += "3. Cut cam profile carefully\n"
             instructions += "4. Smooth edges for proper follower contact\n"
-            instructions += f"5. Install follower guide {rod_length:.1f} mm above cam center\n"
+            instructions += (
+                f"5. Install follower guide {format_length_for_user(rod_length)} above cam center\n"
+            )
         elif mech_type == "gear":
             r1 = (
                 _finite_float(_first_value(params, "r1", "gear1_radius", default=0.0))
@@ -1055,12 +1051,15 @@ class BlueprintExporter:
             instructions += "- Mounting plate\n\n"
             instructions += "Gear Specifications:\n"
             instructions += "Gear 1:\n"
-            instructions += f"  - Pitch diameter: {2 * r1:.1f} mm\n"
+            instructions += f"  - Pitch diameter: {format_length_for_user(2 * r1)}\n"
             instructions += f"  - Estimated teeth: {teeth1}\n"
             instructions += "Gear 2:\n"
-            instructions += f"  - Pitch diameter: {2 * r2:.1f} mm\n"
+            instructions += f"  - Pitch diameter: {format_length_for_user(2 * r2)}\n"
             instructions += f"  - Estimated teeth: {teeth2}\n"
-            instructions += f"Center distance: {gear_center_distance(r1, r2, clearance, profile=profile):.1f} mm\n\n"
+            instructions += (
+                "Center distance: "
+                f"{format_length_for_user(gear_center_distance(r1, r2, clearance, profile=profile))}\n\n"
+            )
             instructions += "Assembly:\n"
             instructions += "1. Mount bearings at specified center distance\n"
             instructions += "2. Install gears on shafts\n"

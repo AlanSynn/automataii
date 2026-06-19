@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 import math
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 from PyQt6.QtCore import QLineF, QPointF
@@ -31,6 +31,7 @@ from PyQt6.QtWidgets import (
 
 from automataii.presentation.qt.gear_rendering import (
     gear_attachment_hole_centers,
+    gear_grid_attachment_hole_centers,
     gear_hole_radius,
     gear_outline_polygon,
 )
@@ -47,6 +48,12 @@ from automataii.presentation.qt.tabs.cam_geometry import (
     cam_follower_base_scene,
     cam_motion_angle,
     cam_scene_unit_scale,
+)
+from automataii.shared.physical_kit import (
+    DEFAULT_GRID_CELL_CM,
+    gear_attachment_grid_offsets_mm,
+    grid_enabled_from_params,
+    physical_profile_from_params,
 )
 
 from .animation_cache import AnimationCacheManager, GearCache, PlanetaryGearCache
@@ -783,6 +790,48 @@ class MechanismVisualAnimator:
             gear2_edge_scene = to_scene_coords(gear2_edge_orig)
             r2_screen = QLineF(g2_center_scene, gear2_edge_scene).length()
 
+        profile = physical_profile_from_params(params)
+        grid_enabled = grid_enabled_from_params(params)
+        grid_cell_cm = params.get("grid_cell_cm", DEFAULT_GRID_CELL_CM)
+
+        def physical_hole_centers(
+            center_scene: QPointF,
+            radius_screen: float,
+            angle: float,
+            center_orig: np.ndarray | None,
+            radius_orig: float,
+        ) -> tuple[QPointF, ...]:
+            if not grid_enabled:
+                return cast(
+                    tuple[QPointF, ...],
+                    gear_attachment_hole_centers(center_scene, radius_screen, angle, count=4),
+                )
+            if use_scene_geometry or center_orig is None or to_scene_coords is None:
+                return cast(
+                    tuple[QPointF, ...],
+                    gear_grid_attachment_hole_centers(
+                        center_scene,
+                        radius_screen,
+                        angle,
+                        grid_cell_cm=grid_cell_cm,
+                        profile=profile,
+                    ),
+                )
+            cos_r = math.cos(angle)
+            sin_r = math.sin(angle)
+            centers: list[QPointF] = []
+            for dx, dy in gear_attachment_grid_offsets_mm(
+                radius_orig,
+                grid_cell_cm,
+                profile=profile,
+            ):
+                local = center_orig + np.array(
+                    [dx * cos_r - dy * sin_r, dx * sin_r + dy * cos_r],
+                    dtype=float,
+                )
+                centers.append(to_scene_coords(local))
+            return tuple(centers)
+
         # Update gear bodies
         if len(visual_items) >= 2:
             gear1_teeth = int(round(finite_param(params, "gear1_teeth", default=12.0)))
@@ -825,13 +874,13 @@ class MechanismVisualAnimator:
                 visual_items[3].setLine(QLineF(g2_center_scene, end2))
 
         keyed_items = {item.data(0): item for item in visual_items if hasattr(item, "data")}
-        for prefix, center_scene, radius_screen, angle in (
-            ("gear1_attachment_hole", g1_center_scene, r1_screen, theta1),
-            ("gear2_attachment_hole", g2_center_scene, r2_screen, theta2),
+        for prefix, center_scene, radius_screen, angle, center_orig, radius_orig in (
+            ("gear1_attachment_hole", g1_center_scene, r1_screen, theta1, gear1_center, r1),
+            ("gear2_attachment_hole", g2_center_scene, r2_screen, theta2, gear2_center, r2),
         ):
             hole_radius = gear_hole_radius(radius_screen)
             for index, hole_center in enumerate(
-                gear_attachment_hole_centers(center_scene, radius_screen, angle, count=4)
+                physical_hole_centers(center_scene, radius_screen, angle, center_orig, radius_orig)
             ):
                 hole = keyed_items.get(f"{prefix}_{index}")
                 if isinstance(hole, QGraphicsEllipseItem):
@@ -958,8 +1007,38 @@ class MechanismVisualAnimator:
         r_planet_screen = QLineF(planet_center_scene, planet_edge_scene).length()
         planet_teeth = int(round(finite_param(params, "planet_teeth", default=12.0)))
         keyed_items = {item.data(0): item for item in visual_items if hasattr(item, "data")}
+        profile = physical_profile_from_params(params)
+        grid_enabled = grid_enabled_from_params(params)
+        grid_cell_cm = params.get("grid_cell_cm", DEFAULT_GRID_CELL_CM)
 
-        for planet_index, planet_scene in enumerate(planet_centers_scene, start=1):
+        def physical_planet_holes(
+            planet_scene: QPointF,
+            center_orig: np.ndarray,
+            phase: float,
+        ) -> tuple[QPointF, ...]:
+            if not grid_enabled:
+                return cast(
+                    tuple[QPointF, ...],
+                    gear_attachment_hole_centers(planet_scene, r_planet_screen, phase, count=4),
+                )
+            cos_r = math.cos(phase)
+            sin_r = math.sin(phase)
+            centers: list[QPointF] = []
+            for dx, dy in gear_attachment_grid_offsets_mm(
+                r_planet,
+                grid_cell_cm,
+                profile=profile,
+            ):
+                local = center_orig + np.array(
+                    [dx * cos_r - dy * sin_r, dx * sin_r + dy * cos_r],
+                    dtype=float,
+                )
+                centers.append(to_scene_coords(local))
+            return tuple(centers)
+
+        for planet_index, (planet_scene, planet_orig) in enumerate(
+            zip(planet_centers_scene, planet_centers_orig, strict=False), start=1
+        ):
             body = keyed_items.get(f"planetary_planet_{planet_index}_body")
             if body is None and planet_index == 1 and len(visual_items) > 1:
                 body = visual_items[1]
@@ -985,9 +1064,7 @@ class MechanismVisualAnimator:
                 center_marker.setRect(planet_scene.x() - 4.0, planet_scene.y() - 4.0, 8.0, 8.0)
 
             hole_radius = gear_hole_radius(r_planet_screen)
-            for index, hole_center in enumerate(
-                gear_attachment_hole_centers(planet_scene, r_planet_screen, phase, count=4)
-            ):
+            for index, hole_center in enumerate(physical_planet_holes(planet_scene, planet_orig, phase)):
                 hole = keyed_items.get(f"planetary_planet_{planet_index}_hole_{index}")
                 if hole is None and planet_index == 1:
                     hole = keyed_items.get(f"planetary_planet_hole_{index}")

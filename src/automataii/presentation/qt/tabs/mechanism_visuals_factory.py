@@ -9,7 +9,7 @@ import logging
 import math
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
-from typing import TypeVar
+from typing import TypeVar, cast
 
 import numpy as np
 from PyQt6.QtCore import QLineF, QPointF, Qt
@@ -31,6 +31,7 @@ from automataii.config.z_indices import (
 from automataii.presentation.qt.gear_rendering import (
     annulus_path,
     gear_attachment_hole_centers,
+    gear_grid_attachment_hole_centers,
     gear_hole_radius,
     gear_outline_polygon,
     radial_tick_lines,
@@ -51,8 +52,11 @@ from automataii.presentation.qt.tabs.cam_geometry import (
     cam_scene_unit_scale,
 )
 from automataii.shared.physical_kit import (
+    DEFAULT_GRID_CELL_CM,
+    gear_attachment_grid_offsets_mm,
     gear_center_distance,
     gear_clearance_from_params,
+    grid_enabled_from_params,
     physical_profile_from_params,
 )
 
@@ -1233,6 +1237,46 @@ class MechanismVisualsFactory:
         visual_items: list[QGraphicsItem] = []
         gear1_teeth = int(round(finite_float(params.get("gear1_teeth"), 12.0)))
         gear2_teeth = int(round(finite_float(params.get("gear2_teeth"), 16.0)))
+        grid_enabled = grid_enabled_from_params(params)
+        grid_cell_cm = params.get("grid_cell_cm", DEFAULT_GRID_CELL_CM)
+
+        def physical_hole_centers(
+            center_scene: QPointF,
+            radius_screen: float,
+            angle: float,
+            center_orig: np.ndarray | None,
+            radius_orig: float,
+        ) -> tuple[QPointF, ...]:
+            if not grid_enabled:
+                return cast(
+                    tuple[QPointF, ...],
+                    gear_attachment_hole_centers(center_scene, radius_screen, angle, count=4),
+                )
+            if use_scene_geometry or center_orig is None or to_scene_coords is None:
+                return cast(
+                    tuple[QPointF, ...],
+                    gear_grid_attachment_hole_centers(
+                        center_scene,
+                        radius_screen,
+                        angle,
+                        grid_cell_cm=grid_cell_cm,
+                        profile=profile,
+                    ),
+                )
+            cos_r = math.cos(angle)
+            sin_r = math.sin(angle)
+            centers: list[QPointF] = []
+            for dx, dy in gear_attachment_grid_offsets_mm(
+                radius_orig,
+                grid_cell_cm,
+                profile=profile,
+            ):
+                local = center_orig + np.array(
+                    [dx * cos_r - dy * sin_r, dx * sin_r + dy * cos_r],
+                    dtype=float,
+                )
+                centers.append(to_scene_coords(local))
+            return tuple(centers)
 
         # Create gear 1 (driver) with visible tooth geometry.
         gear1_color = QColor("#3498db")  # Blue
@@ -1289,13 +1333,13 @@ class MechanismVisualsFactory:
         gear2_indicator.setZValue(15)
         visual_items.append(gear2_indicator)
 
-        for center_scene, radius_screen, prefix in (
-            (gear1_center_scene, r1_screen, "gear1_attachment_hole"),
-            (gear2_center_scene, r2_screen, "gear2_attachment_hole"),
+        for center_scene, radius_screen, prefix, center_orig, radius_orig in (
+            (gear1_center_scene, r1_screen, "gear1_attachment_hole", gear1_center_orig, r1),
+            (gear2_center_scene, r2_screen, "gear2_attachment_hole", gear2_center_orig, r2),
         ):
             hole_radius = gear_hole_radius(radius_screen)
             for index, hole_center in enumerate(
-                gear_attachment_hole_centers(center_scene, radius_screen, count=4)
+                physical_hole_centers(center_scene, radius_screen, 0.0, center_orig, radius_orig)
             ):
                 hole = _require_graphics_item(
                     self.scene.addEllipse(
@@ -1567,6 +1611,9 @@ class MechanismVisualsFactory:
 
         sun_teeth = int(round(finite_float(params.get("sun_teeth"), 12.0)))
         planet_teeth = int(round(finite_float(params.get("planet_teeth"), 12.0)))
+        profile = physical_profile_from_params(params)
+        grid_enabled = grid_enabled_from_params(params)
+        grid_cell_cm = params.get("grid_cell_cm", DEFAULT_GRID_CELL_CM)
         ring_inner = QLineF(sun_center_scene, planet_center_scene).length() + r_planet_screen * 0.55
         ring_outer = ring_inner + max(7.0, min(16.0, r_planet_screen * 0.45))
         decorative_items: list[QGraphicsItem] = []
@@ -1711,17 +1758,45 @@ class MechanismVisualsFactory:
             extra_marker.setZValue(25)
             visual_items.append(extra_marker)
 
-        hole_specs: list[tuple[QPointF, float, str]] = [
-            (sun_center_scene, r_sun_screen, "planetary_sun_hole"),
+        def physical_planetary_holes(
+            center_scene: QPointF,
+            radius_screen: float,
+            center_orig: np.ndarray,
+            radius_orig: float,
+        ) -> tuple[QPointF, ...]:
+            if not grid_enabled:
+                return cast(
+                    tuple[QPointF, ...],
+                    gear_attachment_hole_centers(center_scene, radius_screen, count=4),
+                )
+            centers: list[QPointF] = []
+            for dx, dy in gear_attachment_grid_offsets_mm(
+                radius_orig,
+                grid_cell_cm,
+                profile=profile,
+            ):
+                centers.append(to_scene_coords(center_orig + np.array([dx, dy], dtype=float)))
+            return tuple(centers)
+
+        hole_specs: list[tuple[QPointF, float, str, np.ndarray, float]] = [
+            (sun_center_scene, r_sun_screen, "planetary_sun_hole", sun_center_orig, r_sun),
         ]
         hole_specs.extend(
-            (center_scene, r_planet_screen, f"planetary_planet_{index}_hole")
-            for index, center_scene in enumerate(planet_centers_scene, start=1)
+            (
+                center_scene,
+                r_planet_screen,
+                f"planetary_planet_{index}_hole",
+                center_orig,
+                r_planet,
+            )
+            for index, (center_scene, center_orig) in enumerate(
+                zip(planet_centers_scene, planet_centers_orig, strict=False), start=1
+            )
         )
-        for center_scene, radius_screen, prefix in hole_specs:
+        for center_scene, radius_screen, prefix, center_orig, radius_orig in hole_specs:
             hole_radius = gear_hole_radius(radius_screen)
             for index, hole_center in enumerate(
-                gear_attachment_hole_centers(center_scene, radius_screen, count=4)
+                physical_planetary_holes(center_scene, radius_screen, center_orig, radius_orig)
             ):
                 hole = _require_graphics_item(
                     self.scene.addEllipse(

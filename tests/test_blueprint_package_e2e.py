@@ -105,6 +105,105 @@ def test_export_all_writes_real_package_for_each_supported_family(
     assert recipe_key in messages[-1][1]
 
 
+def test_export_all_writes_integrated_pdf_manuals_for_multiple_supported_mechanisms(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from PyQt6 import QtWidgets
+
+    expected_recipes = {
+        "four-bar-basic",
+        "cam-follower-basic",
+        "gear-train-basic",
+        "gear-linkage-crank",
+        "planetary-gear-basic",
+        "slider-crank-basic",
+    }
+    output_dir = tmp_path / "all-supported-mechanisms"
+    messages: list[tuple[str, str]] = []
+    configs = build_mechanism_configs()
+    layers = {}
+    for mechanism_type in (
+        "four_bar",
+        "cam_follower",
+        "gear_train",
+        "gear_linkage",
+        "planetary_gear",
+        "slider_crank",
+    ):
+        params = configs[mechanism_type].initial_parameters()
+        params.update({"grid_system_enabled": True, "grid_cell_cm": 2.0})
+        layers[f"{mechanism_type}-layer"] = {"type": mechanism_type, "params": params}
+
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog,
+        "getExistingDirectory",
+        lambda *_args, **_kwargs: str(output_dir),
+    )
+    monkeypatch.setattr(
+        QtWidgets.QMessageBox,
+        "information",
+        lambda _parent, title, text: messages.append((str(title), str(text))),
+    )
+    monkeypatch.setattr(
+        QtWidgets.QMessageBox,
+        "warning",
+        lambda _parent, title, text: messages.append((str(title), str(text))),
+    )
+
+    exporter = BlueprintExporter(
+        parent=None,
+        mechanism_view=None,
+        get_mechanism_layers=lambda: layers,
+        get_current_editor_items=lambda: {},
+        get_scene_transform_function=lambda _layer: None,
+    )
+    monkeypatch.setattr(
+        exporter,
+        "calculate_screen_to_blueprint_scale",
+        lambda: {"mechanism_scale_factors": {}, "mm_per_pixel": 1.0},
+    )
+    monkeypatch.setattr(exporter, "enhance_mechanism_layers_with_scale_info", lambda _info: layers)
+
+    exporter.export_all()
+
+    cut_sheet = output_dir / "current-design-cut-sheets.pdf"
+    assembly_dir = output_dir / "assembly"
+    assert cut_sheet.is_file()
+    assert_pdf_has_printable_pages(cut_sheet)
+    assert_pdf_page_uses_area(cut_sheet)
+    assert not (assembly_dir / "svg-fallback").exists()
+    assert (assembly_dir / "assembly-guide.pdf").is_file()
+    assert (assembly_dir / "kit-parts-to-cut.pdf").is_file()
+    assert (assembly_dir / "recipes.json").is_file()
+    assert (assembly_dir / "physical-contract.json").is_file()
+
+    recipes = json.loads((assembly_dir / "recipes.json").read_text(encoding="utf-8"))
+    assert {recipe["key"] for recipe in recipes["recipes"]} == expected_recipes
+    expected_guide_pages = 3 + sum(len(recipe["steps"]) for recipe in recipes["recipes"])
+    assert_pdf_has_printable_pages(
+        assembly_dir / "assembly-guide.pdf",
+        expected_pages=expected_guide_pages,
+    )
+    assert_pdf_pages_fit_standard_print_sheet(
+        assembly_dir / "assembly-guide.pdf",
+        expected_pages=expected_guide_pages,
+    )
+    assert_pdf_page_uses_area(
+        assembly_dir / "assembly-guide.pdf",
+        min_width_ratio=0.55,
+        min_height_ratio=0.35,
+    )
+    assert_pdf_has_printable_pages(assembly_dir / "kit-parts-to-cut.pdf")
+    assert_pdf_pages_fit_standard_print_sheet(assembly_dir / "kit-parts-to-cut.pdf")
+
+    contract = json.loads((assembly_dir / "physical-contract.json").read_text(encoding="utf-8"))
+    assert contract["status"] == "matched"
+    assert set(contract["selected_recipe_keys"]) == expected_recipes
+    assert messages
+    assert "PDF-first blueprint package exported successfully" in messages[-1][1]
+
+
 class _PartInfo:
     def __init__(self, *, name: str, roi: list[float], image_path: str, pivot: list[float]) -> None:
         self.name = name

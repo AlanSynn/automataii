@@ -59,6 +59,32 @@ def test_workspace_manager_persists_and_restores_tab_order(tmp_path: Path) -> No
     assert app is not None
 
 
+def test_workspace_manager_can_skip_current_tab_restore_on_startup(tmp_path: Path) -> None:
+    app = QApplication.instance() or QApplication([])
+
+    settings = _settings_for_test(tmp_path, "skip_current_tab_restore")
+
+    window_1, tabs_1 = _create_window_with_tabs()
+    manager_1 = WorkspaceLayoutManager(window_1, tabs_1, settings=settings)
+    manager_1.initialize()
+    tabs_1.setCurrentIndex(2)
+    manager_1.save_workspace_layout()
+
+    window_2, tabs_2 = _create_window_with_tabs()
+    manager_2 = WorkspaceLayoutManager(window_2, tabs_2, settings=settings)
+    manager_2.initialize(restore_current_tab=False)
+
+    assert tabs_2.currentIndex() == 0
+    assert tabs_2.currentWidget().objectName() == "tab_character_selection"
+
+    window_3, tabs_3 = _create_window_with_tabs()
+    manager_3 = WorkspaceLayoutManager(window_3, tabs_3, settings=settings)
+    manager_3.initialize()
+
+    assert tabs_3.currentWidget().objectName() == "tab_mechanism_design"
+    assert app is not None
+
+
 def test_workspace_manager_does_not_install_navigator_ui(tmp_path: Path) -> None:
     app = QApplication.instance() or QApplication([])
 

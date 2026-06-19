@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QBrush, QColor, QPainterPath, QPen
-from PyQt6.QtWidgets import QGraphicsItem, QGraphicsPathItem, QGraphicsScene
+from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsItem, QGraphicsPathItem, QGraphicsScene
 
 if TYPE_CHECKING:
     from automataii.application.mechanism_foundry.path_cache import CachedPath, PathCache
@@ -24,6 +24,7 @@ class PathPreviewOverlay:
         self._scene = scene
         self._cache = cache
         self._items: dict[str, list[QGraphicsItem]] = {}
+        self._progress_items: dict[str, QGraphicsEllipseItem] = {}
         self._preview_keys: dict[str, _PreviewKey] = {}
         self._enabled = True
         self._fade_timer = QTimer()
@@ -65,9 +66,40 @@ class PathPreviewOverlay:
         if auto_fade:
             self._fade_timer.start(2000)
 
+    def active_point_names(self) -> tuple[str, ...]:
+        return tuple(self._items.keys() | self._progress_items.keys())
+
+    def update_progress_marker(self, point_name: str, position: object) -> None:
+        """Mark the current animated frame on top of the cached path preview."""
+
+        if not self._enabled:
+            return
+        if not isinstance(position, list | tuple) or len(position) < 2:
+            self._remove_progress_item(point_name)
+            return
+        try:
+            x = float(position[0])
+            y = float(position[1])
+        except (TypeError, ValueError):
+            self._remove_progress_item(point_name)
+            return
+
+        marker = self._progress_items.get(point_name)
+        if marker is None:
+            marker_pen = QPen(QColor(12, 74, 110, 235), 1.4)
+            marker_brush = QBrush(QColor(255, 255, 255, 235))
+            created = self._scene.addEllipse(x - 5, y - 5, 10, 10, marker_pen, marker_brush)
+            if not isinstance(created, QGraphicsEllipseItem):
+                return
+            marker = created
+            marker.setZValue(104)
+            marker.setData(0, "path_preview")
+            self._progress_items[point_name] = marker
+        marker.setRect(x - 5, y - 5, 10, 10)
+
     def hide_path(self, point_name: str | None = None) -> None:
         if point_name is None:
-            for item_name in list(self._items):
+            for item_name in list(self.active_point_names()):
                 self._remove_path_items(item_name)
         else:
             self._remove_path_items(point_name)
@@ -168,6 +200,12 @@ class PathPreviewOverlay:
         for item in self._items.pop(point_name, []):
             self._scene.removeItem(item)
         self._preview_keys.pop(point_name, None)
+        self._remove_progress_item(point_name)
+
+    def _remove_progress_item(self, point_name: str) -> None:
+        marker = self._progress_items.pop(point_name, None)
+        if marker is not None:
+            self._scene.removeItem(marker)
 
     @staticmethod
     def _make_preview_key(

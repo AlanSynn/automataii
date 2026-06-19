@@ -77,9 +77,12 @@ def test_foundry_sensemaking_updates_immediately_on_parameter_change(qapp):
     _, label = view.parameter_sliders["input_link"]
     view._on_parameter_changed("input_link", 65.0, label, False)
 
-    assert "Input Link" in label.text() or label.text() == "65.0"
+    assert "2.56 in" in label.text()
+    assert "board spaces" in label.text()
     assert "Input link:" in _foundry_label_text(view, "changeValueLabel")
-    assert "65 mm" in _foundry_label_text(view, "changeValueLabel")
+    assert "2.56 in" in _foundry_label_text(view, "changeValueLabel")
+    assert view._last_rendered_state is not None
+    assert "B" in view.path_preview_overlay.active_point_names()
     assert "hole" in _foundry_label_text(view, "buildHintLabel").lower()
     assert view._last_sensemaking_context is not None
     assert view._last_sensemaking_context.change is not None
@@ -343,6 +346,9 @@ def test_gallery_selection_syncs_selector_and_export_type(qapp):
 
     view._on_gallery_mechanism_selected("cam_follower")
     assert view.mechanism_selector.currentData() == "cam_follower"
+    assert view.is_playing is True
+    view._go_back_to_gallery()
+    assert view.is_playing is False
 
     view._on_export_to_design()
     assert captured
@@ -393,6 +399,8 @@ def test_foundry_gear_linkage_renders_linkage_arm(qapp):
     assert view._last_rendered_state is not None
     assert "linkage_pin" in view._last_rendered_state.positions
     assert "gear_linkage_arm" in view.visual_items_cache
+    assert "linkage_end" in view.path_preview_overlay.active_point_names()
+    assert "linkage_pin" in view.path_preview_overlay.active_point_names()
 
 
 def test_foundry_planetary_gear_renders_ring_and_planets(qapp):
@@ -412,6 +420,7 @@ def test_foundry_planetary_gear_renders_ring_and_planets(qapp):
     assert "planetary_ring" in view.visual_items_cache
     assert "planetary_sun_body" in view.visual_items_cache
     assert "planetary_planet_1_body" in view.visual_items_cache
+    assert "tracking_point" in view.path_preview_overlay.active_point_names()
 
 
 def test_foundry_planetary_gear_removes_stale_planet_cache_when_count_shrinks(qapp):
@@ -554,6 +563,37 @@ def test_grid_pitch_change_rebuilds_foundry_controller_configs(qapp):
     assert view.gallery_view.controller is view.controller
 
 
+def test_foundry_grid_draws_exact_15x15_board_coordinates(qapp):
+    from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsRectItem
+
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+
+    view = MechanismFoundryView()
+    view.set_grid_system(True, 2.5)
+
+    holes = [item for item in view._grid_items if item.data(0) == "fabrication_board_hole"]
+    labels = [item for item in view._grid_items if item.data(0) == "fabrication_board_label"]
+    boundaries = [item for item in view._grid_items if item.data(0) == "fabrication_board_boundary"]
+    assert len(holes) == 225
+    assert len(labels) == 30
+    assert len(boundaries) == 1
+
+    hole_by_label = {item.data(1): item for item in holes}
+    assert set(hole_by_label) >= {"H8", "H9", "I8", "A1", "O15"}
+    assert isinstance(hole_by_label["H8"], QGraphicsEllipseItem)
+    assert isinstance(boundaries[0], QGraphicsRectItem)
+
+    def center(label: str) -> tuple[float, float]:
+        rect = hole_by_label[label].rect()
+        return rect.center().x(), rect.center().y()
+
+    assert center("H8") == pytest.approx((0.0, 0.0))
+    assert center("H9") == pytest.approx((25.0, 0.0))
+    assert center("I8") == pytest.approx((0.0, 25.0))
+    assert boundaries[0].rect().width() == pytest.approx(14 * 25.0)
+    assert boundaries[0].rect().height() == pytest.approx(14 * 25.0)
+
+
 def test_cam_offset_can_snap_to_half_grid_cam_preset(qapp):
     from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
 
@@ -569,6 +609,65 @@ def test_cam_offset_can_snap_to_half_grid_cam_preset(qapp):
     view._on_parameter_changed("cam_offset", 12.5, label, False)
 
     assert view.current_parameters["cam_offset"] == 11.25
+    assert view.current_parameters["cam_radius"] == 22.5
+
+
+def test_cam_slider_bounds_match_physical_cam_presets(qapp):
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+
+    view = MechanismFoundryView()
+    idx = view.mechanism_selector.findData("cam_follower")
+    assert idx >= 0
+    view.mechanism_selector.setCurrentIndex(idx)
+    view._on_mechanism_changed(idx)
+    view.set_grid_system(True, 2.5)
+
+    radius_spec = view._parameter_specs_by_key["cam_radius"]
+    assert radius_spec.min_value == 18.75
+    assert radius_spec.max_value == 22.5
+
+    _, label = view.parameter_sliders["cam_radius"]
+    view._on_parameter_changed("cam_radius", 22.0, label, False)
+
+    assert view.current_parameters["cam_radius"] == 22.5
+    assert view.current_parameters["physical_cam_preset"] == "pear"
+
+
+def test_gear_linkage_pin_snaps_to_fabricated_hole_radius(qapp):
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+
+    view = MechanismFoundryView()
+    idx = view.mechanism_selector.findData("gear_linkage")
+    assert idx >= 0
+    view.mechanism_selector.setCurrentIndex(idx)
+    view._on_mechanism_changed(idx)
+    view.set_grid_system(True, 2.0)
+
+    _, label = view.parameter_sliders["linkage_pin_radius"]
+    view._on_parameter_changed("linkage_pin_radius", 7.0, label, False)
+
+    assert view.current_parameters["gear2_teeth"] == 24
+    assert view.current_parameters["linkage_pin_radius"] == 20.0
+
+
+def test_planetary_foundry_preview_stays_on_supported_ring_pair(qapp):
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+
+    view = MechanismFoundryView()
+    idx = view.mechanism_selector.findData("planetary_gear")
+    assert idx >= 0
+    view.mechanism_selector.setCurrentIndex(idx)
+    view._on_mechanism_changed(idx)
+    view.set_grid_system(True, 2.0)
+
+    _, label = view.parameter_sliders["planet_teeth"]
+    view._on_parameter_changed("planet_teeth", 47.0, label, True)
+
+    state = view._last_rendered_state
+    assert state is not None
+    assert view.current_parameters["sun_teeth"] == 8
+    assert view.current_parameters["planet_teeth"] == 24
+    assert state.metadata["ring_teeth"] == 56
 
 
 def test_motion_modes_label_populates_for_four_bar(qapp):
@@ -597,8 +696,8 @@ def test_map_design_params_to_foundry_gear_prefers_live_radii(qapp):
         },
     )
 
-    assert mapped["gear1_teeth"] == 18.0
-    assert mapped["gear2_teeth"] == 18.0
+    assert mapped["gear1_teeth"] == 40.0
+    assert mapped["gear2_teeth"] == 56.0
 
 
 def test_map_design_params_to_foundry_gear_honors_grid_disabled_freeform_teeth(qapp):
@@ -674,8 +773,8 @@ def test_map_design_params_to_foundry_gear_keeps_radii_when_output_mode_present(
         },
     )
 
-    assert mapped["gear1_teeth"] == 18.0
-    assert mapped["gear2_teeth"] == 18.0
+    assert mapped["gear1_teeth"] == 40.0
+    assert mapped["gear2_teeth"] == 56.0
     assert mapped["output_point_mode"] == "contact_point"
 
 
@@ -700,8 +799,8 @@ def test_map_design_params_to_foundry_skips_invalid_preferred_values(qapp):
         },
     )
 
-    assert gear["gear1_teeth"] == 12.0
-    assert gear["gear2_teeth"] == 18.0
+    assert gear["gear1_teeth"] == 8.0
+    assert gear["gear2_teeth"] == 56.0
     assert "cam_radius" not in cam
     assert cam["cam_offset"] == 20.0
     assert cam["follower_length"] == 100.0
@@ -825,7 +924,7 @@ def test_foundry_preview_mechanisms_sanitize_nonfinite_inputs(qapp):
         for value in position
     ]
     assert all(math.isfinite(value) for value in all_values)
-    assert gear_state.metadata["r1"] == 18.0
+    assert gear_state.metadata["r1"] == 10.0
     assert slider_state.metadata["rod_length"] > slider_state.metadata["crank_length"]
 
 
@@ -841,11 +940,103 @@ def test_foundry_gear_preview_preserves_disabled_grid_freeform_teeth(qapp):
 
     assert state.metadata["gear1_teeth"] == 12
     assert state.metadata["gear2_teeth"] == 18
-    assert state.metadata["r1"] == pytest.approx(18.0)
-    assert state.metadata["r2"] == pytest.approx(27.0)
+    assert state.metadata["r1"] == pytest.approx(15.0)
+    assert state.metadata["r2"] == pytest.approx(22.5)
     assert (
         state.positions["gear2_center"][0] - state.positions["gear1_center"][0]
-    ) == pytest.approx(47.0)
+    ) == pytest.approx(37.5)
+
+
+def test_foundry_gear_mesh_uses_board_spaces_and_tooth_phase(qapp):
+    import math
+
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import (
+        _GearTrainPreviewMechanism,
+    )
+
+    state = _GearTrainPreviewMechanism().compute_state(
+        {"grid_system_enabled": True, "grid_cell_cm": 2.0, "gear1_teeth": 8, "gear2_teeth": 24},
+        0.0,
+    )
+
+    assert state.metadata["grid_system_enabled"] is True
+    assert state.metadata["gear_mesh_ok"] is True
+    assert state.metadata["center_distance"] == pytest.approx(40.0)
+    assert state.metadata["board_space_distance"] == pytest.approx(2.0)
+    assert state.metadata["fabrication_board_origin"] == "H8"
+    assert state.metadata["fabrication_board_coords"] == {
+        "gear1_center": "H6",
+        "gear2_center": "H8",
+    }
+    assert state.positions["gear1_center"] == pytest.approx((-40.0, 0.0))
+    assert state.positions["gear2_center"] == pytest.approx((0.0, 0.0))
+    assert (
+        state.positions["gear2_center"][0] - state.positions["gear1_center"][0]
+    ) == pytest.approx(40.0)
+    assert state.metadata["theta2"] == pytest.approx(math.pi + math.pi / 24.0)
+    assert "board-space centers" in state.safety_status.message
+
+    linkage_state = _GearTrainPreviewMechanism().compute_state(
+        {
+            "grid_system_enabled": True,
+            "grid_cell_cm": 2.0,
+            "gear1_teeth": 24,
+            "gear2_teeth": 24,
+            "gear_linkage_enabled": True,
+        },
+        0.0,
+    )
+    assert linkage_state.metadata["fabrication_board_coords"] == {
+        "gear1_center": "I6",
+        "gear2_center": "I9",
+    }
+    assert linkage_state.positions["gear1_center"] == pytest.approx((-40.0, 20.0))
+    assert linkage_state.positions["gear2_center"] == pytest.approx((20.0, 20.0))
+
+
+def test_foundry_gear_render_matches_fabrication_attachment_holes(qapp):
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+
+    def cache_count(view: MechanismFoundryView, prefix: str) -> int:
+        return sum(1 for key in view.visual_items_cache if key.startswith(prefix))
+
+    view = MechanismFoundryView()
+    view.set_synced_mechanism("sync_gear", "gear_train")
+    view.current_parameters.update(
+        {
+            "grid_system_enabled": True,
+            "grid_cell_cm": 2.0,
+            "gear1_teeth": 56,
+            "gear2_teeth": 56,
+        }
+    )
+    view._state_cache_valid = False
+
+    view._render_mechanism()
+
+    assert cache_count(view, "gear1_attachment_hole_") == 28
+    assert cache_count(view, "gear2_attachment_hole_") == 28
+    snapshot = view._capture_export_snapshot()
+    assert snapshot is not None
+    assert snapshot["fabrication"] == {
+        "board_origin": "H8",
+        "board_coords": {"gear1_center": "H6", "gear2_center": "H13"},
+    }
+    assert view.physical_mode_label is not None
+    assert "Fabrication-ready preset mode ON" in view.physical_mode_label.text()
+
+    view.current_parameters.update({"gear1_teeth": 8, "gear2_teeth": 24})
+    view._state_cache_valid = False
+
+    view._render_mechanism()
+
+    assert cache_count(view, "gear1_attachment_hole_") == 0
+    assert cache_count(view, "gear2_attachment_hole_") == 4
+
+    view.set_grid_system(False, 2.0)
+
+    assert view.physical_mode_label is not None
+    assert "Simulation-only" in view.physical_mode_label.text()
 
 
 def test_foundry_update_from_design_preserves_disabled_grid_freeform_teeth(qapp):
@@ -873,12 +1064,12 @@ def test_foundry_update_from_design_preserves_disabled_grid_freeform_teeth(qapp)
     assert view.current_parameters["gear1_teeth"] == pytest.approx(12.0)
     assert view.current_parameters["gear2_teeth"] == pytest.approx(18.0)
     assert view._last_rendered_state is not None
-    assert view._last_rendered_state.metadata["r1"] == pytest.approx(18.0)
-    assert view._last_rendered_state.metadata["r2"] == pytest.approx(27.0)
+    assert view._last_rendered_state.metadata["r1"] == pytest.approx(15.0)
+    assert view._last_rendered_state.metadata["r2"] == pytest.approx(22.5)
     assert (
         view._last_rendered_state.positions["gear2_center"][0]
         - view._last_rendered_state.positions["gear1_center"][0]
-    ) == pytest.approx(47.0)
+    ) == pytest.approx(37.5)
 
 
 def test_foundry_render_uses_view_grid_context_overlay_for_preview_and_snapshot(qapp):
@@ -901,7 +1092,7 @@ def test_foundry_render_uses_view_grid_context_overlay_for_preview_and_snapshot(
     assert snapshot is not None
     assert (
         snapshot["positions"]["gear2_center"][0] - snapshot["positions"]["gear1_center"][0]
-    ) == pytest.approx(47.0)
+    ) == pytest.approx(37.5)
 
 
 def test_foundry_mapping_and_sync_skip_nonfinite_design_values(qapp):
@@ -921,7 +1112,7 @@ def test_foundry_mapping_and_sync_skip_nonfinite_design_values(qapp):
         },
     )
 
-    assert mapped == {"gear1_teeth": 12.0, "gear2_teeth": 18.0}
+    assert mapped == {"gear1_teeth": 8.0, "gear2_teeth": 24.0}
 
     view.set_synced_mechanism("sync_gear", "gear_train")
     previous_angle = view.current_angle
@@ -981,6 +1172,29 @@ def test_gallery_thumbnail_uses_plain_text_for_catalog_content(qapp):
     finally:
         thumbnail.animation_timer.stop()
         thumbnail.close()
+
+
+def test_gallery_thumbnail_animates_custom_gear_previews(qapp):
+    from automataii.presentation.qt.tabs.mechanism_foundry.gallery_thumbnail import (
+        GalleryThumbnail,
+    )
+
+    for mechanism_type in ("gear_train", "gear_linkage", "planetary_gear"):
+        thumbnail = GalleryThumbnail(mechanism_type, mechanism_type, "preview")
+        try:
+            assert not thumbnail.animation_timer.isActive()
+            thumbnail.show()
+            qapp.processEvents()
+            assert thumbnail.animation_timer.isActive()
+            before = thumbnail.current_angle
+            thumbnail._animate()
+            assert thumbnail.current_angle != before
+            thumbnail.hide()
+            qapp.processEvents()
+            assert not thumbnail.animation_timer.isActive()
+        finally:
+            thumbnail.animation_timer.stop()
+            thumbnail.close()
 
 
 def test_foundry_sync_payload_filters_nonfinite_and_preserves_output_mode(qapp):

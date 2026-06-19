@@ -187,7 +187,7 @@ def test_blueprint_composer_normalizes_nonfinite_optimizer_dimensions() -> None:
     assert result.height_mm == 600.0
     assert seen["width"] == 800.0
     assert seen["height"] == 600.0
-    assert seen["unit"] == "metric"
+    assert seen["unit"] == "imperial"
     assert str(seen["snapshot"]).startswith("data:image/png;base64,")
 
 
@@ -233,7 +233,7 @@ def test_single_large_blueprint_separates_cut_sheets_from_board_assembly() -> No
     assert "Make Parts / Cut Sheets boundary" in svg
     assert "this sheet is not the board assembly order" in svg
     assert "Character body components: 1" in svg
-    assert "Drill 4mm holes when shown" in svg
+    assert "Drill 5/32 in holes when shown" in svg
     assert "Paper fasteners are hardware, not cut parts" in svg
     assert "Fastener/spacer location is assigned in the Assembly Guide" in svg
 

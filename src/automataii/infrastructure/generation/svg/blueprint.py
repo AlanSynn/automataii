@@ -10,6 +10,12 @@ from automataii.domain.generation.layout import LayoutItem
 from automataii.infrastructure.generation.processors.png_blueprint import (
     PNGBlueprintProcessor,
 )
+from automataii.shared.physical_kit import (
+    DEFAULT_DISPLAY_UNIT_SYSTEM,
+    FABRICATION_HOLE_DIAMETER_INCH_LABEL,
+    format_length_for_user,
+    normalize_unit_system,
+)
 
 
 def _positive_dimension(value: object, default: float) -> float:
@@ -133,7 +139,7 @@ def _cut_sheet_handoff_panel(
     </text>
     <text x="20" y="61" class="callout-text">
       Character body components: {part_count} | Mechanism parts: {mechanism_count} |
-      Drill 4mm holes when shown.
+      Drill {FABRICATION_HOLE_DIAMETER_INCH_LABEL} holes when shown.
     </text>
     <text x="20" y="78" class="callout-text">
       Paper fasteners are hardware, not cut parts; spacer/bracket stack order lives in
@@ -150,7 +156,7 @@ def generate_single_large_blueprint(
     title: object = "Manufacturing Blueprint",
     scale_info: object = "",
     snapshot_data_uri: str | None = None,
-    unit_system: str = "metric",
+    unit_system: str = DEFAULT_DISPLAY_UNIT_SYSTEM,
 ) -> str:
     """
     Generate a single large-format blueprint with all content.
@@ -163,7 +169,7 @@ def generate_single_large_blueprint(
         title: Blueprint title
         scale_info: Scale information text
         snapshot_data_uri: Optional snapshot image data URI
-        unit_system: "metric" for mm, "imperial" for inches
+        unit_system: "imperial" for inches, "metric" for millimeters
 
     Returns:
         SVG string containing the complete blueprint
@@ -175,7 +181,7 @@ def generate_single_large_blueprint(
     title = _safe_svg_text(title)
     scale_info = _safe_svg_text(scale_info)
     snapshot_data_uri = _safe_snapshot_data_uri(snapshot_data_uri)
-    unit_system = "imperial" if unit_system == "imperial" else "metric"
+    unit_system = normalize_unit_system(unit_system)
 
     # Compute page geometry before the header is emitted. The previous fixed
     # 800x600 sheet could clip current-design exports once labels, mechanisms,
@@ -255,17 +261,11 @@ def generate_single_large_blueprint(
     # Unit conversion functions
     def format_dimension(value_mm: float) -> str:
         value_mm = _positive_dimension(value_mm, 0.0)
-        if unit_system == "imperial":
-            inches = value_mm / 25.4
-            if inches < 1.0:
-                return f"{inches * 1000:.0f} mil"  # thousandths of inch
-            elif inches < 12.0:
-                return f'{inches:.2f}"'
-            else:
-                feet = inches / 12.0
-                return f"{feet:.2f}'"
-        else:
-            return f"{value_mm:.1f}mm"
+        return str(format_length_for_user(
+            value_mm,
+            unit_system=unit_system,
+            include_board_spaces=False,
+        ))
 
     # Start building SVG content
     svg_parts = []
@@ -334,7 +334,7 @@ def generate_single_large_blueprint(
           clip-path="url(#title-block-title-clip)">{title}</text>
     <text x="40" y="75" class="blueprint-text" font-size="12">{scale_info}</text>
     <text x="40" y="95" class="blueprint-text" font-size="10">
-      Board preset: 15×15 holes | 4mm part holes | Assembly PDF gives placement
+      Board preset: 15×15 holes | {FABRICATION_HOLE_DIAMETER_INCH_LABEL} part holes | Assembly PDF gives placement
     </text>
     <text x="{page_width_mm - 40}" y="50" class="blueprint-text" font-size="12" text-anchor="end">
       Generated: {get_timestamp()}
@@ -380,12 +380,12 @@ def generate_single_large_blueprint(
             '<text x="0" y="0" class="section-title">Character body component cut sheets</text>'
         )
         material_info = (
-            "Cut RED outlines | Drill BLUE 4mm pivot/drive holes when shown | "
+            f"Cut RED outlines | Drill BLUE {FABRICATION_HOLE_DIAMETER_INCH_LABEL} pivot/drive holes when shown | "
             "Board coordinates are in Assembly Guide"
         )
         if unit_system == "imperial":
             material_info = (
-                "Cut RED outlines | Drill BLUE 4mm pivot/drive holes when shown | "
+                f"Cut RED outlines | Drill BLUE {FABRICATION_HOLE_DIAMETER_INCH_LABEL} pivot/drive holes when shown | "
                 'Use 1/8" sheet stock when self-fabricating'
             )
         svg_parts.append(f'<text x="0" y="25" class="manufacturing-note">{material_info}</text>')
@@ -508,26 +508,21 @@ def _generate_single_part_page(
     title: str,
     scale_info: str,
     snapshot_data_uri: str | None,
-    unit_system: str = "metric",
+    unit_system: str = DEFAULT_DISPLAY_UNIT_SYSTEM,
 ) -> str:
     """Generate a single page for one character part"""
 
+    unit_system = normalize_unit_system(unit_system)
     content_width = page_width_mm - (2 * margin_mm)
     content_height = page_height_mm - (2 * margin_mm)
 
     # Unit conversion function
     def format_dimension(value_mm: float) -> str:
-        if unit_system == "imperial":
-            inches = value_mm / 25.4
-            if inches < 1.0:
-                return f"{inches * 1000:.0f} mil"
-            elif inches < 12.0:
-                return f'{inches:.2f}"'
-            else:
-                feet = inches / 12.0
-                return f"{feet:.2f}'"
-        else:
-            return f"{value_mm:.1f}mm"
+        return str(format_length_for_user(
+            value_mm,
+            unit_system=unit_system,
+            include_board_spaces=False,
+        ))
 
     def get_unit_label() -> str:
         return "Imperial" if unit_system == "imperial" else "Metric"
@@ -566,7 +561,7 @@ def _generate_single_part_page(
     clean_svg_content = _flatten_embedded_svg(clean_svg_content)
 
     # Material specifications based on unit system
-    material_info = "Material: 3mm Plywood/Acrylic | Cut on RED dashed lines"
+    material_info = 'Material: 1/8" Plywood/Acrylic | Cut on RED dashed lines'
     if unit_system == "imperial":
         material_info = 'Material: 1/8" Plywood/Acrylic | Cut on RED dashed lines'
 
@@ -652,26 +647,21 @@ def _generate_single_mechanism_page(
     title: str,
     scale_info: str,
     snapshot_data_uri: str | None,
-    unit_system: str = "metric",
+    unit_system: str = DEFAULT_DISPLAY_UNIT_SYSTEM,
 ) -> str:
     """Generate a single page for one mechanism with enhanced details"""
 
+    unit_system = normalize_unit_system(unit_system)
     content_width = page_width_mm - (2 * margin_mm)
     content_height = page_height_mm - (2 * margin_mm)
 
     # Unit conversion function
     def format_dimension(value_mm: float) -> str:
-        if unit_system == "imperial":
-            inches = value_mm / 25.4
-            if inches < 1.0:
-                return f"{inches * 1000:.0f} mil"
-            elif inches < 12.0:
-                return f'{inches:.2f}"'
-            else:
-                feet = inches / 12.0
-                return f"{feet:.2f}'"
-        else:
-            return f"{value_mm:.1f}mm"
+        return str(format_length_for_user(
+            value_mm,
+            unit_system=unit_system,
+            include_board_spaces=False,
+        ))
 
     def get_unit_label() -> str:
         return "Imperial" if unit_system == "imperial" else "Metric"

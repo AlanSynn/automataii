@@ -7,6 +7,13 @@ import math
 from PyQt6.QtCore import QPointF, Qt
 from PyQt6.QtGui import QColor, QPainterPath, QPolygonF
 
+from automataii.shared.physical_kit import (
+    DEFAULT_GRID_CELL_CM,
+    DEFAULT_PHYSICAL_KIT_PROFILE,
+    PhysicalKitProfile,
+    gear_attachment_grid_offsets_mm,
+)
+
 
 def _finite_float(value: object, default: float) -> float:
     try:
@@ -74,7 +81,18 @@ def gear_attachment_hole_centers(
     rotation_rad: float = 0.0,
     *,
     count: int = 4,
+    physical_grid: bool = False,
+    grid_cell_cm: object = DEFAULT_GRID_CELL_CM,
+    profile: PhysicalKitProfile = DEFAULT_PHYSICAL_KIT_PROFILE,
 ) -> tuple[QPointF, ...]:
+    if physical_grid:
+        return gear_grid_attachment_hole_centers(
+            center,
+            pitch_radius,
+            rotation_rad,
+            grid_cell_cm=grid_cell_cm,
+            profile=profile,
+        )
     safe_radius = max(1.0, abs(_finite_float(pitch_radius, 1.0)))
     hole_count = min(max(count, 3), 8)
     ring_radius = min(max(safe_radius * 0.52, safe_radius - 9.0), max(2.0, safe_radius - 5.0))
@@ -85,6 +103,33 @@ def gear_attachment_hole_centers(
         )
         for idx in range(hole_count)
     )
+
+
+def gear_grid_attachment_hole_centers(
+    center: QPointF,
+    pitch_radius: object,
+    rotation_rad: float = 0.0,
+    *,
+    grid_cell_cm: object = DEFAULT_GRID_CELL_CM,
+    profile: PhysicalKitProfile = DEFAULT_PHYSICAL_KIT_PROFILE,
+) -> tuple[QPointF, ...]:
+    """Return board-grid gear attachment holes rotated into scene coordinates."""
+
+    cos_r = math.cos(rotation_rad)
+    sin_r = math.sin(rotation_rad)
+    centers: list[QPointF] = []
+    for dx, dy in gear_attachment_grid_offsets_mm(
+        pitch_radius,
+        grid_cell_cm,
+        profile=profile,
+    ):
+        centers.append(
+            QPointF(
+                center.x() + dx * cos_r - dy * sin_r,
+                center.y() + dx * sin_r + dy * cos_r,
+            )
+        )
+    return tuple(centers)
 
 
 def gear_hole_radius(pitch_radius: object) -> float:

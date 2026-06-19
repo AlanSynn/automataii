@@ -6,7 +6,7 @@
      data-grid-pitch-mm="20"
      data-hole-diameter-mm="4">
   <title>Automataii fabrication spacer s10</title>
-  <desc>S10 standard spacer washer spacer with 4 mm center hole for axle/linkage/bracket clearance stacks.</desc>
+  <desc>S10 spacer washer spacer with 4 mm center hole for axle/linkage/bracket clearance stacks.</desc>
   <defs>
     <style>
       .cut { fill: none; stroke: #ed1c24; stroke-width: 0.25; stroke-miterlimit: 10; }
@@ -23,5 +23,5 @@
   </defs>
   <circle cx="9" cy="9" r="5" class="cut spacer-outline washer-outline" data-spacer-key="s10" data-outer-diameter-mm="10" data-inner-diameter-mm="4"/>
   <circle cx="9" cy="9" r="2" class="drill spacer-hole axle-hole linkage-hole bracket-hole" data-hole-role="spacer" data-hole-diameter-mm="4" data-hole-index="0"/>
-  <text x="9" y="24" class="label" text-anchor="middle">S10 standard spacer</text>
+  <text x="9" y="24" class="label" text-anchor="middle">S10 spacer</text>
 </svg>

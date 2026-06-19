@@ -50,6 +50,7 @@ from automataii.presentation.qt.animation import ViewportConfig, ViewportControl
 from automataii.presentation.qt.gear_rendering import (
     annulus_path,
     gear_attachment_hole_centers,
+    gear_grid_attachment_hole_centers,
     gear_hole_radius,
     gear_outline_polygon,
     radial_tick_lines,
@@ -59,9 +60,16 @@ from automataii.presentation.qt.tabs.mechanism_foundry.gallery_view import Galle
 from automataii.presentation.qt.tabs.mechanism_foundry.sensemaking_panel import (
     MechanismSensemakingPanel,
 )
+from automataii.shared.fabrication_assembly import (
+    BOARD_COLUMNS,
+    BOARD_ROWS,
+    BoardCoord,
+    board_coord_to_centered_mm,
+)
 from automataii.shared.physical_kit import (
     DEFAULT_GRID_CELL_CM,
     DEFAULT_PHYSICAL_KIT_PROFILE,
+    CamPreset,
     PhysicalKitContext,
     PhysicalKitProfile,
     freeform_gear_radius_for_teeth,
@@ -77,6 +85,7 @@ from automataii.shared.physical_kit import (
     nearest_pitch_choice,
     physical_context_from_params,
     physical_context_from_settings,
+    physical_context_mode_summary,
     physical_profile_from_params,
     snap_parameter_value,
     snap_physical_params,
@@ -183,18 +192,54 @@ class _GearTrainPreviewMechanism:
         if not isinstance(parameters, dict):
             parameters = {}
         profile = physical_profile_from_params(parameters)
-        if grid_enabled_from_params(parameters):
+        grid_enabled = grid_enabled_from_params(parameters)
+        raw_has_linkage = bool(parameters.get("gear_linkage_enabled")) or any(
+            key in parameters for key in ("linkage_arm_length", "linkage_pin_radius")
+        )
+        if grid_enabled:
+            parameters = snap_physical_params(
+                "gear_linkage" if raw_has_linkage else "gear_train",
+                parameters,
+                parameters.get("grid_cell_cm", DEFAULT_GRID_CELL_CM),
+                enabled=True,
+                profile=profile,
+            )
+        if grid_enabled:
             teeth1, r1, teeth2, r2 = gear_pair_from_params(parameters, profile=profile)
         else:
             teeth1, r1, teeth2, r2 = self._freeform_pair_from_params(parameters, profile)
         clearance = parameters.get("gear_clearance", parameters.get("mesh_clearance"))
-        center_distance = gear_center_distance(r1, r2, clearance, profile=profile)
+        clearance_mm = _finite_float(clearance, profile.default_gear_clearance_mm)
+        center_distance = gear_center_distance(r1, r2, clearance_mm, profile=profile)
+        grid_pitch = grid_step_mm(parameters.get("grid_cell_cm", DEFAULT_GRID_CELL_CM))
 
         g1 = (-center_distance / 2.0, 0.0)
         g2 = (center_distance / 2.0, 0.0)
+        board_coords: dict[str, str] = {}
+        if grid_enabled and grid_pitch > 0.0:
+            distance_cells = center_distance / grid_pitch
+            rounded_cells = int(round(distance_cells))
+            anchor_label = "I6" if raw_has_linkage else "H6"
+            anchor_coord = BoardCoord.from_label(anchor_label)
+            driven_column = anchor_coord.column + rounded_cells
+            if (
+                math.isclose(distance_cells, rounded_cells, abs_tol=1e-6)
+                and driven_column in BOARD_COLUMNS
+            ):
+                driven_label = f"{anchor_coord.row}{driven_column}"
+                g1 = board_coord_to_centered_mm(anchor_label, grid_pitch)
+                g2 = board_coord_to_centered_mm(driven_label, grid_pitch)
+                board_coords = {
+                    "gear1_center": anchor_label,
+                    "gear2_center": driven_label,
+                }
 
         theta1 = math.radians(_finite_float(input_angle, 0.0))
-        theta2 = -theta1 * (r1 / r2)
+        # External gears counter-rotate.  Add a half-tooth phase on the driven
+        # gear so the stylized tooth polygon visually interlocks instead of
+        # tooth-on-tooth overlapping at the contact point.
+        mesh_phase_offset = math.pi + (math.pi / max(teeth2, 1))
+        theta2 = mesh_phase_offset - theta1 * (teeth1 / max(teeth2, 1))
 
         p1 = (g1[0] + r1 * math.cos(theta1), g1[1] + r1 * math.sin(theta1))
         p2 = (g2[0] + r2 * math.cos(theta2), g2[1] + r2 * math.sin(theta2))
@@ -212,6 +257,19 @@ class _GearTrainPreviewMechanism:
             "r2": r2,
             "theta1": theta1,
             "theta2": theta2,
+            "mesh_phase_offset": mesh_phase_offset,
+            "center_distance": center_distance,
+            "board_space_distance": center_distance / grid_pitch,
+            "gear_clearance": max(0.0, clearance_mm),
+            "gear_mesh_ok": math.isclose(
+                center_distance,
+                r1 + r2 + max(0.0, clearance_mm),
+                abs_tol=1e-6,
+            ),
+            "grid_system_enabled": grid_enabled,
+            "grid_cell_cm": grid_pitch / 10.0,
+            "fabrication_board_origin": "H8",
+            "fabrication_board_coords": board_coords,
         }
         has_linkage = bool(parameters.get("gear_linkage_enabled")) or any(
             key in parameters for key in ("linkage_arm_length", "linkage_pin_radius")
@@ -251,7 +309,14 @@ class _GearTrainPreviewMechanism:
 
         return MechanismState(
             positions=positions,
-            safety_status=SafetyStatus(SafetyLevel.SAFE, "Gear mesh nominal"),
+            safety_status=SafetyStatus(
+                SafetyLevel.SAFE,
+                (
+                    f"Gear mesh nominal — {center_distance / grid_pitch:.1f} board-space centers"
+                    if grid_enabled
+                    else "Gear mesh nominal — custom freeform centers"
+                ),
+            ),
             metadata=metadata,
         )
 
@@ -266,6 +331,14 @@ class _PlanetaryGearPreviewMechanism:
             parameters = {}
         profile = physical_profile_from_params(parameters)
         grid_enabled = grid_enabled_from_params(parameters)
+        if grid_enabled:
+            parameters = snap_physical_params(
+                "planetary_gear",
+                parameters,
+                parameters.get("grid_cell_cm", DEFAULT_GRID_CELL_CM),
+                enabled=True,
+                profile=profile,
+            )
 
         default_sun = profile.gear_presets[0].teeth if profile.gear_presets else 12
         default_planet = (
@@ -306,8 +379,12 @@ class _PlanetaryGearPreviewMechanism:
                 profile=profile,
             )
 
-        r_sun = gear_radius_for_teeth(sun_teeth, profile=profile)
-        r_planet = gear_radius_for_teeth(planet_teeth, profile=profile)
+        if grid_enabled:
+            r_sun = gear_radius_for_teeth(sun_teeth, profile=profile)
+            r_planet = gear_radius_for_teeth(planet_teeth, profile=profile)
+        else:
+            r_sun = freeform_gear_radius_for_teeth(sun_teeth, profile=profile)
+            r_planet = freeform_gear_radius_for_teeth(planet_teeth, profile=profile)
         planet_count = int(
             min(max(round(_finite_float(parameters.get("planet_count"), 1.0)), 1), 4)
         )
@@ -317,7 +394,7 @@ class _PlanetaryGearPreviewMechanism:
         )
         orbit_radius = max(1.0, r_sun + r_planet + clearance * 0.5)
         ring_pitch_radius = orbit_radius + r_planet + clearance * 0.5
-        ring_teeth = max(sun_teeth + planet_teeth * 2, int(round(ring_pitch_radius / 1.5)))
+        ring_teeth = max(sun_teeth + planet_teeth * 2, int(round(ring_pitch_radius / max(profile.gear_radius_per_tooth_mm, 1e-6))))
 
         theta = math.radians(_finite_float(input_angle, 0.0))
         carrier_angle = theta
@@ -358,6 +435,17 @@ class _PlanetaryGearPreviewMechanism:
             "theta_planet": planet_spin,
             "theta_carrier": carrier_angle,
             "carrier_arm_length": arm_length,
+            "grid_system_enabled": grid_enabled,
+            "grid_cell_cm": grid_step_mm(parameters.get("grid_cell_cm", DEFAULT_GRID_CELL_CM))
+            / 10.0,
+            "fabrication_board_origin": "H8",
+            "fabrication_board_coords": {
+                "sun_center": "H8",
+                "ring_mounts": ("D8", "H4", "H12", "L8"),
+                "carrier_reference": "H10",
+            }
+            if grid_enabled
+            else {},
         }
         return MechanismState(
             positions=positions,
@@ -480,6 +568,7 @@ class MechanismFoundryView(QWidget):
         self.animation_timer = QTimer()
         self.animation_timer.timeout.connect(self._on_animation_tick)
         self.is_playing = False
+        self._user_paused_animation = False
 
         self.path_cache = PathCache()
         self.path_preview_overlay = PathPreviewOverlay(self.scene, self.path_cache)
@@ -510,6 +599,7 @@ class MechanismFoundryView(QWidget):
         self.info_panel_action: QAction | None = None
         self.info_panel_collapsed: bool = True
         self.motion_modes_label: QLabel | None = None
+        self.physical_mode_label: QLabel | None = None
         self.output_point_selector: QComboBox | None = None
 
         self._build_ui()
@@ -604,10 +694,12 @@ class MechanismFoundryView(QWidget):
         self._load_mechanism(canonical_type)
         if self.stacked_widget:
             self.stacked_widget.setCurrentIndex(1)
+        if not self._user_paused_animation:
+            self._set_animation_playing(True)
 
     def _go_back_to_gallery(self) -> None:
         if self.is_playing:
-            self._toggle_play()
+            self._set_animation_playing(False)
         if self.stacked_widget:
             self.stacked_widget.setCurrentIndex(0)
 
@@ -834,6 +926,7 @@ class MechanismFoundryView(QWidget):
         self._grid_pitch_choice = context.grid_pitch_choice
         self._physical_profile = context.profile
         self._apply_physical_context_overrides(context.as_params())
+        self._update_physical_mode_label()
 
         if profile_changed or cell_changed:
             self._refresh_controller_for_physical_context()
@@ -885,10 +978,20 @@ class MechanismFoundryView(QWidget):
         if not positions:
             return None
 
-        return {
+        snapshot: dict[str, object] = {
             "mechanism_type": str(self.current_mechanism.mechanism_type).strip(),
             "positions": positions,
         }
+        fabrication_metadata: dict[str, object] = {}
+        origin = state.metadata.get("fabrication_board_origin")
+        if isinstance(origin, str) and origin:
+            fabrication_metadata["board_origin"] = origin
+        coords = state.metadata.get("fabrication_board_coords")
+        if isinstance(coords, dict) and coords:
+            fabrication_metadata["board_coords"] = dict(coords)
+        if fabrication_metadata:
+            snapshot["fabrication"] = fabrication_metadata
+        return snapshot
 
     def _on_export_to_design(self) -> None:
         """Export current mechanism configuration to Mechanism Design tab."""
@@ -994,6 +1097,25 @@ class MechanismFoundryView(QWidget):
             """
         )
         display_layout.addWidget(self.motion_modes_label)
+
+        self.physical_mode_label = QLabel()
+        self.physical_mode_label.setTextFormat(Qt.TextFormat.PlainText)
+        self.physical_mode_label.setWordWrap(True)
+        self.physical_mode_label.setStyleSheet(
+            """
+            QLabel {
+                color: #0f5132;
+                font-size: 12px;
+                font-weight: 650;
+                background-color: #d1e7dd;
+                border: 1px solid #badbcc;
+                border-radius: 10px;
+                padding: 6px 8px;
+            }
+            """
+        )
+        display_layout.addWidget(self.physical_mode_label)
+        self._update_physical_mode_label()
 
         self.safety_label = QLabel("Status: Unknown")
         display_layout.addWidget(self.safety_label)
@@ -1180,6 +1302,45 @@ class MechanismFoundryView(QWidget):
             text = f"{text[:239]}…"
         self.motion_modes_label.setText(text)
 
+    def _update_physical_mode_label(self) -> None:
+        if self.physical_mode_label is None:
+            return
+        context = physical_context_from_settings(
+            self._grid_system_enabled,
+            self._grid_cell_cm,
+            self._grid_pitch_choice,
+            profile=self._physical_profile,
+        )
+        self.physical_mode_label.setText(physical_context_mode_summary(context))
+        if context.enabled:
+            self.physical_mode_label.setStyleSheet(
+                """
+                QLabel {
+                    color: #0f5132;
+                    font-size: 12px;
+                    font-weight: 650;
+                    background-color: #d1e7dd;
+                    border: 1px solid #badbcc;
+                    border-radius: 10px;
+                    padding: 6px 8px;
+                }
+                """
+            )
+        else:
+            self.physical_mode_label.setStyleSheet(
+                """
+                QLabel {
+                    color: #7a4b00;
+                    font-size: 12px;
+                    font-weight: 650;
+                    background-color: #fff3cd;
+                    border: 1px solid #ffecb5;
+                    border-radius: 10px;
+                    padding: 6px 8px;
+                }
+                """
+            )
+
     def _current_controller_mechanism_type(self) -> str:
         if self.mechanism_selector is not None:
             selected = self.mechanism_selector.currentData()
@@ -1220,6 +1381,15 @@ class MechanismFoundryView(QWidget):
         spec = self._parameter_specs_by_key.get(param_key)
         unit = spec.unit if spec else None
         return str(SensemakingService.format_value(value, unit))
+
+    def _parameter_row_label(self, spec: ParameterSpec) -> str:
+        label_text = self._display_parameter_label(spec, spec.key)
+        unit = str(spec.unit or "").strip().lower()
+        if unit in {"mm", "millimeter", "millimeters"}:
+            return f"{label_text} (in / board spaces):"
+        if spec.unit:
+            return f"{label_text} ({spec.unit}):"
+        return f"{label_text}:"
 
     def _update_sensemaking_parameter_change(
         self,
@@ -1305,19 +1475,13 @@ class MechanismFoundryView(QWidget):
             self._parameter_specs_by_key[spec.key] = spec
             row_layout = QHBoxLayout()
 
-            label_text = spec.key.replace("_", " ").title()
-            if spec.unit:
-                label_text = f"{label_text} ({spec.unit})"
-            label = QLabel(f"{label_text}:")
+            label = QLabel(self._parameter_row_label(spec))
             row_layout.addWidget(label)
 
-            if spec.is_integer:
-                value_str = f"{int(spec.default_value)}"
-            else:
-                value_str = f"{spec.default_value:.1f}"
+            value_str = self._format_parameter_value(spec.key, spec.default_value)
 
             value_label = QLabel(value_str)
-            value_label.setMinimumWidth(60)
+            value_label.setMinimumWidth(120)
             row_layout.addWidget(value_label)
 
             self.params_layout.addLayout(row_layout)
@@ -1343,7 +1507,12 @@ class MechanismFoundryView(QWidget):
         self, param_key: str, value: float, label: QLabel, is_integer: bool = False
     ) -> None:
         """Queue parameter change with debounce. Label updates immediately."""
-        adjusted_value = self._snap_parameter_value_if_needed(param_key, value)
+        snapped_updates = self._snapped_parameter_updates_if_needed(param_key, value)
+        adjusted_value = self._snap_parameter_value_if_needed(
+            param_key,
+            value,
+            snapped_updates=snapped_updates,
+        )
         if adjusted_value != value and param_key in self.parameter_sliders:
             slider, _ = self.parameter_sliders[param_key]
             spec = self._parameter_specs_by_key.get(param_key)
@@ -1355,11 +1524,13 @@ class MechanismFoundryView(QWidget):
         previous_value = self.current_parameters.get(param_key)
         previous_positions = self._current_sensemaking_positions()
         self.current_parameters[param_key] = adjusted_value
+        if snapped_updates:
+            for key, snapped_value in snapped_updates.items():
+                if key != param_key and key not in self._parameter_specs_by_key:
+                    self.current_parameters[key] = snapped_value
+            self._apply_related_snapped_parameter_updates(snapped_updates, primary_key=param_key)
         self._state_cache_valid = False
-        if is_integer:
-            label.setText(f"{int(adjusted_value)}")
-        else:
-            label.setText(f"{adjusted_value:.1f}")
+        label.setText(self._format_parameter_value(param_key, adjusted_value))
         self._pending_param = (param_key, adjusted_value, label, is_integer)
         self._update_sensemaking_parameter_change(
             param_key,
@@ -1367,6 +1538,7 @@ class MechanismFoundryView(QWidget):
             adjusted_value,
             previous_positions,
         )
+        self._render_mechanism(refresh_sensemaking=False)
         self._param_debounce_timer.start()
 
     @property
@@ -1380,7 +1552,113 @@ class MechanismFoundryView(QWidget):
         unit = (spec.unit or "").strip().lower()
         return unit in {"mm", "millimeter", "millimeters"}
 
-    def _snap_parameter_value_if_needed(self, param_key: str, value: float) -> float:
+    def _snapped_parameter_updates_if_needed(
+        self,
+        param_key: str,
+        value: float,
+    ) -> dict[str, object] | None:
+        candidate = dict(self.current_parameters)
+        candidate[param_key] = value
+        context = physical_context_from_params(
+            self._effective_physical_parameters(candidate),
+            default_enabled=self._grid_system_enabled,
+            default_grid_cell_cm=self._grid_cell_cm,
+        )
+        if not context.enabled:
+            return None
+        mechanism_type = self._current_controller_mechanism_type()
+        if mechanism_type == "cam_follower":
+            cam_updates = self._cam_preset_updates_for_primary_change(
+                candidate,
+                param_key,
+                context,
+            )
+            if cam_updates is not None:
+                return cam_updates
+        return cast(
+            dict[str, object],
+            snap_physical_params(
+                mechanism_type,
+                candidate,
+                context.grid_cell_cm,
+                enabled=True,
+                profile=context.profile,
+            ),
+        )
+
+    def _cam_preset_updates_for_primary_change(
+        self,
+        candidate: dict[str, object],
+        param_key: str,
+        context: PhysicalKitContext,
+    ) -> dict[str, object] | None:
+        field_by_key = {
+            "cam_radius": "base_radius",
+            "base_radius": "base_radius",
+            "cam_offset": "eccentricity",
+            "eccentricity": "eccentricity",
+            "cam_lobes": "cam_lobes",
+            "profile_harmonic": "profile_harmonic",
+        }
+        field = field_by_key.get(param_key)
+        if field is None:
+            return None
+        primary_value = snap_parameter_value(
+            "cam_follower",
+            param_key,
+            candidate.get(param_key),
+            context.grid_cell_cm,
+            profile=context.profile,
+        )
+
+        def preset_distance(indexed_preset: tuple[int, CamPreset]) -> tuple[float, int]:
+            index, preset = indexed_preset
+            params = preset.params_mm(context.grid_cell_cm)
+            return abs(_finite_float(params.get(field), primary_value) - primary_value), index
+
+        _, preset = min(enumerate(context.profile.cam_presets), key=preset_distance)
+        preset_params = preset.params_mm(context.grid_cell_cm)
+        updates = dict(candidate)
+        if "cam_radius" in self._parameter_specs_by_key or "cam_radius" in updates:
+            updates["cam_radius"] = preset_params["base_radius"]
+        updates["base_radius"] = preset_params["base_radius"]
+        if "cam_offset" in self._parameter_specs_by_key or "cam_offset" in updates:
+            updates["cam_offset"] = preset_params["eccentricity"]
+        updates["eccentricity"] = preset_params["eccentricity"]
+        updates["cam_lobes"] = int(preset_params["cam_lobes"])
+        updates["profile_harmonic"] = preset_params["profile_harmonic"]
+        updates["physical_cam_preset"] = preset.key
+        for key in ("rise_deg", "high_dwell_deg", "return_deg"):
+            updates[key] = preset_params[key]
+        return updates
+
+    def _apply_related_snapped_parameter_updates(
+        self,
+        snapped_updates: dict[str, object],
+        *,
+        primary_key: str,
+    ) -> None:
+        for key, spec in self._parameter_specs_by_key.items():
+            if key == primary_key or key not in snapped_updates:
+                continue
+            snapped = _finite_float(snapped_updates[key], math.nan)
+            if not math.isfinite(snapped):
+                continue
+            self.current_parameters[key] = snapped
+            if key in self.parameter_sliders and spec.step > 0:
+                slider, label = self.parameter_sliders[key]
+                slider_value = int(round(snapped / spec.step))
+                with blocked_signals(slider):
+                    slider.setValue(slider_value)
+                label.setText(self._format_parameter_value(key, snapped))
+
+    def _snap_parameter_value_if_needed(
+        self,
+        param_key: str,
+        value: float,
+        *,
+        snapped_updates: dict[str, object] | None = None,
+    ) -> float:
         spec = self._parameter_specs_by_key.get(param_key)
         default = _finite_float(spec.default_value, 0.0) if spec else 0.0
         raw_value = _finite_float(value, default)
@@ -1393,13 +1671,16 @@ class MechanismFoundryView(QWidget):
             return raw_value
 
         mechanism_type = self._current_controller_mechanism_type()
-        snapped = snap_parameter_value(
-            mechanism_type,
-            param_key,
-            raw_value,
-            context.grid_cell_cm,
-            profile=context.profile,
-        )
+        if snapped_updates and param_key in snapped_updates:
+            snapped = _finite_float(snapped_updates[param_key], raw_value)
+        else:
+            snapped = snap_parameter_value(
+                mechanism_type,
+                param_key,
+                raw_value,
+                context.grid_cell_cm,
+                profile=context.profile,
+            )
         if spec:
             min_value = _finite_float(spec.min_value, snapped)
             max_value = _finite_float(spec.max_value, snapped)
@@ -1472,6 +1753,9 @@ class MechanismFoundryView(QWidget):
         )
         if not changed:
             self._apply_physical_context_overrides(context.as_params())
+            self._update_physical_mode_label()
+            if self.gallery_view is not None:
+                self.gallery_view.set_physical_context(context)
             return
 
         self._grid_system_enabled = context.enabled
@@ -1479,6 +1763,9 @@ class MechanismFoundryView(QWidget):
         self._grid_pitch_choice = context.grid_pitch_choice
         self._physical_profile = context.profile
         self._apply_physical_context_overrides(context.as_params())
+        self._update_physical_mode_label()
+        if self.gallery_view is not None:
+            self.gallery_view.set_physical_context(context)
         if (
             previous_profile != self._physical_profile
             or abs(previous_grid_cell_cm - self._grid_cell_cm) > 1e-9
@@ -1569,22 +1856,33 @@ class MechanismFoundryView(QWidget):
             )
 
     def _toggle_play(self) -> None:
-        if self.is_playing:
+        self._set_animation_playing(not self.is_playing, user_initiated=True)
+
+    def _set_animation_playing(self, playing: bool, *, user_initiated: bool = False) -> None:
+        if playing == self.is_playing:
+            if user_initiated:
+                self._user_paused_animation = not playing
+            return
+        if not playing:
             self.animation_timer.stop()
             self.play_action.setText("▶ Play")
             self.play_action.setChecked(False)
             self.is_playing = False
+            if user_initiated:
+                self._user_paused_animation = True
         else:
             self.animation_timer.start(33)
             self.play_action.setText("⏸ Pause")
             self.play_action.setChecked(True)
             self.is_playing = True
+            if user_initiated:
+                self._user_paused_animation = False
 
     def _reset_animation(self) -> None:
         self.current_angle = 30.0
         self.angle_slider.setValue(30)
         if self.is_playing:
-            self._toggle_play()
+            self._set_animation_playing(False)
 
     def _on_animation_tick(self) -> None:
         self.current_angle = (self.current_angle + 4.0) % 360.0
@@ -1593,7 +1891,7 @@ class MechanismFoundryView(QWidget):
         self.angle_label.setText(f"{int(self.current_angle)}°")
         self._render_mechanism()
 
-    def _render_mechanism(self) -> None:
+    def _render_mechanism(self, *, refresh_sensemaking: bool = True) -> None:
         if not self.current_mechanism:
             self._last_rendered_state = None
             self._last_rendered_mechanism = None
@@ -1615,7 +1913,8 @@ class MechanismFoundryView(QWidget):
             self._state_cache_valid = True
             self._draw_mechanism_state(state)
             self._update_safety_display(state)
-            self._refresh_sensemaking_context()
+            if refresh_sensemaking:
+                self._refresh_sensemaking_context()
         except Exception as e:
             self._last_rendered_state = None
             self._last_rendered_mechanism = None
@@ -1632,7 +1931,6 @@ class MechanismFoundryView(QWidget):
                 state, self.scene, self.render_config, self.visual_items_cache
             )
             self._update_fourbar_coupler_visual(state)
-            self._show_default_paths(state)
         elif mechanism_type == "cam_follower":
             self._draw_cam_mechanism_optimized(state)
         elif mechanism_type in {"gear_train", "gear_linkage"}:
@@ -1641,6 +1939,7 @@ class MechanismFoundryView(QWidget):
             self._draw_planetary_gear_mechanism_optimized(state)
         elif mechanism_type == "slider_crank":
             self._draw_slider_crank_mechanism_optimized(state)
+        self._show_default_paths(state)
 
     def _calculate_fourbar_coupler_point(
         self,
@@ -1913,6 +2212,9 @@ class MechanismFoundryView(QWidget):
         teeth2 = int(_finite_float(metadata.get("gear2_teeth"), 18.0))
         theta1 = _finite_float(metadata.get("theta1"), 0.0)
         theta2 = _finite_float(metadata.get("theta2"), 0.0)
+        grid_enabled = bool(metadata.get("grid_system_enabled", self._grid_system_enabled))
+        grid_cell_cm = _finite_float(metadata.get("grid_cell_cm"), self._grid_cell_cm)
+        profile = self._physical_profile
 
         def set_gear_body(
             key: str,
@@ -1947,10 +2249,23 @@ class MechanismFoundryView(QWidget):
             hole_r = gear_hole_radius(radius)
             hole_pen = QPen(QColor("#5c4033"), 1.4)
             hole_brush = QBrush(QColor(255, 255, 255, 225))
-            for index, hole_center in enumerate(
-                gear_attachment_hole_centers(QPointF(center[0], center[1]), radius, angle, count=4)
-            ):
+            centers = (
+                gear_grid_attachment_hole_centers(
+                    QPointF(center[0], center[1]),
+                    radius,
+                    angle,
+                    grid_cell_cm=grid_cell_cm,
+                    profile=profile,
+                )
+                if grid_enabled
+                else gear_attachment_hole_centers(
+                    QPointF(center[0], center[1]), radius, angle, count=4
+                )
+            )
+            active_keys: set[str] = set()
+            for index, hole_center in enumerate(centers):
                 key = f"{prefix}_attachment_hole_{index}"
+                active_keys.add(key)
                 item = cache.get(key)
                 if not isinstance(item, QGraphicsEllipseItem):
                     if item is not None and item.scene() == self.scene:
@@ -1966,6 +2281,11 @@ class MechanismFoundryView(QWidget):
                     hole_center.x() - hole_r, hole_center.y() - hole_r, hole_r * 2, hole_r * 2
                 )
                 item.setVisible(True)
+            for key in tuple(cache):
+                if key.startswith(f"{prefix}_attachment_hole_") and key not in active_keys:
+                    old_item = cache.pop(key, None)
+                    if old_item is not None and old_item.scene() == self.scene:
+                        self.scene.removeItem(old_item)
 
         set_gear_body(
             "gear1_body",
@@ -2073,6 +2393,8 @@ class MechanismFoundryView(QWidget):
         ring_inner = _finite_float(metadata.get("ring_inner_radius"), r_sun + r_planet * 1.6)
         ring_outer = _finite_float(metadata.get("ring_outer_radius"), ring_inner + r_planet * 0.35)
         center_point = QPointF(float(sun_center[0]), float(sun_center[1]))
+        grid_enabled = bool(metadata.get("grid_system_enabled", self._grid_system_enabled))
+        grid_cell_cm = _finite_float(metadata.get("grid_cell_cm"), self._grid_cell_cm)
         active_dynamic_keys: set[str] = set()
 
         ring_key = "planetary_ring"
@@ -2186,9 +2508,18 @@ class MechanismFoundryView(QWidget):
             planet_item.setVisible(True)
 
             hole_radius = gear_hole_radius(r_planet)
-            for hole_idx, hole_center in enumerate(
-                gear_attachment_hole_centers(planet_point, r_planet, theta_planet, count=4)
-            ):
+            hole_centers = (
+                gear_grid_attachment_hole_centers(
+                    planet_point,
+                    r_planet,
+                    theta_planet,
+                    grid_cell_cm=grid_cell_cm,
+                    profile=self._physical_profile,
+                )
+                if grid_enabled
+                else gear_attachment_hole_centers(planet_point, r_planet, theta_planet, count=4)
+            )
+            for hole_idx, hole_center in enumerate(hole_centers):
                 hole_key = f"planetary_planet_{idx + 1}_hole_{hole_idx}"
                 active_dynamic_keys.add(hole_key)
                 hole = cache.get(hole_key)
@@ -2500,35 +2831,36 @@ class MechanismFoundryView(QWidget):
         if not self._grid_system_enabled:
             return
 
-        cell_grid = max(1, int(round(self._grid_step_mm)))
+        cell_grid = max(1.0, float(self._grid_step_mm))
         major_interval = max(1, int(round(100.0 / cell_grid)))
         minor_color = QColor(190, 190, 190, 75)
         major_color = QColor(145, 145, 145, 120)
         axis_color = QColor(100, 100, 100, 200)
+        board_color = QColor(37, 99, 235, 150)
 
         rect = self.scene.sceneRect()
         minor_pen = QPen(minor_color, 1, Qt.PenStyle.SolidLine)
         major_pen = QPen(major_color, 1, Qt.PenStyle.SolidLine)
 
-        start_x = int(rect.left() // cell_grid) * cell_grid
-        end_x = int(rect.right()) + cell_grid
-        index_x = 0
-        for x in range(start_x, end_x, cell_grid):
+        start_x = math.floor(rect.left() / cell_grid)
+        end_x = math.ceil(rect.right() / cell_grid)
+        for index_x in range(start_x, end_x + 1):
+            x = index_x * cell_grid
             pen = major_pen if index_x % major_interval == 0 else minor_pen
             line = _require_graphics_item(self.scene.addLine(x, rect.top(), x, rect.bottom(), pen))
             line.setZValue(-99)
+            line.setData(0, "fabrication_grid_line")
             self._grid_items.append(line)
-            index_x += 1
 
-        start_y = int(rect.top() // cell_grid) * cell_grid
-        end_y = int(rect.bottom()) + cell_grid
-        index_y = 0
-        for y in range(start_y, end_y, cell_grid):
+        start_y = math.floor(rect.top() / cell_grid)
+        end_y = math.ceil(rect.bottom() / cell_grid)
+        for index_y in range(start_y, end_y + 1):
+            y = index_y * cell_grid
             pen = major_pen if index_y % major_interval == 0 else minor_pen
             line = _require_graphics_item(self.scene.addLine(rect.left(), y, rect.right(), y, pen))
             line.setZValue(-99)
+            line.setData(0, "fabrication_grid_line")
             self._grid_items.append(line)
-            index_y += 1
 
         axis_pen = QPen(axis_color, 2, Qt.PenStyle.SolidLine)
         x_axis = _require_graphics_item(
@@ -2539,12 +2871,79 @@ class MechanismFoundryView(QWidget):
         )
         x_axis.setZValue(-98)
         y_axis.setZValue(-98)
+        x_axis.setData(0, "fabrication_axis")
+        y_axis.setData(0, "fabrication_axis")
         self._grid_items.extend([x_axis, y_axis])
+
+        board_size = (len(BOARD_COLUMNS) - 1) * cell_grid
+        half_board = board_size / 2.0
+        board_pen = QPen(board_color, 1.4, Qt.PenStyle.DashLine)
+        board_fill = QBrush(QColor(37, 99, 235, 12))
+        board = _require_graphics_item(
+            self.scene.addRect(
+                -half_board,
+                -half_board,
+                board_size,
+                board_size,
+                board_pen,
+                board_fill,
+            )
+        )
+        board.setZValue(-97.5)
+        board.setData(0, "fabrication_board_boundary")
+        board.setData(1, "15x15")
+        self._grid_items.append(board)
+
+        hole_radius = max(1.2, min(2.4, cell_grid * 0.08))
+        board_hole_pen = QPen(QColor(30, 64, 175, 130), 0.6)
+        board_hole_brush = QBrush(QColor(30, 64, 175, 60))
+        for row in BOARD_ROWS:
+            for column in BOARD_COLUMNS:
+                label = f"{row}{column}"
+                x_mm, y_mm = board_coord_to_centered_mm(label, cell_grid)
+                hole = _require_graphics_item(
+                    self.scene.addEllipse(
+                        x_mm - hole_radius,
+                        y_mm - hole_radius,
+                        hole_radius * 2.0,
+                        hole_radius * 2.0,
+                        board_hole_pen,
+                        board_hole_brush,
+                    )
+                )
+                hole.setZValue(-97.0)
+                hole.setData(0, "fabrication_board_hole")
+                hole.setData(1, label)
+                self._grid_items.append(hole)
+
+        label_color = QColor(30, 64, 175, 180)
+        for column in BOARD_COLUMNS:
+            x_mm, _y_mm = board_coord_to_centered_mm(f"H{column}", cell_grid)
+            label_item = _require_graphics_item(self.scene.addText(str(column)))
+            label_item.setDefaultTextColor(label_color)
+            label_item.setScale(0.42)
+            label_item.setPos(x_mm - 3.0, -half_board - 16.0)
+            label_item.setZValue(-96.5)
+            label_item.setData(0, "fabrication_board_label")
+            label_item.setData(1, str(column))
+            self._grid_items.append(label_item)
+        for row in BOARD_ROWS:
+            _x_mm, y_mm = board_coord_to_centered_mm(f"{row}8", cell_grid)
+            label_item = _require_graphics_item(self.scene.addText(row))
+            label_item.setDefaultTextColor(label_color)
+            label_item.setScale(0.42)
+            label_item.setPos(-half_board - 17.0, y_mm - 6.0)
+            label_item.setZValue(-96.5)
+            label_item.setData(0, "fabrication_board_label")
+            label_item.setData(1, row)
+            self._grid_items.append(label_item)
 
         origin = _require_graphics_item(
             self.scene.addEllipse(-3, -3, 6, 6, axis_pen, QBrush(axis_color))
         )
         origin.setZValue(-97)
+        origin.setData(0, "fabrication_board_origin")
+        origin.setData(1, "H8")
         self._grid_items.append(origin)
 
     def _show_default_paths(self, state: MechanismState) -> None:
@@ -2552,18 +2951,37 @@ class MechanismFoundryView(QWidget):
         if not self.current_mechanism or not self.path_preview_overlay.enabled:
             return
 
-        mechanism_type = self.current_mechanism.mechanism_type
-        if mechanism_type == "fourbar":
-            default_points = ["A", "B"]
-        elif mechanism_type == "cam_follower":
-            default_points = ["follower_base", "contact_point"]
-        else:
-            return
+        mechanism_type = self._current_controller_mechanism_type()
+        default_points_by_type = {
+            "four_bar": ("B", "A"),
+            "fourbar": ("B", "A"),
+            "cam_follower": ("contact_point", "follower_base"),
+            "gear_train": ("gear2_indicator_end", "gear1_indicator_end"),
+            "gear_linkage": ("linkage_end", "linkage_pin", "gear2_indicator_end"),
+            "planetary_gear": ("tracking_point", "planet_center"),
+            "slider_crank": ("slider_pin", "crank_end"),
+        }
 
+        default_points: list[str] = []
+        selected_point = self._selected_motion_point_key()
+        if isinstance(selected_point, str) and selected_point in state.positions:
+            default_points.append(selected_point)
+        for point_name in default_points_by_type.get(mechanism_type, ()):
+            if point_name not in default_points:
+                default_points.append(point_name)
+
+        visible_points = {point for point in default_points if point in state.positions}
+        for point_name in self.path_preview_overlay.active_point_names():
+            if point_name not in visible_points:
+                self.path_preview_overlay.hide_path(point_name)
         for point_name in default_points:
             if point_name in state.positions:
                 self.path_preview_overlay.show_path(
                     self.current_mechanism, self.current_parameters, point_name
+                )
+                self.path_preview_overlay.update_progress_marker(
+                    point_name,
+                    state.positions[point_name],
                 )
 
     def zoom_in(self) -> None:
@@ -2623,13 +3041,18 @@ class MechanismFoundryView(QWidget):
             self._last_rendered_mechanism = self.current_mechanism
             self._state_cache_valid = True
 
-        mechanism_type = self.current_mechanism.mechanism_type
-
-        if mechanism_type == "fourbar":
-            test_points = ["A", "B"]
-        elif mechanism_type == "cam_follower":
-            test_points = ["follower_base", "contact_point"]
-        else:
+        mechanism_type = self._current_controller_mechanism_type()
+        test_points_by_type = {
+            "four_bar": ("A", "B"),
+            "fourbar": ("A", "B"),
+            "cam_follower": ("follower_base", "contact_point"),
+            "gear_train": ("gear2_indicator_end", "gear1_indicator_end"),
+            "gear_linkage": ("linkage_end", "linkage_pin", "gear2_indicator_end"),
+            "planetary_gear": ("tracking_point", "planet_center"),
+            "slider_crank": ("slider_pin", "crank_end"),
+        }
+        test_points = test_points_by_type.get(mechanism_type)
+        if not test_points:
             return None
 
         for point_name in test_points:

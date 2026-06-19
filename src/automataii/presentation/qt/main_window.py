@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QGraphicsItem,
     QGraphicsPixmapItem,
     QGraphicsScene,
+    QLabel,
     QMainWindow,
     QMessageBox,
     QTabWidget,
@@ -73,6 +74,8 @@ from automataii.presentation.qt.windows.components import (
 )
 from automataii.shared.physical_kit import (
     PhysicalKitContext,
+    physical_context_mode_summary,
+    physical_kit_preset_summary,
 )
 from automataii.utils.config import AppConfig
 from automataii.utils.paths import resolve_path
@@ -1019,7 +1022,8 @@ class AutomataDesigner(QMainWindow):
         Initialize workspace customization (dock/tab layout) and workflow state guidance.
         """
         self._workspace_layout_manager = WorkspaceLayoutManager(self, self.tab_widget, parent=self)
-        self._workspace_layout_manager.initialize()
+        self._workspace_layout_manager.initialize(restore_current_tab=False)
+        self._select_startup_tab()
 
         default_sequence = self._workspace_layout_manager.get_current_tab_order()
         self._workflow_state_machine = WorkflowStateMachine(
@@ -1034,6 +1038,28 @@ class AutomataDesigner(QMainWindow):
 
         self._mark_workflow_tab_visited(self.tab_widget.currentWidget())
         self._announce_workflow_status()
+
+    def _select_startup_tab(self) -> None:
+        """Always show Character Selection on app startup, even after workspace restore.
+
+        Workspace layout persistence is still allowed to restore the user's tab order, but the
+        first visible screen should remain the character-selection step. Select by widget/id
+        instead of assuming visual index 0 so user-reordered tabs keep working.
+        """
+        startup_index = -1
+        image_proc_tab = getattr(self, "image_proc_tab", None)
+        if image_proc_tab is not None:
+            startup_index = self.tab_widget.indexOf(image_proc_tab)
+
+        if startup_index < 0:
+            for index in range(self.tab_widget.count()):
+                tab = self.tab_widget.widget(index)
+                if tab is not None and tab.objectName() == "tab_character_selection":
+                    startup_index = index
+                    break
+
+        if startup_index >= 0 and self.tab_widget.currentIndex() != startup_index:
+            self.tab_widget.setCurrentIndex(startup_index)
 
     def _on_tab_activated_callback(self, current_tab: QWidget, index: int) -> None:
         """
@@ -3007,6 +3033,87 @@ class AutomataDesigner(QMainWindow):
                         profile=context.profile,
                         pitch_choice_key=context.grid_pitch_choice,
                     )
+        self._update_physical_context_affordances(context)
+
+    def _update_physical_context_affordances(self, context: PhysicalKitContext) -> None:
+        """Keep the app shell explicit about the active physical-kit contract."""
+
+        summary = physical_context_mode_summary(context)
+        status_bar = self.statusBar() if hasattr(self, "statusBar") else None
+        if status_bar is not None:
+            status_bar.showMessage(summary, 3500)
+            badge = self._ensure_physical_mode_badge()
+            badge.setToolTip(summary)
+            if context.enabled:
+                badge.setText(f"Fabrication-ready kit: {physical_kit_preset_summary(context.profile)}")
+                badge.setStyleSheet(
+                    """
+                    QLabel {
+                        color: #0f5132;
+                        background-color: #d1e7dd;
+                        border: 1px solid #badbcc;
+                        border-radius: 8px;
+                        padding: 3px 8px;
+                        font-weight: 650;
+                    }
+                    """
+                )
+            else:
+                badge.setText("Custom / Simulation-only (assembly PDFs gated)")
+                badge.setStyleSheet(
+                    """
+                    QLabel {
+                        color: #7a4b00;
+                        background-color: #fff3cd;
+                        border: 1px solid #ffecb5;
+                        border-radius: 8px;
+                        padding: 3px 8px;
+                        font-weight: 650;
+                    }
+                    """
+                )
+        if not hasattr(self, "tab_widget") or self.tab_widget is None:
+            return
+        suffix = (
+            "Fabrication-ready preset mode is ON."
+            if context.enabled
+            else "Custom / Simulation-only mode is ON."
+        )
+        for widget, base in (
+            (
+                getattr(self, "image_proc_tab", None),
+                "Character Selection — choose one of the sample drawings or load your own image",
+            ),
+            (getattr(self, "editor_tab", None), "Path Editor — draw motion paths on character parts"),
+            (
+                getattr(self, "mechanism_design_tab", None),
+                "Mechanism Design — attach and tune mechanisms",
+            ),
+            (
+                getattr(self, "mechanism_foundry_tab", None),
+                "Mechanism Foundry — simulate linkage, cam, and gear mechanisms",
+            ),
+        ):
+            if widget is None:
+                continue
+            index = self.tab_widget.indexOf(widget)
+            if index >= 0:
+                self.tab_widget.setTabToolTip(index, f"{base}\n{suffix}")
+
+    def _ensure_physical_mode_badge(self) -> QLabel:
+        """Create the status-bar physical-kit badge once so every tab shows the mode."""
+
+        badge = self.__dict__.get("_physical_mode_badge")
+        if isinstance(badge, QLabel):
+            return badge
+        badge = QLabel()
+        badge.setObjectName("physicalModeBadge")
+        badge.setTextFormat(Qt.TextFormat.PlainText)
+        self.__dict__["_physical_mode_badge"] = badge
+        status_bar = self.statusBar()
+        assert status_bar is not None
+        status_bar.addPermanentWidget(badge)
+        return badge
 
     def _handle_project_manager_error(self, error_message: str):
         """Handles error signals from the ProjectDataManager."""

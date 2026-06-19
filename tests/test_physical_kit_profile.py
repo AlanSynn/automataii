@@ -18,12 +18,17 @@ from automataii.shared.physical_kit import (
     PhysicalKitProfile,
     allowed_gear_teeth,
     allowed_linkage_lengths_mm,
+    fabrication_ready_params,
+    gear_attachment_grid_offsets_mm,
+    gear_attachment_radii_mm,
     gear_center_distance,
     gear_radius_for_teeth,
     gear_teeth_for_radius,
     nearest_cam_preset,
     nearest_gear_radius_mm,
     physical_context_from_settings,
+    physical_context_mode_summary,
+    physical_kit_preset_summary,
     physical_profile_from_key,
     snap_physical_params,
 )
@@ -44,8 +49,8 @@ def test_physical_kit_default_grid_and_variant_counts() -> None:
     assert DEFAULT_PHYSICAL_KIT_PROFILE.gear_presets == GEAR_PRESETS
     assert DEFAULT_PHYSICAL_KIT_PROFILE.cam_presets == CAM_PRESETS
     assert DEFAULT_PHYSICAL_KIT_PROFILE.follower_presets == FOLLOWER_PRESETS
-    assert DEFAULT_PHYSICAL_KIT_PROFILE.gear_radius_per_tooth_mm == 1.5
-    assert DEFAULT_PHYSICAL_KIT_PROFILE.default_gear_clearance_mm == 2.0
+    assert DEFAULT_PHYSICAL_KIT_PROFILE.gear_radius_per_tooth_mm == 1.25
+    assert DEFAULT_PHYSICAL_KIT_PROFILE.default_gear_clearance_mm == 0.0
     assert {choice.key: choice.pitch_mm for choice in GRID_PITCH_CHOICES} == {
         "2cm": 20.0,
         "ms4n": 20.4,
@@ -97,11 +102,21 @@ def test_unknown_physical_profile_key_warns_before_defaulting(
 
 
 def test_gear_presets_are_limited_and_radius_backed() -> None:
-    assert allowed_gear_teeth() == (12, 14, 16, 18)
-    assert gear_radius_for_teeth(12) == 18.0
-    assert gear_radius_for_teeth(18) == 27.0
-    assert gear_teeth_for_radius(45.0) == 18
-    assert nearest_gear_radius_mm(45.0) == 27.0
+    assert allowed_gear_teeth() == (8, 24, 40, 56)
+    assert tuple(preset.label for preset in GEAR_PRESETS) == (
+        "G1 / 1-space gear",
+        "G3 / 3-space gear",
+        "G5 / 5-space gear",
+        "G7 / 7-space gear",
+    )
+    assert gear_radius_for_teeth(8) == 10.0
+    assert gear_radius_for_teeth(56) == 70.0
+    assert gear_teeth_for_radius(45.0) == 40
+    assert nearest_gear_radius_mm(45.0) == 50.0
+    for first in GEAR_PRESETS:
+        for second in GEAR_PRESETS:
+            center_distance = gear_center_distance(first.radius_mm, second.radius_mm)
+            assert center_distance % DEFAULT_GRID_PITCH_MM == 0.0
 
 
 def test_helpers_accept_explicit_physical_profile_variants() -> None:
@@ -154,48 +169,87 @@ def test_single_gear_preset_profile_does_not_crash_center_distance() -> None:
 def test_gear_snapping_preserves_physical_pair_contract() -> None:
     snapped_from_teeth = snap_physical_params(
         "gear_train",
-        {"gear1_teeth": "12", "gear2_teeth": "18"},
+        {"gear1_teeth": "8", "gear2_teeth": "56"},
     )
-    assert snapped_from_teeth["gear1_teeth"] == 12
-    assert snapped_from_teeth["gear2_teeth"] == 18
-    assert snapped_from_teeth["gear1_radius"] == 18.0
-    assert snapped_from_teeth["gear2_radius"] == 27.0
+    assert snapped_from_teeth["gear1_teeth"] == 8
+    assert snapped_from_teeth["gear2_teeth"] == 56
+    assert snapped_from_teeth["gear1_radius"] == 10.0
+    assert snapped_from_teeth["gear2_radius"] == 70.0
 
     snapped_from_radii = snap_physical_params(
         "gear_train",
         {"gear1_radius": 45.0, "gear2_radius": 75.0},
     )
-    assert snapped_from_radii["gear1_teeth"] == 18
-    assert snapped_from_radii["gear2_teeth"] == 18
-    assert snapped_from_radii["r1"] == 27.0
-    assert snapped_from_radii["r2"] == 27.0
+    assert snapped_from_radii["gear1_teeth"] == 40
+    assert snapped_from_radii["gear2_teeth"] == 56
+    assert snapped_from_radii["r1"] == 50.0
+    assert snapped_from_radii["r2"] == 70.0
 
 
 def test_gear_linkage_and_planetary_snap_to_fabricated_linkage_lengths() -> None:
     gear_linkage = snap_physical_params(
         "gear_linkage",
-        {"gear1_teeth": 13, "gear2_teeth": 17, "linkage_arm_length": 93.0},
+        {
+            "gear1_teeth": 13,
+            "gear2_teeth": 47,
+            "linkage_arm_length": 93.0,
+            "linkage_pin_radius": 37.0,
+        },
         2.0,
     )
-    assert gear_linkage["gear1_teeth"] == 14
-    assert gear_linkage["gear2_teeth"] == 18
+    assert gear_linkage["gear1_teeth"] == 8
+    assert gear_linkage["gear2_teeth"] == 40
     assert gear_linkage["linkage_arm_length"] == 80.0
+    assert gear_linkage["linkage_pin_radius"] in gear_attachment_radii_mm(
+        gear_linkage["gear2_radius"],
+        2.0,
+    )
 
     planetary = snap_physical_params(
         "planetary_gear",
         {
             "sun_teeth": 13,
-            "planet_teeth": 17,
+            "planet_teeth": 47,
             "planet_count": 0,
             "carrier_arm_length": 131.0,
         },
         2.5,
     )
-    assert planetary["sun_teeth"] == 14
-    assert planetary["planet_teeth"] == 18
+    assert planetary["sun_teeth"] == 8
+    assert planetary["planet_teeth"] == 24
     assert planetary["planet_count"] == 1
     assert planetary["carrier_arm_length"] == 150.0
     assert planetary["arm_length"] == 150.0
+    assert planetary["physical_ring_gear"] == "ring-g8-g24"
+
+
+def test_gear_linkage_pin_snaps_to_fabricated_attachment_holes() -> None:
+    snapped = snap_physical_params(
+        "gear_linkage",
+        {"gear1_teeth": 24, "gear2_teeth": 24, "linkage_pin_radius": 7.0},
+        2.0,
+    )
+
+    assert snapped["gear2_teeth"] == 24
+    assert snapped["linkage_pin_radius"] == 20.0
+    assert snapped["linkage_pin_radius"] in gear_attachment_radii_mm(
+        snapped["gear2_radius"],
+        2.0,
+    )
+
+
+def test_planetary_snapping_stays_on_fabricated_ring_recipe() -> None:
+    snapped = snap_physical_params(
+        "planetary_gear",
+        {"sun_teeth": 56, "planet_teeth": 40, "planet_count": 4},
+        2.0,
+    )
+
+    assert snapped["sun_teeth"] == 8
+    assert snapped["planet_teeth"] == 24
+    assert snapped["r_sun"] == 10.0
+    assert snapped["r_planet"] == 30.0
+    assert snapped["physical_ring_gear"] == "ring-g8-g24"
 
 
 def test_linkage_and_cam_snapping_use_board_pitch() -> None:
@@ -226,3 +280,67 @@ def test_linkage_and_cam_snapping_use_board_pitch() -> None:
     assert cam["base_radius"] in {preset.params_mm(2.5)["base_radius"] for preset in CAM_PRESETS}
     assert cam["eccentricity"] in {preset.params_mm(2.5)["eccentricity"] for preset in CAM_PRESETS}
     assert {"rise_deg", "high_dwell_deg", "return_deg"}.issubset(cam)
+
+
+def test_fabrication_ready_params_adds_context_and_snaps_missing_ui_payloads() -> None:
+    ready = fabrication_ready_params(
+        "four_bar",
+        {"l1": 45.1, "l2": 11.8, "l3": 80.2, "l4": 60.6},
+    )
+
+    assert ready["grid_system_enabled"] is True
+    assert ready["grid_cell_cm"] == DEFAULT_GRID_CELL_CM
+    assert ready["physical_profile_key"] == DEFAULT_PHYSICAL_KIT_PROFILE.key
+    assert ready["hole_diameter_mm"] == DEFAULT_HOLE_DIAMETER_MM
+    assert ready["fabrication_ready_preset_mode"] is True
+    assert (ready["l1"], ready["l2"], ready["l3"], ready["l4"]) == (
+        40.0,
+        40.0,
+        80.0,
+        80.0,
+    )
+
+
+def test_fabrication_ready_params_preserves_explicit_custom_mode() -> None:
+    ready = fabrication_ready_params(
+        "gear_train",
+        {"gear1_teeth": 13, "gear2_teeth": 17, "grid_system_enabled": False},
+    )
+
+    assert ready["grid_system_enabled"] is False
+    assert ready["fabrication_ready_preset_mode"] is False
+    assert ready["gear1_teeth"] == 13
+    assert ready["gear2_teeth"] == 17
+
+
+def test_physical_mode_summary_names_enforced_part_contract() -> None:
+    enabled = physical_context_from_settings(True, 2.0)
+    disabled = physical_context_from_settings(False, 2.0)
+
+    assert physical_kit_preset_summary() == "G1/G3/G5/G7 gears + S10 spacer + 4 mm holes"
+    assert "Fabrication-ready preset mode ON" in physical_context_mode_summary(enabled)
+    assert "G1/G3/G5/G7 gears + S10 spacer + 4 mm holes" in physical_context_mode_summary(
+        enabled
+    )
+    assert "Simulation-only" in physical_context_mode_summary(disabled)
+
+
+def test_gear_attachment_grid_offsets_match_fabrication_scale() -> None:
+    offsets_by_radius = {
+        10.0: gear_attachment_grid_offsets_mm(10.0),
+        30.0: gear_attachment_grid_offsets_mm(30.0),
+        50.0: gear_attachment_grid_offsets_mm(50.0),
+        70.0: gear_attachment_grid_offsets_mm(70.0),
+    }
+
+    assert {radius: len(offsets) for radius, offsets in offsets_by_radius.items()} == {
+        10.0: 0,
+        30.0: 4,
+        50.0: 12,
+        70.0: 28,
+    }
+    for offsets in offsets_by_radius.values():
+        for dx, dy in offsets:
+            assert dx % DEFAULT_GRID_PITCH_MM == 0.0
+            assert dy % DEFAULT_GRID_PITCH_MM == 0.0
+            assert (dx, dy) != (0.0, 0.0)

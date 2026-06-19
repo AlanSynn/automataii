@@ -29,6 +29,7 @@ def _create_editor_with_scaled_transform() -> PlanetaryGearEditor:
     mechanism_data = {
         "type": "planetary_gear",
         "params": {
+            "grid_system_enabled": False,
             "sun_x": 0.0,
             "sun_y": 0.0,
             "r_sun": 20.0,
@@ -93,3 +94,30 @@ def test_planetary_arm_drag_uses_mechanism_space_with_transform(qapp):
     editor._on_arm_length_changed("arm_length", new_scene_pos)
 
     assert editor.mechanism_data["params"]["arm_length"] == pytest.approx(25.0, rel=1e-6)
+
+
+def test_planetary_editor_snaps_to_fabrication_presets_when_grid_enabled(qapp):
+    scene = QGraphicsScene()
+    editor = PlanetaryGearEditor("planetary_snap", scene)
+    mechanism_data = {
+        "type": "planetary_gear",
+        "params": {
+            "grid_system_enabled": True,
+            "grid_cell_cm": 2.0,
+            "sun_x": 0.0,
+            "sun_y": 0.0,
+            "r_sun": 19.0,
+            "r_planet": 35.0,
+            "arm_length": 13.0,
+        },
+        "key_points": {},
+    }
+
+    editor.create_handles(mechanism_data)
+
+    params = editor.mechanism_data["params"]
+    assert params["sun_teeth"] == 8
+    assert params["planet_teeth"] == 24
+    assert params["r_sun"] == pytest.approx(10.0)
+    assert params["r_planet"] == pytest.approx(30.0)
+    assert params["arm_length"] == pytest.approx(40.0)

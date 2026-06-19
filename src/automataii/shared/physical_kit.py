@@ -17,8 +17,11 @@ DEFAULT_GRID_CELL_CM = DEFAULT_GRID_PITCH_MM / 10.0
 DEFAULT_HOLE_DIAMETER_MM = 4.0
 DEFAULT_BOARD_ROWS = 15
 DEFAULT_BOARD_COLUMNS = 15
-GEAR_RADIUS_PER_TOOTH_MM = 1.5
-DEFAULT_GEAR_CLEARANCE_MM = 2.0
+MM_PER_INCH = 25.4
+DEFAULT_DISPLAY_UNIT_SYSTEM = "imperial"
+FABRICATION_HOLE_DIAMETER_INCH_LABEL = "5/32 in"
+GEAR_RADIUS_PER_TOOTH_MM = 1.25
+DEFAULT_GEAR_CLEARANCE_MM = 0.0
 LINKAGE_LENGTH_CELLS: tuple[int, ...] = (2, 4, 6, 8)
 _LOGGER = logging.getLogger(__name__)
 
@@ -134,10 +137,10 @@ GRID_PITCH_CHOICES: tuple[GridPitchChoice, ...] = (
 )
 
 GEAR_PRESETS: tuple[GearPreset, ...] = (
-    GearPreset("g12", "G12 micro", 12),
-    GearPreset("g14", "G14 compact", 14),
-    GearPreset("g16", "G16 small", 16),
-    GearPreset("g18", "G18 medium", 18),
+    GearPreset("g8", "G1 / 1-space gear", 8),
+    GearPreset("g24", "G3 / 3-space gear", 24),
+    GearPreset("g40", "G5 / 5-space gear", 40),
+    GearPreset("g56", "G7 / 7-space gear", 56),
 )
 
 CAM_PRESETS: tuple[CamPreset, ...] = (
@@ -211,8 +214,185 @@ def grid_step_mm(grid_cell_cm: object = DEFAULT_GRID_CELL_CM) -> float:
     return max(1.0, finite_float(grid_cell_cm, DEFAULT_GRID_CELL_CM) * 10.0)
 
 
+def normalize_unit_system(
+    unit_system: object,
+    default: str = DEFAULT_DISPLAY_UNIT_SYSTEM,
+) -> str:
+    """Normalize user/display unit names to the two supported public labels."""
+
+    fallback = "metric" if str(default).strip().lower() == "metric" else "imperial"
+    normalized = str(unit_system or fallback).strip().lower()
+    if normalized in {"imperial", "inch", "inches", "in"}:
+        return "imperial"
+    if normalized in {"metric", "millimeter", "millimeters", "mm", "centimeter", "cm"}:
+        return "metric"
+    return fallback
+
+
+def mm_to_inches(value_mm: object) -> float:
+    return finite_float(value_mm, 0.0) / MM_PER_INCH
+
+
+def board_spaces_from_mm(
+    value_mm: object,
+    grid_cell_cm: object = DEFAULT_GRID_CELL_CM,
+) -> float:
+    return finite_float(value_mm, 0.0) / grid_step_mm(grid_cell_cm)
+
+
+def _format_decimal(value: float, precision: int) -> str:
+    text = f"{value:.{precision}f}"
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text or "0"
+
+
+def format_board_spaces(
+    value_mm: object,
+    grid_cell_cm: object = DEFAULT_GRID_CELL_CM,
+) -> str:
+    """Format a physical length using the board's hole-to-hole pitch."""
+
+    spaces = board_spaces_from_mm(value_mm, grid_cell_cm)
+    nearest_int = round(spaces)
+    if math.isclose(spaces, nearest_int, abs_tol=0.05):
+        value_text = str(int(nearest_int))
+    else:
+        value_text = _format_decimal(spaces, 1)
+    unit = "board space" if value_text == "1" else "board spaces"
+    return f"{value_text} {unit}"
+
+
+def format_length_for_user(
+    value_mm: object,
+    *,
+    grid_cell_cm: object = DEFAULT_GRID_CELL_CM,
+    unit_system: object = DEFAULT_DISPLAY_UNIT_SYSTEM,
+    include_board_spaces: bool = True,
+    include_mm: bool = False,
+) -> str:
+    """Format a length inch-first, with board-space context for fabrication UX."""
+
+    value = finite_float(value_mm, 0.0)
+    normalized_unit = normalize_unit_system(unit_system)
+    if normalized_unit == "metric":
+        primary = f"{_format_decimal(value, 1)} mm"
+    else:
+        primary = f"{_format_decimal(mm_to_inches(value), 2)} in"
+    details: list[str] = []
+    if include_board_spaces:
+        details.append(format_board_spaces(value, grid_cell_cm))
+    if include_mm and normalized_unit == "imperial":
+        details.append(f"{_format_decimal(value, 1)} mm")
+    if details:
+        return f"{primary} · {' · '.join(details)}"
+    return primary
+
+
+def physical_kit_preset_summary(
+    profile: PhysicalKitProfile = DEFAULT_PHYSICAL_KIT_PROFILE,
+) -> str:
+    """Return the compact human-facing list of physical presets."""
+
+    gear_labels = "/".join(preset.label.split(" / ", 1)[0] for preset in _gear_presets_for(profile))
+    return f"{gear_labels} gears + S10 spacer + 4 mm holes"
+
+
+def physical_context_mode_summary(context: PhysicalKitContext) -> str:
+    """Return a concise UI summary for the active physical-kit mode."""
+
+    if context.enabled:
+        return (
+            "Fabrication-ready preset mode ON — "
+            f"{physical_kit_preset_summary(context.profile)}; mechanisms snap to board spaces."
+        )
+    return (
+        "Custom / Simulation-only mode — physical preset snapping is off; "
+        "board assembly PDFs require conversion back to kit presets."
+    )
+
+
 def pitch_cm_to_mm(grid_cell_cm: object = DEFAULT_GRID_CELL_CM) -> float:
     return grid_step_mm(grid_cell_cm)
+
+
+def gear_attachment_grid_offsets_mm(
+    pitch_radius_mm: object,
+    grid_cell_cm: object = DEFAULT_GRID_CELL_CM,
+    *,
+    profile: PhysicalKitProfile = DEFAULT_PHYSICAL_KIT_PROFILE,
+) -> tuple[tuple[float, float], ...]:
+    """Return fabrication attachment holes for a gear on board-grid offsets.
+
+    This mirrors the fabrication SVG generator so Foundry, Design, and
+    recommendation previews do not display attachment holes that the physical
+    templates cannot cut. The smallest G1 gear intentionally exposes only the
+    axle hole and therefore returns no attachment offsets.
+    """
+
+    pitch_mm = grid_step_mm(grid_cell_cm)
+    pitch_scale = pitch_mm / DEFAULT_GRID_PITCH_MM
+    hole_radius = max(0.1, finite_float(profile.hole_diameter_mm, DEFAULT_HOLE_DIAMETER_MM) / 2.0)
+    pitch_radius = max(1.0, finite_float(pitch_radius_mm, gear_radius_for_teeth(8, profile=profile)))
+    tooth_depth = profile.gear_radius_per_tooth_mm * pitch_scale
+    root_radius = max(hole_radius + 8.0, pitch_radius - tooth_depth * 1.25)
+    max_attachment_radius = root_radius - hole_radius - 4.0
+    minimum_separate_hole_radius = profile.hole_diameter_mm + 2.0
+    if max_attachment_radius < minimum_separate_hole_radius:
+        return ()
+
+    max_cells = max(1, int(max_attachment_radius // pitch_mm))
+    offsets: list[tuple[float, float]] = []
+    for x_cell in range(-max_cells, max_cells + 1):
+        for y_cell in range(-max_cells, max_cells + 1):
+            if x_cell == 0 and y_cell == 0:
+                continue
+            dx = x_cell * pitch_mm
+            dy = y_cell * pitch_mm
+            if math.hypot(dx, dy) <= max_attachment_radius:
+                offsets.append((dx, dy))
+    return tuple(sorted(offsets, key=lambda point: (math.hypot(*point), point[1], point[0])))
+
+
+def gear_attachment_radii_mm(
+    pitch_radius_mm: object,
+    grid_cell_cm: object = DEFAULT_GRID_CELL_CM,
+    *,
+    profile: PhysicalKitProfile = DEFAULT_PHYSICAL_KIT_PROFILE,
+) -> tuple[float, ...]:
+    """Return unique radial distances for fabricated gear linkage/handle holes."""
+
+    radii = {
+        round(math.hypot(dx, dy), 6)
+        for dx, dy in gear_attachment_grid_offsets_mm(
+            pitch_radius_mm,
+            grid_cell_cm,
+            profile=profile,
+        )
+    }
+    return tuple(sorted(radii))
+
+
+def nearest_gear_attachment_radius_mm(
+    value: object,
+    pitch_radius_mm: object,
+    grid_cell_cm: object = DEFAULT_GRID_CELL_CM,
+    *,
+    profile: PhysicalKitProfile = DEFAULT_PHYSICAL_KIT_PROFILE,
+) -> float:
+    """Snap a crank/linkage pin to a real fabricated gear attachment-hole radius."""
+
+    choices = gear_attachment_radii_mm(pitch_radius_mm, grid_cell_cm, profile=profile)
+    if not choices:
+        all_choices: list[float] = []
+        for preset in _gear_presets_for(profile):
+            radius = gear_radius_for_teeth(preset.teeth, profile=profile)
+            all_choices.extend(gear_attachment_radii_mm(radius, grid_cell_cm, profile=profile))
+        choices = tuple(sorted(set(all_choices)))
+    if not choices:
+        return 0.0
+    parsed = finite_float(value, choices[0])
+    return min(choices, key=lambda choice: (abs(choice - parsed), choice))
 
 
 def pitch_mm_to_cm(pitch_mm: object = DEFAULT_GRID_PITCH_MM) -> float:
@@ -525,6 +705,28 @@ def snap_gear_linkage_params(
 ) -> dict[str, object]:
     """Snap a gear pair plus crank/linkage handle to fabricated kit parts."""
     snapped = snap_gear_params(params, profile=profile)
+    if not gear_attachment_grid_offsets_mm(snapped["gear2_radius"], grid_cell_cm, profile=profile):
+        candidates = tuple(
+            preset
+            for preset in _gear_presets_for(profile)
+            if gear_attachment_grid_offsets_mm(
+                gear_radius_for_teeth(preset.teeth, profile=profile),
+                grid_cell_cm,
+                profile=profile,
+            )
+        )
+        if candidates:
+            requested = finite_float(snapped.get("gear2_teeth"), _gear_preset_at(profile, 1).teeth)
+            driven = min(candidates, key=lambda preset: (abs(preset.teeth - requested), preset.teeth))
+            snapped["gear2_teeth"] = driven.teeth
+            snapped["gear2_radius"] = gear_radius_for_teeth(driven.teeth, profile=profile)
+            snapped["r2"] = snapped["gear2_radius"]
+    snapped["linkage_pin_radius"] = nearest_gear_attachment_radius_mm(
+        snapped.get("linkage_pin_radius", grid_step_mm(grid_cell_cm)),
+        snapped["gear2_radius"],
+        grid_cell_cm,
+        profile=profile,
+    )
     default_length = allowed_linkage_lengths_mm(grid_cell_cm, profile=profile)[1]
     snapped["linkage_arm_length"] = nearest_linkage_length_mm(
         snapped.get("linkage_arm_length", default_length),
@@ -541,20 +743,10 @@ def snap_planetary_gear_params(
     profile: PhysicalKitProfile = DEFAULT_PHYSICAL_KIT_PROFILE,
 ) -> dict[str, object]:
     snapped = dict(params)
-    sun_teeth = gear_teeth_from_params(
-        snapped,
-        ("sun_teeth",),
-        ("r_sun", "sun_radius"),
-        _gear_preset_at(profile, 0).teeth,
-        profile=profile,
-    )
-    planet_teeth = gear_teeth_from_params(
-        snapped,
-        ("planet_teeth",),
-        ("r_planet", "planet_radius"),
-        _gear_preset_at(profile, 1).teeth,
-        profile=profile,
-    )
+    sun_preset = _gear_preset_at(profile, 0)
+    planet_preset = _gear_preset_at(profile, 1)
+    sun_teeth = sun_preset.teeth
+    planet_teeth = planet_preset.teeth
     r_sun = gear_radius_for_teeth(sun_teeth, profile=profile)
     r_planet = gear_radius_for_teeth(planet_teeth, profile=profile)
     snapped["sun_teeth"] = sun_teeth
@@ -575,6 +767,7 @@ def snap_planetary_gear_params(
     snapped["arm_length"] = snapped["carrier_arm_length"]
     snapped.setdefault("gear_clearance", profile.default_gear_clearance_mm)
     snapped.setdefault("mesh_clearance", snapped["gear_clearance"])
+    snapped["physical_ring_gear"] = f"ring-{sun_preset.key}-{planet_preset.key}"
     return snapped
 
 
@@ -671,6 +864,42 @@ def snap_physical_params(
     return snapped
 
 
+def fabrication_ready_params(
+    mechanism_type: object,
+    params: Mapping[str, object],
+    *,
+    default_enabled: bool = True,
+    default_grid_cell_cm: float = DEFAULT_GRID_CELL_CM,
+) -> dict[str, object]:
+    """Return params normalized to the active physical-kit contract.
+
+    This is the shared boundary helper for UI, recommendation, simulation, and
+    blueprint paths.  Callers should use it when a payload crosses from a
+    free-form/simulation source into a user-visible mechanism layer.  It
+    preserves explicit ``grid_system_enabled=False`` payloads for custom
+    simulation, but defaults missing context to the fabrication-ready 2 cm kit.
+    """
+
+    ready = dict(params)
+    context = physical_context_from_params(
+        ready,
+        default_enabled=default_enabled,
+        default_grid_cell_cm=default_grid_cell_cm,
+    )
+    ready.update(context.as_params())
+    if context.enabled:
+        ready = snap_physical_params(
+            normalize_mechanism_type(mechanism_type),
+            ready,
+            context.grid_cell_cm,
+            enabled=True,
+            profile=context.profile,
+        )
+        ready.update(context.as_params())
+    ready["fabrication_ready_preset_mode"] = context.enabled
+    return ready
+
+
 def snap_parameter_value(
     mechanism_type: str,
     param_key: str,
@@ -684,8 +913,17 @@ def snap_parameter_value(
     normalized_grid_cell_cm = grid_step_mm(grid_cell_cm) / 10.0
     if normalized in {"four_bar", "slider_crank"} and key in LINKAGE_PARAM_KEYS:
         return nearest_linkage_length_mm(value, normalized_grid_cell_cm, profile=profile)
-    if normalized == "gear_linkage" and key == "linkage_arm_length":
-        return nearest_linkage_length_mm(value, normalized_grid_cell_cm, profile=profile)
+    if normalized == "gear_linkage":
+        if key == "linkage_arm_length":
+            return nearest_linkage_length_mm(value, normalized_grid_cell_cm, profile=profile)
+        if key == "linkage_pin_radius":
+            default_radius = gear_radius_for_teeth(_gear_preset_at(profile, 1).teeth, profile=profile)
+            return nearest_gear_attachment_radius_mm(
+                value,
+                default_radius,
+                normalized_grid_cell_cm,
+                profile=profile,
+            )
     if normalized in {"gear_train", "gear_linkage"} and key in {"gear1_teeth", "gear2_teeth"}:
         return float(nearest_gear_teeth(value, profile=profile))
     if normalized in {"gear_train", "gear_linkage"} and key in {
@@ -695,8 +933,10 @@ def snap_parameter_value(
         "r2",
     }:
         return nearest_gear_radius_mm(value, profile=profile)
-    if normalized == "planetary_gear" and key in {"sun_teeth", "planet_teeth"}:
-        return float(nearest_gear_teeth(value, profile=profile))
+    if normalized == "planetary_gear" and key == "sun_teeth":
+        return float(_gear_preset_at(profile, 0).teeth)
+    if normalized == "planetary_gear" and key == "planet_teeth":
+        return float(_gear_preset_at(profile, 1).teeth)
     if normalized == "planetary_gear" and key == "planet_count":
         return float(int(min(max(round(finite_float(value, 1.0)), 1), 4)))
     if normalized == "planetary_gear" and key in {"carrier_arm_length", "arm_length"}:

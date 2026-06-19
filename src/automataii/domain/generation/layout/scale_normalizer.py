@@ -117,6 +117,20 @@ class ScaleNormalizer:
         # Preserve source image path for texture embedding if available
         if hasattr(contour, "source_image_path"):
             scaled_contour.source_image_path = contour.source_image_path
+        if hasattr(contour, "source_image_data_uri"):
+            scaled_contour.source_image_data_uri = contour.source_image_data_uri
+        if hasattr(contour, "source_image_size_px"):
+            scaled_contour.source_image_size_px = contour.source_image_size_px
+            try:
+                source_w, source_h = contour.source_image_size_px
+                scaled_contour.source_image_size_mm = (
+                    _positive_finite_float(source_w, 0.0) * scale_factor,
+                    _positive_finite_float(source_h, 0.0) * scale_factor,
+                )
+            except (TypeError, ValueError):
+                pass
+        if hasattr(contour, "coordinate_space"):
+            scaled_contour.coordinate_space = contour.coordinate_space
 
         return scaled_contour
 

@@ -82,7 +82,10 @@ def build_mechanism_configs(
     gear_teeth = tuple(preset.teeth for preset in profile.gear_presets)
     min_gear_teeth = min(gear_teeth)
     max_gear_teeth = max(gear_teeth)
-    default_cam = _at(profile.cam_presets, 1).params_mm(grid_cell_cm)
+    cam_preset_params = tuple(preset.params_mm(grid_cell_cm) for preset in profile.cam_presets)
+    default_cam = _at(cam_preset_params, 1)
+    cam_radius_values = tuple(params["base_radius"] for params in cam_preset_params)
+    cam_offset_values = tuple(params["eccentricity"] for params in cam_preset_params)
 
     return {
         "four_bar": MechanismConfiguration(
@@ -173,8 +176,8 @@ def build_mechanism_configs(
                 ParameterSpec(
                     "cam_radius",
                     "Cam Radius (mm)",
-                    _at(linkage_lengths_mm, 0),
-                    _at(linkage_lengths_mm, 3),
+                    min(cam_radius_values),
+                    max(cam_radius_values),
                     default_cam["base_radius"],
                     "float",
                     "mm",
@@ -183,8 +186,8 @@ def build_mechanism_configs(
                 ParameterSpec(
                     "cam_offset",
                     "Cam Offset (mm)",
-                    0.0,
-                    _at(linkage_lengths_mm, 1),
+                    min(cam_offset_values),
+                    max(cam_offset_values),
                     default_cam["eccentricity"],
                     "float",
                     "mm",
@@ -222,7 +225,7 @@ def build_mechanism_configs(
                     "Drive Gear Teeth",
                     min_gear_teeth,
                     max_gear_teeth,
-                    _at(profile.gear_presets, 0).teeth,
+                    _at(profile.gear_presets, 1).teeth,
                     "int",
                     "teeth",
                     step=1.0,
@@ -232,7 +235,7 @@ def build_mechanism_configs(
                     "Driven Gear Teeth",
                     min_gear_teeth,
                     max_gear_teeth,
-                    _at(profile.gear_presets, 2).teeth,
+                    _at(profile.gear_presets, 1).teeth,
                     "int",
                     "teeth",
                     step=1.0,
@@ -258,7 +261,7 @@ def build_mechanism_configs(
                     "Drive Gear Teeth",
                     min_gear_teeth,
                     max_gear_teeth,
-                    _at(profile.gear_presets, 0).teeth,
+                    _at(profile.gear_presets, 1).teeth,
                     "int",
                     "teeth",
                     step=1.0,
@@ -268,7 +271,7 @@ def build_mechanism_configs(
                     "Driven Gear Teeth",
                     min_gear_teeth,
                     max_gear_teeth,
-                    _at(profile.gear_presets, 2).teeth,
+                    _at(profile.gear_presets, 1).teeth,
                     "int",
                     "teeth",
                     step=1.0,

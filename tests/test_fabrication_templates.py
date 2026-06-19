@@ -40,6 +40,7 @@ SVG_NS = "{http://www.w3.org/2000/svg}"
 REPO_ROOT = Path(__file__).resolve().parents[1]
 REQUIRED_TOP_LEVEL_KEYS = {
     "assembly",
+    "complete_cut_sheet",
     "schema_version",
     "profile_key",
     "grid_pitch_mm",
@@ -68,6 +69,10 @@ NUMBER_RE = re.compile(r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?")
 COMMAND_RE = re.compile(r"([MLA])([^MLA]*)")
 TRANSLATE_RE = re.compile(r"translate\(([-+0-9.eE]+)[ ,]+([-+0-9.eE]+)\)")
 EXPECTED_HOLE_DIAMETER_ATTR = f"{DEFAULT_HOLE_DIAMETER_MM:g}"
+MAX_PRINT_SHORT_SIDE_MM = 220.0
+MAX_PRINT_LONG_SIDE_MM = 300.0
+BOARD_CENTER_SPAN_MM = 20.0 * (DEFAULT_BOARD_COLUMNS - 1)
+MAX_BOARD_TEMPLATE_SIDE_MM = 300.0
 
 
 def _hash_managed_files(root: Path, managed_files: list[str]) -> dict[str, str]:
@@ -78,6 +83,13 @@ def _hash_managed_files(root: Path, managed_files: list[str]) -> dict[str, str]:
 
 def _svg_root(path: Path) -> ET.Element:
     return ET.parse(path).getroot()
+
+
+def _svg_dimensions_mm(root: ET.Element) -> tuple[float, float]:
+    return (
+        float(root.attrib["width"].removesuffix("mm")),
+        float(root.attrib["height"].removesuffix("mm")),
+    )
 
 
 def _has_class(root: ET.Element, class_name: str) -> bool:
@@ -108,6 +120,7 @@ def _manifest_lists(manifest: dict[str, Any]) -> tuple[list[dict[str, Any]], ...
     followers = parts["followers"]
     brackets = parts["brackets"]
     spacers = parts["spacers"]
+    handles = parts["handles"]
     sheets = manifest["sheets"]
     assert isinstance(gears, list)
     assert isinstance(linkages, list)
@@ -115,6 +128,7 @@ def _manifest_lists(manifest: dict[str, Any]) -> tuple[list[dict[str, Any]], ...
     assert isinstance(followers, list)
     assert isinstance(brackets, list)
     assert isinstance(spacers, list)
+    assert isinstance(handles, list)
     assert isinstance(sheets, list)
     return (
         cast(list[dict[str, Any]], gears),
@@ -123,6 +137,7 @@ def _manifest_lists(manifest: dict[str, Any]) -> tuple[list[dict[str, Any]], ...
         cast(list[dict[str, Any]], followers),
         cast(list[dict[str, Any]], brackets),
         cast(list[dict[str, Any]], spacers),
+        cast(list[dict[str, Any]], handles),
         cast(list[dict[str, Any]], sheets),
     )
 
@@ -316,7 +331,9 @@ def test_fabrication_generator_inventory_svg_contract_and_idempotence(tmp_path: 
     assert manifest["board_rows"] == DEFAULT_BOARD_ROWS
     assert manifest["board_columns"] == DEFAULT_BOARD_COLUMNS
 
-    gears, linkages, cams, followers, brackets, spacers, sheets = _manifest_lists(manifest)
+    gears, linkages, cams, followers, brackets, spacers, handles, sheets = _manifest_lists(
+        manifest
+    )
     ring_gears = cast(list[dict[str, Any]], cast(dict[str, Any], manifest["parts"])["ring_gears"])
     managed_files = _managed_files(manifest)
     assert len(managed_files) == len(set(managed_files))
@@ -326,23 +343,37 @@ def test_fabrication_generator_inventory_svg_contract_and_idempotence(tmp_path: 
     assert len(cams) == 4
     assert len(followers) == 4
     assert len(brackets) == 4
-    assert len(spacers) == 4
+    assert len(spacers) == 1
+    assert len(handles) == 1
     assert len(sheets) >= 8
     assert set(EXPECTED_BRACKETS) <= set(managed_files)
     assert any(path.startswith("sheets/06-bracket-set") for path in managed_files)
     assert any(path.startswith("sheets/07-follower-set") for path in managed_files)
-    assert any(path.startswith("spacers/spacer-s8") for path in managed_files)
+    assert any(path.startswith("spacers/spacer-s10") for path in managed_files)
     assert any(path.startswith("sheets/08-spacer-set") for path in managed_files)
-    assert any(path.startswith("ring_gears/ring-g12-g14") for path in managed_files)
+    assert any(path.startswith("handles/handle-folding-fork-tripod") for path in managed_files)
+    assert not any(path.startswith("handles/handle-h8-crank") for path in managed_files)
+    assert not any(path.startswith("handles/handle-tripod-glue-on") for path in managed_files)
+    assert any(path.startswith("sheets/11-handle-set") for path in managed_files)
+    assert any(path.startswith("ring_gears/ring-g8-g24") for path in managed_files)
     assert any(path.startswith("sheets/09-planetary-ring-set") for path in managed_files)
+    assert "complete-kit-cut-sheet.svg" in managed_files
 
     for rel_path in managed_files:
         assert (tmp_path / rel_path).exists(), rel_path
+
+    part_categories = cast(dict[str, list[dict[str, Any]]], manifest["parts"])
+    for raw_items in part_categories.values():
+        for item in raw_items:
+            root = _svg_root(tmp_path / str(item["path"]))
+            width_mm, height_mm = _svg_dimensions_mm(root)
+            assert max(width_mm, height_mm) <= BOARD_CENTER_SPAN_MM, item["path"]
 
     svg_paths = [Path(rel_path) for rel_path in managed_files if rel_path.endswith(".svg")]
     assert svg_paths
     for svg_path in svg_paths:
         root = _svg_root(tmp_path / svg_path)
+        width_mm, height_mm = _svg_dimensions_mm(root)
         assert root.tag == f"{SVG_NS}svg"
         assert root.attrib["width"].endswith("mm")
         assert root.attrib["height"].endswith("mm")
@@ -352,22 +383,50 @@ def test_fabrication_generator_inventory_svg_contract_and_idempotence(tmp_path: 
         assert root.attrib["data-hole-diameter-mm"] == EXPECTED_HOLE_DIAMETER_ATTR
         assert root.find(f"{SVG_NS}title") is not None
         assert root.find(f"{SVG_NS}desc") is not None
+        if svg_path.as_posix() == "complete-kit-cut-sheet.svg":
+            continue
         _assert_svg_geometry_inside_viewbox(root)
+        assert max(width_mm, height_mm) <= MAX_BOARD_TEMPLATE_SIDE_MM, svg_path
 
+    complete_cut_sheet = cast(dict[str, Any], manifest["complete_cut_sheet"])
+    assert complete_cut_sheet["path"] == "complete-kit-cut-sheet.svg"
+    assert complete_cut_sheet["actual_size"] is True
+    assert complete_cut_sheet["letter_size"] is False
+    assert complete_cut_sheet["letter_fit_possible"] is False
+    assert complete_cut_sheet["part_count"] == 23
+    complete_root = _svg_root(tmp_path / "complete-kit-cut-sheet.svg")
+    assert _svg_dimensions_mm(complete_root) == (
+        float(complete_cut_sheet["width_mm"]),
+        float(complete_cut_sheet["height_mm"]),
+    )
+    expected_part_ids = {
+        f"{category}:{part['key']}"
+        for category, parts in part_categories.items()
+        for part in parts
+    }
+    placed_part_ids = {
+        element.attrib["data-part-id"]
+        for element in _elements_with_class(complete_root, "complete-cut-part")
+    }
+    assert placed_part_ids == expected_part_ids
+    assert len(_elements_with_class(complete_root, "complete-cut-part")) == len(expected_part_ids)
+
+    pitch_mm = grid_step_mm(DEFAULT_GRID_CELL_CM)
     assert [gear["teeth"] for gear in gears] == [preset.teeth for preset in GEAR_PRESETS]
     ring = ring_gears[0]
-    assert ring["key"] == "ring-g12-g14"
-    assert ring["internal_teeth"] == 40
-    assert ring["compatible_sun_teeth"] == 12
-    assert ring["compatible_planet_teeth"] == 14
+    assert ring["key"] == "ring-g8-g24"
+    assert ring["internal_teeth"] == 56
+    assert ring["compatible_sun_teeth"] == 8
+    assert ring["compatible_planet_teeth"] == 24
     assert ring["mount_hole_count"] == 4
     ring_root = _svg_root(tmp_path / str(ring["path"]))
     assert _has_class(ring_root, "ring-inner-gear-outline")
     assert _has_class(ring_root, "ring-mount-hole")
     assert _has_attr(ring_root, "data-hole-role", "ring-mount")
-    assert int(gears[0]["teeth"]) == 12
-    assert float(gears[0]["outer_radius_mm"]) * 2.0 <= 42.0
-    assert float(gears[-1]["outer_radius_mm"]) * 2.0 <= 60.0
+    assert [gear["board_space_diameter"] for gear in gears] == [1.0, 3.0, 5.0, 7.0]
+    assert int(gears[0]["teeth"]) == 8
+    assert float(gears[0]["outer_radius_mm"]) * 2.0 <= 25.0
+    assert float(gears[-1]["outer_radius_mm"]) * 2.0 <= 145.0
     for gear in gears:
         required = {
             "key",
@@ -377,6 +436,9 @@ def test_fabrication_generator_inventory_svg_contract_and_idempotence(tmp_path: 
             "pitch_radius_mm",
             "outer_radius_mm",
             "root_radius_mm",
+            "board_space_diameter",
+            "board_space_radius",
+            "mesh_center_distance_rule",
             "hole_diameter_mm",
             "attachment_hole_count",
             "attachment_hole_pattern",
@@ -386,8 +448,12 @@ def test_fabrication_generator_inventory_svg_contract_and_idempotence(tmp_path: 
         }
         assert required <= set(gear)
         assert gear["hole_diameter_mm"] == DEFAULT_HOLE_DIAMETER_MM
-        assert gear["attachment_hole_count"] >= 4
-        assert gear["attachment_hole_pattern"] == "radial"
+        if gear["key"] == "g8":
+            assert gear["attachment_hole_count"] == 0
+            assert gear["attachment_hole_pattern"] == "none"
+        else:
+            assert gear["attachment_hole_count"] >= 4
+            assert gear["attachment_hole_pattern"] == "grid"
         assert len(gear["attachment_hole_centers_mm"]) == gear["attachment_hole_count"]
         assert gear["attachment_kinds"] == ["linkage", "bracket", "crank", "handle"]
         assert gear["attachment_radii_mm"] == sorted(
@@ -398,6 +464,8 @@ def test_fabrication_generator_inventory_svg_contract_and_idempotence(tmp_path: 
         )
         for x, y in gear["attachment_hole_centers_mm"]:
             assert math.hypot(float(x), float(y)) >= DEFAULT_HOLE_DIAMETER_MM + 2.0
+            assert math.isclose(float(x) % pitch_mm, 0.0, abs_tol=0.001)
+            assert math.isclose(float(y) % pitch_mm, 0.0, abs_tol=0.001)
             assert (
                 math.hypot(float(x), float(y)) + DEFAULT_HOLE_DIAMETER_MM / 2.0 + 4.0
                 <= float(gear["root_radius_mm"]) + 0.001
@@ -405,13 +473,14 @@ def test_fabrication_generator_inventory_svg_contract_and_idempotence(tmp_path: 
         root = _svg_root(tmp_path / str(gear["path"]))
         assert _has_class(root, "gear-outline")
         assert _has_class(root, "axle-hole")
-        assert _has_class(root, "linkage-hole")
-        assert _has_class(root, "bracket-hole")
-        assert _has_class(root, "crank-hole")
-        assert _has_class(root, "handle-hole")
         assert _has_attr(root, "data-hole-role", "axle")
-        assert _has_attr(root, "data-hole-role", "linkage-bracket-crank-handle")
-        assert _has_attr(root, "data-attachment-kinds", "linkage bracket crank handle")
+        if gear["attachment_hole_count"]:
+            assert _has_class(root, "linkage-hole")
+            assert _has_class(root, "bracket-hole")
+            assert _has_class(root, "crank-hole")
+            assert _has_class(root, "handle-hole")
+            assert _has_attr(root, "data-hole-role", "linkage-bracket-crank-handle")
+            assert _has_attr(root, "data-attachment-kinds", "linkage bracket crank handle")
         for attr in (
             "data-teeth",
             "data-pitch-radius-mm",
@@ -421,24 +490,25 @@ def test_fabrication_generator_inventory_svg_contract_and_idempotence(tmp_path: 
         ):
             assert _has_attr(root, attr)
 
-    gear_sheet_boxes = _path_boxes_for_class(
-        _svg_root(tmp_path / "sheets/01-gear-set.svg"), "gear-outline"
-    )
-    assert len(gear_sheet_boxes) == 4
-    for idx, first in enumerate(gear_sheet_boxes):
-        first_min_x, first_min_y, first_max_x, first_max_y = first
-        for second in gear_sheet_boxes[idx + 1 :]:
-            second_min_x, second_min_y, second_max_x, second_max_y = second
-            x_gap = max(first_min_x, second_min_x) - min(first_max_x, second_max_x)
-            y_gap = max(first_min_y, second_min_y) - min(first_max_y, second_max_y)
-            if x_gap < 0.0 and y_gap < 0.0:
-                raise AssertionError((first, second))
-            if first_min_y <= second_max_y and second_min_y <= first_max_y:
-                assert x_gap >= 12.0
-            if first_min_x <= second_max_x and second_min_x <= first_max_x:
-                assert y_gap >= 12.0
+    gear_sheet_box_groups = [
+        _path_boxes_for_class(_svg_root(tmp_path / "sheets/01-gear-set.svg"), "gear-outline"),
+        _path_boxes_for_class(_svg_root(tmp_path / "sheets/10-gear-set-large.svg"), "gear-outline"),
+    ]
+    assert sum(len(group) for group in gear_sheet_box_groups) == 4
+    for gear_sheet_boxes in gear_sheet_box_groups:
+        for idx, first in enumerate(gear_sheet_boxes):
+            first_min_x, first_min_y, first_max_x, first_max_y = first
+            for second in gear_sheet_boxes[idx + 1 :]:
+                second_min_x, second_min_y, second_max_x, second_max_y = second
+                x_gap = max(first_min_x, second_min_x) - min(first_max_x, second_max_x)
+                y_gap = max(first_min_y, second_min_y) - min(first_max_y, second_max_y)
+                if x_gap < 0.0 and y_gap < 0.0:
+                    raise AssertionError((first, second))
+                if first_min_y <= second_max_y and second_min_y <= first_max_y:
+                    assert x_gap >= 12.0
+                if first_min_x <= second_max_x and second_min_x <= first_max_x:
+                    assert y_gap >= 12.0
 
-    pitch_mm = grid_step_mm(DEFAULT_GRID_CELL_CM)
     assert [linkage["cells"] for linkage in linkages] == list(LINKAGE_LENGTH_CELLS)
     for linkage in linkages:
         cells = int(linkage["cells"])
@@ -674,7 +744,7 @@ def test_fabrication_generator_inventory_svg_contract_and_idempotence(tmp_path: 
         assert _has_attr(root, "data-hole-role", "bracket")
         assert _hole_centers_for_role(root, "bracket") == [tuple(center) for center in centers]
 
-    assert [spacer["key"] for spacer in spacers] == ["s8", "s10", "s12", "s16"]
+    assert [spacer["key"] for spacer in spacers] == ["s10"]
     for spacer in spacers:
         required = {
             "key",
@@ -699,10 +769,116 @@ def test_fabrication_generator_inventory_svg_contract_and_idempotence(tmp_path: 
         assert _has_class(root, "spacer-hole")
         assert _has_attr(root, "data-hole-role", "spacer")
         assert _has_attr(root, "data-hole-diameter-mm", EXPECTED_HOLE_DIAMETER_ATTR)
+        assert spacer["label"] == "S10 spacer"
+        assert "micro" not in str(spacer["label"]).lower()
+        assert "micro" not in (tmp_path / str(spacer["path"])).read_text(
+            encoding="utf-8"
+        ).lower()
+
+    spacer_sheet = tmp_path / "sheets" / "08-spacer-set.svg"
+    assert "micro" not in spacer_sheet.read_text(encoding="utf-8").lower()
+
+    assert [handle["key"] for handle in handles] == ["folding-fork-tripod"]
+    handle = handles[0]
+    assert handle["kind"] == "folding_fork_tripod"
+    assert handle["hole_diameter_mm"] == DEFAULT_HOLE_DIAMETER_MM
+    assert (
+        handle["attachment_style"]
+        == "paper_tent_simple_rectangle_slits_fold_to_fit_4mm_then_hot_glue"
+    )
+    assert handle["hole_count"] == 0
+    assert handle["insert_tab_count"] == 3
+    assert handle["prong_count"] == 0
+    assert handle["split_cut_count"] == 2
+    assert handle["fold_line_count"] == 3
+    assert handle["glue_foot_count"] == 3
+    assert float(handle["rectangular_tab_width_mm"]) == 10.0
+    assert float(handle["pass_through_tab_width_mm"]) == 10.0
+    assert float(handle["insert_strip_width_mm"]) == 10.0
+    assert float(handle["fold_panel_count"]) == 4.0
+    assert float(handle["manual_fold_count_per_tab"]) == 3.0
+    assert float(handle["folded_panel_width_mm"]) == 2.5
+    assert float(handle["folded_rectangular_tab_diameter_mm"]) <= DEFAULT_HOLE_DIAMETER_MM
+    assert float(handle["max_material_thickness_mm"]) >= 0.75
+    assert float(handle["recommended_material_thickness_mm"]) <= 0.6
+    assert float(handle["effective_glue_zone_area_mm2"]) >= 600.0
+    assert float(handle["handle_grip_length_mm"]) >= 120.0
+    assert 9.0 <= float(handle["grip_width_mm"]) <= 11.0
+    assert float(handle["width_mm"]) >= 180.0
+    assert float(handle["height_mm"]) <= 90.0
+    assert float(handle["triangular_prism_side_mm"]) == float(handle["grip_width_mm"])
+    assert float(handle["triangular_prism_height_mm"]) >= 8.5
+    assert float(handle["seam_glue_tab_width_mm"]) >= 10.0
+    assert handle["double_side_fallback"] is False
+    sanity = cast(dict[str, Any], handle["sanity_check"])
+    assert sanity == {
+        "single_replacement_handle": True,
+        "simple_rectangle_outline": True,
+        "two_visible_split_cuts": True,
+        "folded_rectangular_tab_fits_4mm_hole": True,
+        "material_thickness_limit_ok": True,
+        "rectangular_insert_tabs": True,
+        "no_thin_neck": True,
+        "four_layer_fold_to_fit": True,
+        "triangular_prism_net": True,
+        "seam_tab_present": True,
+        "effective_glue_zone_area_ok": True,
+        "comfortable_grip_length": True,
+    }
+    foot_centers = handle["glue_foot_centers_mm"]
+    assert len(foot_centers) == 3
+    assert foot_centers[0][1] < foot_centers[1][1] < foot_centers[2][1]
+    root = _svg_root(tmp_path / str(handle["path"]))
+    assert _has_class(root, "handle-outline")
+    assert _has_class(root, "folding-fork-tripod-outline")
+    assert _has_class(root, "triangular-prism-handle-outline")
+    assert _has_class(root, "paper-tent-handle-outline")
+    assert _has_class(root, "simple-rectangular-slit-handle-outline")
+    assert _has_class(root, "no-thin-neck-handle-outline")
+    assert _has_attr(root, "data-handle-kind", "folding_fork_tripod")
+    assert _has_attr(root, "data-folded-rectangular-tab-diameter-mm")
+    assert _has_attr(root, "data-insert-strip-width-mm", "10")
+    assert _has_attr(root, "data-split-cut-count", "2")
+    assert _has_attr(root, "data-folded-panel-width-mm", "2.5")
+    assert _has_attr(root, "data-max-material-thickness-mm")
+    assert not _has_class(root, "crank-handle-outline")
+    assert not _has_class(root, "glue-on-handle-outline")
+    assert not _has_class(root, "fork-handle-outline")
+    assert not _has_class(root, "tripod-handle-outline")
+    fold_lines = _elements_with_class(root, "prism-fold-line")
+    assert len(fold_lines) == 3
+    split_cuts = _elements_with_class(root, "rectangular-tab-split-cut")
+    assert len(split_cuts) == 2
+    handle_text = (tmp_path / str(handle["path"])).read_text(encoding="utf-8")
+    assert "prism-panel-fold" in handle_text
+    assert "seam-glue-fold" in handle_text
+    assert "rectangular-tab-split-cut" in handle_text
+    assert "close-triangular-prism-seam" in handle_text
+    score_rects = _elements_with_class(root, "glue-foot-score")
+    assert len(score_rects) == 3
+    score_area = 0.0
+    for rect in score_rects:
+        score_width = float(rect.attrib["width"])
+        score_height = float(rect.attrib["height"])
+        assert score_width >= 35.0
+        assert math.isclose(score_height, 6.0)
+        assert score_width * score_height >= 220.0
+        score_area += score_width * score_height
+    assert math.isclose(
+        score_area, float(handle["effective_glue_zone_area_mm2"]), abs_tol=0.001
+    )
+    assert "scale(" not in handle_text
+    assert "after-4mm-hole-pass-through" in handle_text
 
     for sheet in sheets:
         required = {"key", "label", "path", "contains", "width_mm", "height_mm"}
         assert required <= set(sheet)
+        sheet_width = float(sheet["width_mm"])
+        sheet_height = float(sheet["height_mm"])
+        assert min(sheet_width, sheet_height) <= MAX_PRINT_SHORT_SIDE_MM
+        assert max(sheet_width, sheet_height) <= MAX_PRINT_LONG_SIDE_MM
+        root = _svg_root(tmp_path / str(sheet["path"]))
+        assert _svg_dimensions_mm(root) == (sheet_width, sheet_height)
     assert any(
         str(sheet["path"]).startswith("sheets/06-bracket-set") and "brackets" in sheet["contains"]
         for sheet in sheets
@@ -720,10 +896,17 @@ def test_fabrication_generator_inventory_svg_contract_and_idempotence(tmp_path: 
         and "ring_gears" in sheet["contains"]
         for sheet in sheets
     )
+    assert any(
+        str(sheet["path"]).startswith("sheets/11-handle-set") and "handles" in sheet["contains"]
+        for sheet in sheets
+    )
     readme = (tmp_path / "README.md").read_text(encoding="utf-8")
-    assert "9 workshop sheets" in readme
+    assert "Letter workshop sheets" in readme
+    assert "complete-kit-cut-sheet.svg" in readme
+    assert "cannot physically fit on one Letter page at 1:1" in readme
     assert (
-        "`gears/`, `ring_gears/`, `linkages/`, `cams/`, `followers/`, `brackets/`, and `spacers/`"
+        "`gears/`, `ring_gears/`, `linkages/`, `cams/`, `followers/`, "
+        "`brackets/`, `spacers/`, and `handles/`"
     ) in readme
     assert "4 mm-wide vertical slots" in readme
 
@@ -763,7 +946,7 @@ def test_fabrication_generator_removes_stale_managed_files(tmp_path: Path) -> No
 
     managed_files = set(_managed_files(manifest))
     assert "gears/gear-32t.svg" not in managed_files
-    assert "gears/gear-12t.svg" in managed_files
+    assert "gears/gear-8t.svg" in managed_files
     assert not stale_gear.exists()
     assert unmanaged.read_text(encoding="utf-8") == "keep"
     assert outside.read_text(encoding="utf-8") == "outside"

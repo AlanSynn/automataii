@@ -6,6 +6,8 @@ import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from automataii.shared.physical_kit import format_length_for_user
+
 from .mechanism_types import canonical_mechanism_type
 
 
@@ -196,7 +198,7 @@ class SensemakingService:
             focus="A driven gear carries an off-center pin that pulls a linkage arm.",
             chain="gear ratio → crank pin orbit → linkage swing",
             motion_question="Does the linkage need a bigger swing, different timing, or less force?",
-            kit_move="Use a 4 mm crank hole and a loose bracket so the link can rotate freely.",
+            kit_move="Use a 5/32 in crank hole and a loose bracket so the link can rotate freely.",
         ),
         "planetary_gear": MechanismStory(
             mechanism_type="planetary_gear",
@@ -670,6 +672,15 @@ class SensemakingService:
     @staticmethod
     def format_value(value: object, unit: str | None = None) -> str:
         """Format UI values without exposing Python internals to learners."""
+        normalized_unit = str(unit or "").strip().lower()
+        if normalized_unit in {"mm", "millimeter", "millimeters"}:
+            try:
+                numeric_value = float(value)  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                numeric_value = math.nan
+            if math.isfinite(numeric_value):
+                return str(format_length_for_user(numeric_value, include_board_spaces=True))
+            return "—"
         suffix = f" {unit}" if unit else ""
         if isinstance(value, bool) or value is None:
             return "—"
@@ -803,7 +814,10 @@ class SensemakingService:
                 arm = cls._positive_number(current_parameters.get("linkage_arm_length"), 40.0)
                 return (
                     "Watch the linkage pin/end: the driven gear now creates a crank motion.",
-                    f"Ratio {teeth1:.0f}:{teeth2:.0f}; linkage arm length {arm:.0f} mm sets reach.",
+                    (
+                        f"Ratio {teeth1:.0f}:{teeth2:.0f}; linkage arm length "
+                        f"{format_length_for_user(arm)} sets reach."
+                    ),
                 )
             return (
                 "Watch the driven gear: speed changes, direction stays reversed.",
@@ -824,7 +838,10 @@ class SensemakingService:
             rod = cls._positive_number(current_parameters.get("rod_length"), 140.0)
             return (
                 "Watch the slider pin: it should move straight along the guide.",
-                f"Estimated stroke ≈ {2.0 * crank:.0f} mm; rod length {rod:.0f} mm shapes smoothness.",
+                (
+                    f"Estimated stroke ≈ {format_length_for_user(2.0 * crank)}; "
+                    f"rod length {format_length_for_user(rod)} shapes smoothness."
+                ),
             )
 
         if not snapshots:
@@ -854,7 +871,10 @@ class SensemakingService:
             return ""
         if movement < 0.5:
             return f"{snapshot.label} stayed almost in the same place."
-        return f"{snapshot.label} moved about {movement:.0f} mm from the previous preview."
+        return (
+            f"{snapshot.label} moved about {format_length_for_user(movement)} "
+            "from the previous preview."
+        )
 
     @staticmethod
     def _finite_point_pair(value: object) -> tuple[float, float] | None:

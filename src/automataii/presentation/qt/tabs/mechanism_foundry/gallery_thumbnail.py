@@ -22,6 +22,7 @@ from automataii.presentation.qt.gear_rendering import (
     gear_outline_polygon,
     radial_tick_lines,
 )
+from automataii.shared.physical_kit import gear_center_distance
 
 if TYPE_CHECKING:
     from automataii.domain.mechanisms.core.protocols import Mechanism
@@ -171,8 +172,15 @@ class GalleryThumbnail(QFrame):
         self.animation_timer.timeout.connect(self._animate)
         self._load_mechanism()
         self._render_preview()
-        if self.mechanism and self.isVisible():
+        if self._has_animatable_preview() and self.isVisible():
             self.animation_timer.start(50)
+
+    def _has_animatable_preview(self) -> bool:
+        return self.mechanism is not None or self.mechanism_type in {
+            "gear_train",
+            "gear_linkage",
+            "planetary_gear",
+        }
 
     def _load_mechanism(self) -> None:
         if self.mechanism_type == "four_bar":
@@ -307,7 +315,9 @@ class GalleryThumbnail(QFrame):
         assert gear is not None
         gear.setZValue(5)
         hole_r = gear_hole_radius(radius)
-        for hole_center in gear_attachment_hole_centers(center, radius, angle, count=4):
+        for hole_center in gear_attachment_hole_centers(
+            center, radius, angle, count=4, physical_grid=True
+        ):
             self.scene.addEllipse(
                 hole_center.x() - hole_r,
                 hole_center.y() - hole_r,
@@ -327,12 +337,23 @@ class GalleryThumbnail(QFrame):
 
     def _draw_gear_preview(self, *, with_linkage: bool) -> None:
         angle = self.current_angle * 0.03
-        c1 = QPointF(-48, 0)
-        c2 = QPointF(25, 0)
         r1 = 28.0
-        r2 = 34.0
-        self._draw_gear_shape(c1, r1, 12, angle, QColor("#9a6a00"), QColor("#d8b45d"))
-        self._draw_gear_shape(c2, r2, 16, -angle * (r1 / r2), QColor("#8a3f2d"), QColor("#c47b5c"))
+        r2 = 28.0
+        center_distance = gear_center_distance(r1, r2, 0.0)
+        c1 = QPointF(-center_distance / 2.0, 0)
+        c2 = QPointF(center_distance / 2.0, 0)
+        teeth1 = 24
+        teeth2 = 24
+        self._draw_gear_shape(c1, r1, teeth1, angle, QColor("#9a6a00"), QColor("#d8b45d"))
+        driven_angle = math.pi + math.pi / teeth2 - angle * (teeth1 / teeth2)
+        self._draw_gear_shape(
+            c2,
+            r2,
+            teeth2,
+            driven_angle,
+            QColor("#8a3f2d"),
+            QColor("#c47b5c"),
+        )
         self.scene.addLine(
             c1.x(),
             c1.y(),
@@ -342,12 +363,12 @@ class GalleryThumbnail(QFrame):
         )
         if not with_linkage:
             return
-        pin_angle = -angle * (r1 / r2)
-        pin_radius = r2 * 0.55
+        pin_angle = driven_angle
+        pin_radius = 20.0
         pin = QPointF(
             c2.x() + pin_radius * math.cos(pin_angle), c2.y() + pin_radius * math.sin(pin_angle)
         )
-        end = QPointF(pin.x() + 64.0 * math.cos(pin_angle), pin.y() + 64.0 * math.sin(pin_angle))
+        end = QPointF(pin.x() + 56.0 * math.cos(pin_angle), pin.y() + 56.0 * math.sin(pin_angle))
         arm_pen = QPen(QColor("#c9ad10"), 7)
         arm_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         self.scene.addLine(pin.x(), pin.y(), end.x(), end.y(), arm_pen)
@@ -364,17 +385,20 @@ class GalleryThumbnail(QFrame):
     def _draw_planetary_preview(self) -> None:
         angle = self.current_angle * 0.025
         center = QPointF(0, 0)
-        ring_inner = 66.0
-        ring_outer = 78.0
+        sun_radius = 10.0
+        planet_radius = 30.0
+        orbit = gear_center_distance(sun_radius, planet_radius, 0.0)
+        ring_pitch_radius = orbit + planet_radius
+        ring_inner = ring_pitch_radius - 4.0
+        ring_outer = ring_pitch_radius + 8.0
         self.scene.addPath(
             annulus_path(center, ring_outer, ring_inner),
             QPen(QColor("#5d6d7e"), 2),
             QBrush(QColor(180, 185, 190, 90)),
         )
-        for start, end in radial_tick_lines(center, ring_inner - 2, ring_inner + 4, 36):
+        for start, end in radial_tick_lines(center, ring_inner - 2, ring_inner + 4, 56):
             self.scene.addLine(start.x(), start.y(), end.x(), end.y(), QPen(QColor("#5d6d7e"), 1))
-        self._draw_gear_shape(center, 24.0, 12, angle, QColor("#936b1f"), QColor("#d7b65d"))
-        orbit = 42.0
+        self._draw_gear_shape(center, sun_radius, 8, angle, QColor("#936b1f"), QColor("#d7b65d"))
         for idx in range(3):
             planet_angle = angle + idx * (2.0 * math.pi / 3.0)
             planet = QPointF(orbit * math.cos(planet_angle), orbit * math.sin(planet_angle))
@@ -383,8 +407,8 @@ class GalleryThumbnail(QFrame):
             self.scene.addLine(center.x(), center.y(), planet.x(), planet.y(), carrier_pen)
             self._draw_gear_shape(
                 planet,
-                18.0,
-                12,
+                planet_radius,
+                24,
                 -angle * 1.7,
                 QColor("#9c4f22"),
                 QColor("#d38a4b"),
@@ -404,7 +428,7 @@ class GalleryThumbnail(QFrame):
     def showEvent(self, event: QShowEvent | None) -> None:
         """Start animation when widget becomes visible."""
         super().showEvent(event)
-        if self.mechanism and not self.animation_timer.isActive():
+        if self._has_animatable_preview() and not self.animation_timer.isActive():
             self.animation_timer.start(50)
 
     def hideEvent(self, event: QHideEvent | None) -> None:

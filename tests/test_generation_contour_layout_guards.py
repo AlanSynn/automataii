@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import math
+import re
+from pathlib import Path
 
+import cv2
 import numpy as np
 
 from automataii.domain.generation.contour import AdvancedContourExtractor, ManufacturingContour
 from automataii.domain.generation.layout import ScaleNormalizer
+from automataii.infrastructure.generation.processors.png_blueprint import PNGBlueprintProcessor
+from automataii.infrastructure.generation.svg.optimizer import BlueprintLayoutOptimizer
 
 
 def _sample_contour() -> ManufacturingContour:
@@ -100,3 +105,99 @@ def test_normalize_contour_keeps_scaled_properties_finite() -> None:
     assert scaled.area == 0.0
     assert scaled.perimeter == 0.0
     assert scaled.svg_path == "M 0.00 0.00 L 10.00 10.00 Z"
+
+
+class _BlueprintPartInfo:
+    def __init__(self, *, name: str, image_path: str, roi: list[float]) -> None:
+        self.name = name
+        self.image_path = image_path
+        self.roi = roi
+        self.x = roi[0]
+        self.y = roi[1]
+        self.local_pivot_offset = [roi[2] / 2.0, roi[3] / 2.0]
+
+
+class _BlueprintPartItem:
+    def __init__(self, part_info: _BlueprintPartInfo) -> None:
+        self.part_info = part_info
+
+
+class _PixmapBlueprintPartItem(_BlueprintPartItem):
+    def __init__(self, part_info: _BlueprintPartInfo, pixmap: object) -> None:
+        super().__init__(part_info)
+        self.part_pixmap = pixmap
+
+
+def test_character_part_blueprint_texture_keeps_editor_canvas_alignment(tmp_path: Path) -> None:
+    """Transparent margins must not be squeezed into the cut contour bounds.
+
+    Editor parts are shown as an alpha-masked pixmap on a full cropped canvas.
+    The cut sheet may crop the red cut outline to the contour bbox, but the
+    embedded texture has to stay translated from the full editor canvas;
+    otherwise the visible body component no longer matches the editor shape.
+    """
+    image_path = tmp_path / "offset_triangle.png"
+    bgra = np.zeros((160, 200, 4), dtype=np.uint8)
+    triangle = np.array([[[70, 40], [150, 64], [92, 130]]], dtype=np.int32)
+    cv2.fillPoly(bgra, triangle, color=(60, 120, 220, 255))
+    assert cv2.imwrite(str(image_path), bgra)
+
+    part_item = _BlueprintPartItem(
+        _BlueprintPartInfo(
+            name="offset_triangle",
+            image_path=str(image_path),
+            roi=[0.0, 0.0, 200.0, 160.0],
+        )
+    )
+
+    layout_items, _width, _height = BlueprintLayoutOptimizer().optimize_blueprint_layout(
+        [part_item], {}, unit_system="imperial"
+    )
+
+    assert len(layout_items) == 1
+    item = layout_items[0]
+    image_match = re.search(
+        r'<image\b[^>]*\sx="(?P<x>-?\d+(?:\.\d+)?)"[^>]*\sy="(?P<y>-?\d+(?:\.\d+)?)"'
+        r'[^>]*\swidth="(?P<width>\d+(?:\.\d+)?)"[^>]*\sheight="(?P<height>\d+(?:\.\d+)?)"',
+        item.svg_content,
+    )
+    assert image_match is not None
+    assert float(image_match.group("x")) < 0.0
+    assert float(image_match.group("y")) < 0.0
+    assert float(image_match.group("width")) > item.bounds.width
+    assert float(image_match.group("height")) > item.bounds.height
+    assert "clip-path" in item.svg_content
+    assert "cutting-path" in item.svg_content
+
+
+def test_character_part_contour_prefers_current_editor_pixmap(tmp_path: Path) -> None:
+    from PyQt6.QtGui import QImage, QPixmap
+    from PyQt6.QtWidgets import QApplication
+
+    _app = QApplication.instance() or QApplication([])
+    disk_path = tmp_path / "stale_rect.png"
+    stale = np.zeros((80, 80, 4), dtype=np.uint8)
+    stale[5:75, 5:75, :] = (20, 20, 20, 255)
+    assert cv2.imwrite(str(disk_path), stale)
+
+    rgba = np.zeros((80, 80, 4), dtype=np.uint8)
+    triangle = np.array([[[30, 18], [64, 62], [16, 70]]], dtype=np.int32)
+    cv2.fillPoly(rgba, triangle, color=(240, 120, 80, 255))
+    image = QImage(rgba.data, 80, 80, 80 * 4, QImage.Format.Format_RGBA8888).copy()
+    item = _PixmapBlueprintPartItem(
+        _BlueprintPartInfo(
+            name="editor_triangle",
+            image_path=str(disk_path),
+            roi=[0.0, 0.0, 80.0, 80.0],
+        ),
+        QPixmap.fromImage(image),
+    )
+
+    contour = PNGBlueprintProcessor().process_part_png(item)
+
+    assert contour is not None
+    assert getattr(contour, "coordinate_space", None) == "displayed_roi"
+    assert getattr(contour, "source_image_data_uri", "").startswith("data:image/png;base64,")
+    # The stale disk rectangle would start near x=5; the editor triangle starts
+    # much farther right, proving the visible pixmap won.
+    assert contour.bounding_rect[0] > 10

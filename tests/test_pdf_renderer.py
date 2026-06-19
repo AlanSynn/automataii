@@ -115,15 +115,15 @@ def test_render_svg_to_pdf_visually_matches_svg_fit(tmp_path: Path) -> None:
 def test_render_svg_to_pdf_preserves_source_physical_page_size(tmp_path: Path) -> None:
     target = tmp_path / "gear.pdf"
 
-    assert render_svg_to_pdf(Path("fabrication/gears/gear-12t.svg"), target) is True
+    assert render_svg_to_pdf(Path("fabrication/gears/gear-8t.svg"), target) is True
 
     ensure_qapp()
     qt_pdf = pytest.importorskip("PyQt6.QtPdf")
     document = qt_pdf.QPdfDocument(None)
     document.load(str(target))
     page_size = document.pagePointSize(0)
-    assert page_size.width() == pytest.approx(55.6 * 72.0 / 25.4, abs=1.0)
-    assert page_size.height() == pytest.approx(65.6 * 72.0 / 25.4, abs=1.0)
+    assert page_size.width() == pytest.approx(39.0 * 72.0 / 25.4, abs=1.0)
+    assert page_size.height() == pytest.approx(49.0 * 72.0 / 25.4, abs=1.0)
 
 
 def test_render_svg_to_pdf_can_fit_guides_on_standard_print_pages(tmp_path: Path) -> None:
@@ -137,6 +137,33 @@ def test_render_svg_to_pdf_can_fit_guides_on_standard_print_pages(tmp_path: Path
     image = render_pdf_page(target)
     for sentinel in ((239, 68, 68), (34, 197, 94), (59, 130, 246), (245, 158, 11)):
         assert _has_color(image, sentinel), sentinel
+
+
+def test_render_svg_to_pdf_fit_mode_does_not_clip_large_svg_to_top_left(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "large-corners.pdf"
+    large_svg = """<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="900mm" height="620mm" viewBox="0 0 900 620">
+  <rect x="0" y="0" width="900" height="620" fill="white"/>
+  <rect x="0" y="0" width="70" height="70" fill="#ef4444"/>
+  <rect x="830" y="0" width="70" height="70" fill="#22c55e"/>
+  <rect x="0" y="550" width="70" height="70" fill="#3b82f6"/>
+  <rect x="830" y="550" width="70" height="70" fill="#f59e0b"/>
+  <rect x="12" y="12" width="876" height="596" fill="none" stroke="#111827" stroke-width="12"/>
+</svg>
+"""
+
+    assert render_svg_to_pdf(large_svg, target, page_size_mm=(215.9, 279.4)) is True
+
+    image = render_pdf_page(target, size=QSize(768, 994))
+    for sentinel in ((239, 68, 68), (34, 197, 94), (59, 130, 246), (245, 158, 11)):
+        assert _has_color(image, sentinel), sentinel
+    bbox, _count = nonwhite_bbox(image)
+    assert bbox[0] > 1
+    assert bbox[1] > image.height() * 0.20
+    assert bbox[2] < image.width() - 2
+    assert bbox[3] < image.height() * 0.80
 
 
 def test_render_svg_to_pdf_can_center_actual_size_parts_on_print_pages(tmp_path: Path) -> None:

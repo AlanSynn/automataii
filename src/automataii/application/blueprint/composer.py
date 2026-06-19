@@ -10,11 +10,20 @@ from typing import Any
 from automataii.infrastructure.generation.svg.blueprint import generate_single_large_blueprint
 from automataii.infrastructure.generation.svg.optimizer import BlueprintLayoutOptimizer
 from automataii.infrastructure.telemetry import telemetry_span
+from automataii.shared.physical_kit import DEFAULT_DISPLAY_UNIT_SYSTEM, normalize_unit_system
 
 
 @dataclass(frozen=True)
 class BlueprintCompositionResult:
     svg: str
+    width_mm: float
+    height_mm: float
+    item_count: int
+
+
+@dataclass(frozen=True)
+class BlueprintLayoutCompositionResult:
+    layout_items: tuple[Any, ...]
     width_mm: float
     height_mm: float
     item_count: int
@@ -40,17 +49,47 @@ class BlueprintComposer:
             return default
         return number if math.isfinite(number) and number > 0.0 else default
 
+    def compose_layout_items(
+        self,
+        part_items: Sequence[Any],
+        mechanism_layers: dict[str, Any],
+        *,
+        unit_system: str = DEFAULT_DISPLAY_UNIT_SYSTEM,
+    ) -> BlueprintLayoutCompositionResult:
+        """Return normalized physical layout items without choosing a document surface.
+
+        The legacy composer used the optimizer output only to build one large
+        on-screen SVG. Printable PDF packages need the same physical items, but
+        placed onto fixed Letter pages. This method exposes that SSOT so PDF and
+        SVG cut-sheet emitters do not have to parse the large preview SVG.
+        """
+        part_items_seq = tuple(part_items) if part_items is not None else ()
+        mechanism_layers = mechanism_layers if isinstance(mechanism_layers, dict) else {}
+        unit_system = normalize_unit_system(unit_system)
+        layout_items, width_mm, height_mm = self._optimizer.optimize_blueprint_layout(
+            part_items_seq, mechanism_layers, unit_system
+        )
+        layout_items_tuple = tuple(layout_items or ())
+        width_mm = self._positive_finite_float(width_mm, 800.0)
+        height_mm = self._positive_finite_float(height_mm, 600.0)
+        return BlueprintLayoutCompositionResult(
+            layout_items=layout_items_tuple,
+            width_mm=width_mm,
+            height_mm=height_mm,
+            item_count=len(layout_items_tuple),
+        )
+
     def compose_single_page(
         self,
         part_items: Sequence[Any],
         mechanism_layers: dict[str, Any],
         *,
-        unit_system: str = "metric",
+        unit_system: str = DEFAULT_DISPLAY_UNIT_SYSTEM,
         snapshot_png_bytes: bytes | None = None,
     ) -> BlueprintCompositionResult:
         part_items_seq = tuple(part_items) if part_items is not None else ()
         mechanism_layers = mechanism_layers if isinstance(mechanism_layers, dict) else {}
-        unit_system = "imperial" if unit_system == "imperial" else "metric"
+        unit_system = normalize_unit_system(unit_system)
 
         with telemetry_span(
             "application.blueprint.compose_single_page",
@@ -58,12 +97,12 @@ class BlueprintComposer:
             mechanism_count=len(mechanism_layers),
             unit_system=unit_system,
         ) as span:
-            layout_items, width_mm, height_mm = self._optimizer.optimize_blueprint_layout(
-                part_items_seq, mechanism_layers, unit_system
+            layout_result = self.compose_layout_items(
+                part_items_seq, mechanism_layers, unit_system=unit_system
             )
-            layout_items = list(layout_items or [])
-            width_mm = self._positive_finite_float(width_mm, 800.0)
-            height_mm = self._positive_finite_float(height_mm, 600.0)
+            layout_items = list(layout_result.layout_items)
+            width_mm = layout_result.width_mm
+            height_mm = layout_result.height_mm
             if not layout_items:
                 svg = (
                     '<svg width="400mm" height="300mm" viewBox="0 0 400 300" '

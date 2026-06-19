@@ -61,10 +61,10 @@ class TestMechanismInstantiationService:
 
         # Verify parameter mapping
         params = layer_data["params"]
-        assert params["l1"] == pytest.approx(150.0)  # ground_link -> l1
+        assert params["l1"] == pytest.approx(160.0)  # ground_link -> nearest kit length
         assert params["l2"] == pytest.approx(40.0)  # input_link -> l2
         assert params["l3"] == pytest.approx(120.0)  # coupler_link -> l3
-        assert params["l4"] == pytest.approx(130.0)  # output_link -> l4
+        assert params["l4"] == pytest.approx(120.0)  # output_link -> nearest kit length
 
     def test_create_layer_data_from_foundry_cam(self):
         """Test creating layer data from Foundry cam_follower export."""
@@ -174,7 +174,8 @@ class TestMechanismInstantiationService:
         assert layer_data["type"] == "gear"
         assert layer_data["source_type"] == "gear_linkage"
         assert layer_data["params"]["gear_linkage_enabled"] is True
-        assert layer_data["params"]["linkage_pin_radius"] == pytest.approx(12.0)
+        assert layer_data["params"]["gear2_teeth"] == 24
+        assert layer_data["params"]["linkage_pin_radius"] == pytest.approx(20.0)
         assert layer_data["params"]["linkage_arm_length"] == pytest.approx(40.0)
 
     def test_create_layer_data_from_foundry_slider_crank(self):
@@ -205,8 +206,8 @@ class TestMechanismInstantiationService:
         assert layer_data["source"] == "foundry"
         params = layer_data["params"]
         assert params["l2"] == pytest.approx(80.0)
-        assert params["l3"] == pytest.approx(140.0)
-        assert params["l4"] == pytest.approx(140.0)
+        assert params["l3"] == pytest.approx(120.0)
+        assert params["l4"] == pytest.approx(120.0)
         assert params["l1"] > 0.0
         assert params["crank_angle"] == 35.0
 
@@ -286,7 +287,7 @@ class TestMechanismInstantiationService:
             },
         )
 
-        assert layer_data["params"]["l1"] == pytest.approx(150.0)
+        assert layer_data["params"]["l1"] == pytest.approx(160.0)
         assert layer_data["params"]["l2"] == pytest.approx(40.0)
         assert layer_data["key_points"]["crank_end"] != layer_data["key_points"]["ground_pivot_1"]
 
@@ -345,12 +346,12 @@ class TestMechanismInstantiationService:
             {"gear1_teeth": "12", "gear2_teeth": "18"},
         )
 
-        assert params["gear1_teeth"] == 12
-        assert params["gear2_teeth"] == 18
-        assert params["r1"] == 18.0
-        assert params["r2"] == 27.0
-        assert params["gear1_radius"] == 18.0
-        assert params["gear2_radius"] == 27.0
+        assert params["gear1_teeth"] == 8
+        assert params["gear2_teeth"] == 24
+        assert params["r1"] == 10.0
+        assert params["r2"] == 30.0
+        assert params["gear1_radius"] == 10.0
+        assert params["gear2_radius"] == 30.0
 
     def test_map_foundry_gear_honors_grid_disabled_freeform_teeth(self):
         from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
@@ -366,8 +367,8 @@ class TestMechanismInstantiationService:
         assert params["grid_system_enabled"] is False
         assert params["gear1_teeth"] == 12
         assert params["gear2_teeth"] == 18
-        assert params["gear1_radius"] == 18.0
-        assert params["gear2_radius"] == 27.0
+        assert params["gear1_radius"] == 15.0
+        assert params["gear2_radius"] == 22.5
 
     def test_create_foundry_gear_honors_grid_disabled_freeform_teeth(self):
         from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
@@ -383,10 +384,10 @@ class TestMechanismInstantiationService:
         )
 
         assert layer_data["params"]["grid_system_enabled"] is False
-        assert layer_data["params"]["gear1_radius"] == 18.0
-        assert layer_data["params"]["gear2_radius"] == 27.0
-        assert layer_data["key_points"]["gear1_center"] == [376.5, 300.0]
-        assert layer_data["key_points"]["gear2_center"] == [423.5, 300.0]
+        assert layer_data["params"]["gear1_radius"] == 15.0
+        assert layer_data["params"]["gear2_radius"] == 22.5
+        assert layer_data["key_points"]["gear1_center"] == [381.25, 300.0]
+        assert layer_data["key_points"]["gear2_center"] == [418.75, 300.0]
 
     def test_map_foundry_params_rejects_malformed_type_payload(self):
         from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
@@ -565,6 +566,60 @@ class TestMechanismInstantiationService:
         assert params["gear1_teeth"] == 13
         assert params["gear2_teeth"] == 17
 
+    def test_recommendation_candidate_layers_default_to_fabrication_ready_presets(self):
+        from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
+            MechanismInstantiationService,
+        )
+
+        service = MechanismInstantiationService()
+        layer_data = service.create_layer_data_from_candidate(
+            candidate_data={
+                "type": "Four-Bar Linkage",
+                "original_json_type": "4-bar Coupler",
+                "parameters": {"l1": 45.1, "l2": 11.8, "l3": 80.2, "l4": 60.6},
+            },
+            selected_part_name="arm",
+            target_path=None,
+            convert_params_fn=None,
+            extract_key_points_fn=None,
+        )
+
+        params = layer_data["params"]
+        assert params["grid_system_enabled"] is True
+        assert params["fabrication_ready_preset_mode"] is True
+        assert (params["l1"], params["l2"], params["l3"], params["l4"]) == (
+            40.0,
+            40.0,
+            80.0,
+            80.0,
+        )
+
+    def test_planetary_recommendation_layers_default_to_kit_gear_and_arm_presets(self):
+        from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
+            MechanismInstantiationService,
+        )
+
+        service = MechanismInstantiationService()
+        layer_data = service.create_layer_data_from_candidate(
+            candidate_data={
+                "type": "Gears",
+                "original_json_type": "Planetary Gear",
+                "parameters": {"r_sun": 18.0, "r_planet": 36.0, "arm_length": 13.0},
+            },
+            selected_part_name="arm",
+            target_path=None,
+            convert_params_fn=None,
+            extract_key_points_fn=None,
+        )
+
+        params = layer_data["params"]
+        assert layer_data["type"] == "planetary_gear"
+        assert params["sun_teeth"] == 8
+        assert params["planet_teeth"] == 24
+        assert params["r_sun"] == 10.0
+        assert params["r_planet"] == 30.0
+        assert params["arm_length"] == 40.0
+
     def test_cam_recommendation_inherits_disabled_grid_context_without_snapping(self):
         from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
             MechanismInstantiationService,
@@ -672,10 +727,10 @@ class TestMechanismInstantiationService:
         )
 
         assert layer_data["transform_params"]["center"] == [0.0, 0.0]
-        assert layer_data["params"]["l1"] == pytest.approx(150.0)
+        assert layer_data["params"]["l1"] == pytest.approx(160.0)
         assert layer_data["params"]["l2"] == pytest.approx(40.0)
         assert layer_data["params"]["l3"] == pytest.approx(120.0)
-        assert layer_data["params"]["l4"] == pytest.approx(130.0)
+        assert layer_data["params"]["l4"] == pytest.approx(120.0)
         for point in layer_data["key_points"].values():
             assert all(math.isfinite(value) for value in point)
 
@@ -711,10 +766,10 @@ class TestMechanismInstantiationService:
         assert cam["cam_lobes"] == 1
         assert cam["profile_harmonic"] == pytest.approx(0.35)
         assert cam["physical_cam_preset"] == "pear"
-        assert gear["gear1_teeth"] == 12
-        assert gear["gear2_teeth"] == 16
+        assert gear["gear1_teeth"] == 24
+        assert gear["gear2_teeth"] == 24
         assert slider["l2"] == pytest.approx(80.0)
-        assert slider["l3"] == pytest.approx(140.0)
+        assert slider["l3"] == pytest.approx(120.0)
         assert slider["gas_pressure"] == pytest.approx(0.0)
 
     def test_mechanism_id_uniqueness(self):
@@ -1367,12 +1422,12 @@ class TestMechanismDesignTabFoundryUpdate:
             _mechanism_instantiation=SimpleNamespace(
                 map_foundry_params_to_internal=MagicMock(
                     return_value={
-                        "gear1_teeth": 18,
-                        "gear2_teeth": 12,
-                        "r1": 27.0,
-                        "r2": 18.0,
-                        "gear1_radius": 27.0,
-                        "gear2_radius": 18.0,
+                        "gear1_teeth": 24,
+                        "gear2_teeth": 8,
+                        "r1": 30.0,
+                        "r2": 10.0,
+                        "gear1_radius": 30.0,
+                        "gear2_radius": 10.0,
                     }
                 )
             ),
@@ -1395,21 +1450,21 @@ class TestMechanismDesignTabFoundryUpdate:
 
         updated_params = layer_data["params"]
         updated_key_points = layer_data["key_points"]
-        assert updated_params["gear1_radius"] == pytest.approx(27.0)
-        assert updated_params["gear2_radius"] == pytest.approx(18.0)
-        assert updated_key_points["gear1_center"] == pytest.approx([76.5, 100.0])
-        assert updated_key_points["gear2_center"] == pytest.approx([123.5, 100.0])
-        assert updated_params["gear1_x"] == pytest.approx(76.5)
-        assert updated_params["gear2_x"] == pytest.approx(123.5)
+        assert updated_params["gear1_radius"] == pytest.approx(30.0)
+        assert updated_params["gear2_radius"] == pytest.approx(10.0)
+        assert updated_key_points["gear1_center"] == pytest.approx([80.0, 100.0])
+        assert updated_key_points["gear2_center"] == pytest.approx([120.0, 100.0])
+        assert updated_params["gear1_x"] == pytest.approx(80.0)
+        assert updated_params["gear2_x"] == pytest.approx(120.0)
 
         gear_data = layer_data["full_simulation_data"]["gear_data"]
-        assert gear_data["gear1_centers"][0] == pytest.approx([76.5, 100.0])
-        assert gear_data["gear2_centers"][0] == pytest.approx([123.5, 100.0])
+        assert gear_data["gear1_centers"][0] == pytest.approx([80.0, 100.0])
+        assert gear_data["gear2_centers"][0] == pytest.approx([120.0, 100.0])
 
         cache = cache_manager.get_gear_cache("gear_1")
         assert cache is not None
-        assert cache.gear1_center.tolist() == pytest.approx([76.5, 100.0])
-        assert cache.gear2_center.tolist() == pytest.approx([123.5, 100.0])
+        assert cache.gear1_center.tolist() == pytest.approx([80.0, 100.0])
+        assert cache.gear2_center.tolist() == pytest.approx([120.0, 100.0])
         build_cache.assert_called_once_with("gear_1", layer_data)
         fake_tab._render_mechanism_layer.assert_called_once_with("gear_1")
 

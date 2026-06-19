@@ -10,6 +10,7 @@ from __future__ import annotations
 import math
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from typing import Literal
 
 from automataii.shared.physical_kit import (
     DEFAULT_BOARD_COLUMNS,
@@ -23,8 +24,11 @@ from automataii.shared.physical_kit import (
 ASSEMBLY_SCHEMA_VERSION = "automataii.fabrication.assembly.v1"
 BOARD_ROWS: tuple[str, ...] = tuple(chr(ord("A") + idx) for idx in range(DEFAULT_BOARD_ROWS))
 BOARD_COLUMNS: tuple[int, ...] = tuple(range(1, DEFAULT_BOARD_COLUMNS + 1))
+BOARD_CENTER_ROW_INDEX = len(BOARD_ROWS) // 2
+BOARD_CENTER_COLUMN = BOARD_COLUMNS[len(BOARD_COLUMNS) // 2]
 PAPER_FASTENER_KEY = "paper-fastener"
 DEFAULT_FASTENER_MAX_LENGTH = "2in"
+BoardCoordOrigin = Literal["top-left", "center"]
 
 
 class AssemblyValidationError(ValueError):
@@ -54,6 +58,16 @@ class BoardCoord:
     def label(self) -> str:
         return f"{self.row}{self.column}"
 
+    @property
+    def row_index(self) -> int:
+        self.validate()
+        return BOARD_ROWS.index(self.row)
+
+    @property
+    def column_index(self) -> int:
+        self.validate()
+        return self.column - BOARD_COLUMNS[0]
+
     def validate(self) -> None:
         if self.row not in BOARD_ROWS or self.column not in BOARD_COLUMNS:
             raise AssemblyValidationError(f"Coordinate outside 15x15 board: {self.label}")
@@ -62,6 +76,62 @@ class BoardCoord:
         return math.hypot(
             BOARD_ROWS.index(self.row) - BOARD_ROWS.index(other.row), self.column - other.column
         )
+
+    def board_space_xy(self, *, origin: BoardCoordOrigin = "top-left") -> tuple[float, float]:
+        """Return board-cell coordinates in the canonical fabrication frame.
+
+        ``top-left`` is the SVG/manual coordinate frame: A1 is ``(0, 0)`` and
+        O15 is ``(14, 14)``.  ``center`` is the app/scene coordinate frame:
+        H8 is ``(0, 0)`` and one unit equals one physical board space.
+        """
+
+        if origin == "top-left":
+            return float(self.column_index), float(self.row_index)
+        if origin == "center":
+            return (
+                float(self.column - BOARD_CENTER_COLUMN),
+                float(self.row_index - BOARD_CENTER_ROW_INDEX),
+            )
+        raise AssemblyValidationError(f"Unsupported board coordinate origin: {origin!r}")
+
+    def to_mm(
+        self,
+        pitch_mm: float,
+        *,
+        origin: BoardCoordOrigin = "top-left",
+    ) -> tuple[float, float]:
+        pitch = finite_float(pitch_mm, math.nan)
+        if not math.isfinite(pitch) or pitch <= 0.0:
+            raise AssemblyValidationError(f"Invalid board pitch: {pitch_mm!r}")
+        board_x, board_y = self.board_space_xy(origin=origin)
+        return board_x * pitch, board_y * pitch
+
+
+def board_coord_to_svg_xy(
+    label: str,
+    *,
+    x: float,
+    y: float,
+    size: float,
+) -> tuple[float, float]:
+    """Map a board label to a point inside an SVG board box.
+
+    This is the single top-left-origin transform used by generated guide SVGs
+    and app-exported PDF assembly pages.
+    """
+
+    coord = BoardCoord.from_label(label)
+    board_x, board_y = coord.board_space_xy(origin="top-left")
+    pitch = finite_float(size, math.nan) / max(1, len(BOARD_COLUMNS) - 1)
+    if not math.isfinite(pitch) or pitch <= 0.0:
+        raise AssemblyValidationError(f"Invalid SVG board size: {size!r}")
+    return x + board_x * pitch, y + board_y * pitch
+
+
+def board_coord_to_centered_mm(label: str, pitch_mm: float) -> tuple[float, float]:
+    """Map a board label to the app/scene frame where H8 is the origin."""
+
+    return BoardCoord.from_label(label).to_mm(pitch_mm, origin="center")
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,8 +306,12 @@ def _part(category: str, key: str, label: str, count: int = 1) -> PartRef:
 
 
 def _part_short_label(part: PartRef) -> str:
-    if part.category == "gears" and part.key.startswith("g") and part.key[1:].isdigit():
-        return f"G{part.key[1:]}"
+    if part.category == "gears":
+        label_token = part.label.split(maxsplit=1)[0].strip()
+        if label_token.startswith("G"):
+            return label_token
+        if part.key.startswith("g") and part.key[1:].isdigit():
+            return f"G{part.key[1:]}"
     return part.label
 
 
@@ -447,12 +521,16 @@ def _best_gear_pair(
     anchor = _coord(anchor_label)
     offsets = ((0, 2), (1, 1), (0, 1), (1, 2), (2, 1), (0, 3))
     candidates: list[tuple[float, PartRef, PartRef, BoardCoord, BoardCoord, GearCompatibility]] = []
-    gear_refs = tuple(
-        _part("gears", preset.key, f"G{preset.teeth} gear") for preset in profile.gear_presets
-    )
+    gear_refs = tuple(_part("gears", preset.key, preset.label) for preset in profile.gear_presets)
     for first in gear_refs:
+        first_meta = manifest_index.get(first.part_id, {})
+        if finite_float(first_meta.get("attachment_hole_count"), 0.0) < 4.0:
+            continue
         for second in gear_refs:
-            if first.part_id not in manifest_index or second.part_id not in manifest_index:
+            second_meta = manifest_index.get(second.part_id, {})
+            if second.part_id not in manifest_index:
+                continue
+            if finite_float(second_meta.get("attachment_hole_count"), 0.0) < 4.0:
                 continue
             for row_delta, column_delta in offsets:
                 try:
@@ -533,8 +611,7 @@ def build_default_assembly_package(
     link6 = _part("linkages", "linkage-6-cell", "L6 linkage")
     bracket2 = _part("brackets", "2-hole-straight", "2-hole bracket")
     bracket3 = _part("brackets", "3-hole-straight", "3-hole bracket")
-    spacer = _part("spacers", "s8", "S8 spacer", count=8)
-    spacer_tall = _part("spacers", "s12", "S12 spacer", count=2)
+    spacer = _part("spacers", "s10", "S10 spacer", count=8)
 
     drive_gear, driven_gear, drive_coord, driven_coord, gear_compat = _best_gear_pair(
         "H6", pitch_mm, index, profile
@@ -548,8 +625,8 @@ def build_default_assembly_package(
         raise AssemblyValidationError("Planetary recipe requires at least two gear presets")
     sun_preset = profile.gear_presets[0]
     planet_preset = profile.gear_presets[1]
-    sun_gear = _part("gears", sun_preset.key, f"G{sun_preset.teeth} gear")
-    planet_gear = _part("gears", planet_preset.key, f"G{planet_preset.teeth} gear")
+    sun_gear = _part("gears", sun_preset.key, sun_preset.label)
+    planet_gear = _part("gears", planet_preset.key, planet_preset.label)
     if sun_gear.part_id not in index or planet_gear.part_id not in index:
         raise AssemblyValidationError("Planetary gear pair missing from fabrication manifest")
     planetary_compat_raw = _gear_compatibility(
@@ -597,6 +674,10 @@ def build_default_assembly_package(
     )
     planetary_gear_parts = (ring_gear, sun_gear, planet_gear)
     four_bar_link2_pair = PartRef(link2.category, link2.key, link2.label, count=2)
+    drive_label = _part_short_label(drive_gear)
+    driven_label = _part_short_label(driven_gear)
+    crank_drive_label = _part_short_label(crank_drive_gear)
+    crank_driven_label = _part_short_label(crank_driven_gear)
 
     recipes = (
         AssemblyRecipe(
@@ -621,34 +702,37 @@ def build_default_assembly_package(
                 _step(
                     2,
                     "add-part",
-                    f"Add {_part_short_label(drive_gear)} drive gear",
-                    f"Add one S8 spacer, then place {_part_short_label(drive_gear)} on {drive_coord.label}.",
+                    f"Add drive {drive_label} gear",
+                    f"Add one S10 spacer, then place drive {drive_label} on {drive_coord.label}.",
                     (drive_coord.label,),
                     (spacer, drive_gear),
                     _stack(drive_coord, drive_gear, spacer),
                     "gear_train",
                     "drive-gear",
-                    f"{_part_short_label(drive_gear)} spins without rubbing.",
+                    f"Drive {drive_label} spins without rubbing.",
                     ghosts=(drive_gear.part_id,),
                 ),
                 _step(
                     3,
                     "add-part",
-                    f"Add {_part_short_label(driven_gear)} output gear",
-                    f"Place {_part_short_label(driven_gear)} at {driven_coord.label} so the two gears touch lightly.",
+                    f"Add output {driven_label} gear",
+                    (
+                        f"Place output {driven_label} at {driven_coord.label} "
+                        f"so it touches drive {drive_label} lightly."
+                    ),
                     (driven_coord.label,),
                     (spacer, driven_gear),
                     _stack(driven_coord, driven_gear, spacer),
                     "gear_train",
                     "driven-gear",
-                    f"Both gears turn when {_part_short_label(drive_gear)} turns.",
+                    f"Both gears turn when drive {drive_label} turns.",
                     ghosts=(drive_gear.part_id,),
                 ),
                 _step(
                     4,
                     "test-motion",
                     "Turn the handle hole",
-                    f"Use a handle hole on {_part_short_label(drive_gear)} and rotate slowly.",
+                    f"Use a handle hole on drive {drive_label} and rotate slowly.",
                     (drive_coord.label, driven_coord.label),
                     (drive_gear, driven_gear),
                     _stack(drive_coord, drive_gear, spacer),
@@ -666,7 +750,7 @@ def build_default_assembly_package(
             "Cam and follower lift",
             "cam_follower",
             "assembly/02-cam-follower-basic.svg",
-            (cam, follower, bracket2, spacer, spacer_tall),
+            (cam, follower, bracket2, spacer),
             (
                 _step(
                     1,
@@ -684,7 +768,7 @@ def build_default_assembly_package(
                     2,
                     "add-part",
                     "Add eccentric cam",
-                    "Add S8 spacer, then place the eccentric cam at J7.",
+                    "Add S10 spacer, then place the eccentric cam at J7.",
                     ("J7",),
                     (spacer, cam),
                     _stack(_coord("J7"), cam, spacer),
@@ -699,8 +783,8 @@ def build_default_assembly_package(
                     "Add follower guide",
                     "Pin the follower guide slot at G7 with a loose spacer stack.",
                     ("G7",),
-                    (spacer_tall, follower),
-                    _stack(_coord("G7"), follower, spacer_tall),
+                    (spacer, follower),
+                    _stack(_coord("G7"), follower, spacer),
                     "cam_follower",
                     "follower-guide",
                     "The follower can slide up and down.",
@@ -713,7 +797,7 @@ def build_default_assembly_package(
                     "Turn the cam and watch the follower rise.",
                     ("J7", "G7"),
                     (cam, follower),
-                    _stack(_coord("G7"), follower, spacer_tall),
+                    _stack(_coord("G7"), follower, spacer),
                     "cam_follower",
                     "lift-check",
                     "Loosen the guide if it sticks.",
@@ -821,21 +905,27 @@ def build_default_assembly_package(
                 _step(
                     2,
                     "add-part",
-                    f"Add {_part_short_label(crank_drive_gear)} gear",
-                    f"Add S8 spacer, then place {_part_short_label(crank_drive_gear)} at {crank_drive_coord.label}.",
+                    f"Add drive {crank_drive_label} gear",
+                    (
+                        f"Add S10 spacer, then place drive {crank_drive_label} "
+                        f"at {crank_drive_coord.label}."
+                    ),
                     (crank_drive_coord.label,),
                     (spacer, crank_drive_gear),
                     _stack(crank_drive_coord, crank_drive_gear, spacer),
                     "gear_linkage",
                     "drive-gear",
-                    f"{_part_short_label(crank_drive_gear)} rotates freely.",
+                    f"Drive {crank_drive_label} rotates freely.",
                     ghosts=(crank_drive_gear.part_id,),
                 ),
                 _step(
                     3,
                     "add-part",
-                    f"Mesh {_part_short_label(crank_driven_gear)} gear",
-                    f"Place {_part_short_label(crank_driven_gear)} at {crank_driven_coord.label} and mesh it with {_part_short_label(crank_drive_gear)}.",
+                    f"Mesh output {crank_driven_label} gear",
+                    (
+                        f"Place output {crank_driven_label} at {crank_driven_coord.label} "
+                        f"and mesh it with drive {crank_drive_label}."
+                    ),
                     (crank_driven_coord.label,),
                     (spacer, crank_driven_gear),
                     _stack(crank_driven_coord, crank_driven_gear, spacer),
@@ -849,7 +939,7 @@ def build_default_assembly_package(
                     "add-linkage",
                     "Add linkage output",
                     (
-                        f"Fasten L4 through an off-center {_part_short_label(crank_driven_gear)} "
+                        f"Fasten L4 through an off-center output {crank_driven_label} "
                         "handle hole only (not the board), then point the free end toward I12."
                     ),
                     (crank_driven_coord.label, "I12"),
@@ -921,7 +1011,7 @@ def build_default_assembly_package(
                     3,
                     "add-part",
                     f"Add {_part_short_label(sun_gear)} sun gear",
-                    f"Add S8 spacer, then place {_part_short_label(sun_gear)} on {sun_coord.label}.",
+                    f"Add S10 spacer, then place {_part_short_label(sun_gear)} on {sun_coord.label}.",
                     (sun_coord.label,),
                     (spacer, sun_gear),
                     _stack(sun_coord, sun_gear, spacer),
@@ -1184,6 +1274,106 @@ def validate_assembly_package(
             stack = step.get("stack")
             if not isinstance(stack, Sequence):
                 raise AssemblyValidationError(f"Step {raw_n} has invalid stack")
+            stack_layers = tuple(layer for layer in stack if isinstance(layer, Mapping))
+            stack_roles = tuple(str(layer.get("role", "")) for layer in stack_layers)
+            stack_role_set = {role for role in stack_roles if role}
+            for layer in stack_layers:
+                role = str(layer.get("role", ""))
+                part = str(layer.get("part", ""))
+                if role in {"spacer", "top-spacer"} and part != part_id("spacers", "s10"):
+                    raise AssemblyValidationError(
+                        f"Step {raw_n} must use S10 spacers in z-stack"
+                    )
+
+            def _require_role_order(
+                expected_roles: Sequence[str],
+                *,
+                _stack_roles: tuple[str, ...] = stack_roles,
+                _raw_n: object = raw_n,
+            ) -> None:
+                cursor = -1
+                for expected_role in expected_roles:
+                    try:
+                        next_index = _stack_roles.index(expected_role, cursor + 1)
+                    except ValueError as exc:
+                        raise AssemblyValidationError(
+                            f"Step {_raw_n} z-stack missing {expected_role}"
+                        ) from exc
+                    if next_index <= cursor:
+                        raise AssemblyValidationError(
+                            f"Step {_raw_n} z-stack order is invalid"
+                        )
+                    cursor = next_index
+
+            moving_anchor_roles = {
+                "board",
+                "carrier-hole",
+                "gear-handle-hole",
+                "link-end-hole",
+                "link-joint-hole",
+            }
+            if "moving-part" in stack_role_set:
+                anchors = [role for role in stack_roles if role in moving_anchor_roles]
+                if not anchors:
+                    raise AssemblyValidationError(f"Step {raw_n} moving stack has no pivot")
+                _require_role_order(
+                    (
+                        anchors[0],
+                        "paper-fastener",
+                        "spacer",
+                        "moving-part",
+                        "top-spacer",
+                        "fastener-tabs",
+                    )
+                )
+            if "fixed-part" in stack_role_set:
+                _require_role_order(
+                    ("board", "paper-fastener", "spacer", "fixed-part", "fastener-tabs")
+                )
+
+            coord_role_set = {str(role) for role in raw_coord_roles}
+            non_board_coord_roles = coord_role_set - {"board"}
+            role_to_stack_anchor = {
+                "carrier_reference": {"carrier-hole"},
+                "gear_handle_reference": {"gear-handle-hole"},
+                "link_end_reference": {"link-end-hole"},
+                "link_joint_reference": {"link-joint-hole"},
+                "slider_reference": {"link-end-hole", "link-joint-hole"},
+            }
+            if "board" in stack_role_set and "board" not in coord_role_set:
+                raise AssemblyValidationError(
+                    f"Step {raw_n} board stack conflicts with coordinate roles"
+                )
+            if coord_role_set and "board" not in coord_role_set:
+                expected_anchors = set().union(
+                    *(role_to_stack_anchor.get(role, set()) for role in coord_role_set)
+                )
+                if expected_anchors and not (expected_anchors & stack_role_set):
+                    raise AssemblyValidationError(
+                        f"Step {raw_n} moving coordinate role lacks matching z-stack anchor"
+                    )
+            if "carrier-hole" in stack_role_set and "carrier_reference" not in coord_role_set:
+                raise AssemblyValidationError(f"Step {raw_n} carrier stack lacks carrier role")
+            if "gear-handle-hole" in stack_role_set and "gear_handle_reference" not in coord_role_set:
+                raise AssemblyValidationError(
+                    f"Step {raw_n} gear handle stack lacks gear handle role"
+                )
+            if "link-joint-hole" in stack_role_set and not (
+                {"link_joint_reference", "slider_reference"} & coord_role_set
+            ):
+                raise AssemblyValidationError(
+                    f"Step {raw_n} linkage joint stack lacks moving joint role"
+                )
+            if "link-end-hole" in stack_role_set and not (
+                {"link_end_reference", "slider_reference"} & coord_role_set
+            ):
+                raise AssemblyValidationError(
+                    f"Step {raw_n} link end stack lacks moving end role"
+                )
+            if non_board_coord_roles and "board" not in coord_role_set and "board" in stack_role_set:
+                raise AssemblyValidationError(
+                    f"Step {raw_n} moving-only coordinate was pinned to board"
+                )
             stack_text = " ".join(
                 str(layer.get("label", "")) for layer in stack if isinstance(layer, Mapping)
             )
@@ -1267,3 +1457,9 @@ def validate_assembly_package(
         or finite_float(hardware.get("part_hole_diameter_mm"), 0.0) != hole
     ):
         raise AssemblyValidationError("Assembly hardware hole diameter must match manifest")
+    manifest_pitch = finite_float(manifest.get("grid_pitch_mm"), 0.0)
+    package_pitch = (
+        finite_float(hardware.get("board_pitch_mm"), 0.0) if isinstance(hardware, Mapping) else 0.0
+    )
+    if manifest_pitch <= 0.0 or not math.isclose(package_pitch, manifest_pitch, abs_tol=1e-6):
+        raise AssemblyValidationError("Assembly board pitch must match fabrication manifest")

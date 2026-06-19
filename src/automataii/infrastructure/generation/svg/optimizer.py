@@ -1420,6 +1420,8 @@ class BlueprintLayoutOptimizer:
 
     def _contour_in_part_roi_space(self, item: Any, contour: Any) -> Any:
         """Convert contour geometry from source PNG pixels into displayed ROI pixels."""
+        if getattr(contour, "coordinate_space", None) == "displayed_roi":
+            return contour
         scale_x, scale_y = self._source_to_roi_scale(item, contour)
         if math.isclose(scale_x, 1.0, abs_tol=1e-9) and math.isclose(scale_y, 1.0, abs_tol=1e-9):
             return contour
@@ -1443,6 +1445,18 @@ class BlueprintLayoutOptimizer:
                 svg_path=self._scale_svg_path_xy(contour.svg_path, scale_x, scale_y),
             )
             scaled.source_image_path = getattr(contour, "source_image_path", None)
+            scaled.coordinate_space = "displayed_roi"
+            source_size = getattr(contour, "source_image_size_px", None)
+            if isinstance(source_size, list | tuple) and len(source_size) >= 2:
+                try:
+                    scaled.source_image_size_px = (
+                        float(source_size[0]) * scale_x,
+                        float(source_size[1]) * scale_y,
+                    )
+                except (TypeError, ValueError):
+                    pass
+            if hasattr(contour, "source_image_data_uri"):
+                scaled.source_image_data_uri = contour.source_image_data_uri
             return scaled
         except Exception:
             self.logger.debug("Could not convert contour to ROI coordinate space", exc_info=True)
@@ -1515,10 +1529,17 @@ class BlueprintLayoutOptimizer:
             offset_path = scaled_contour.svg_path
             x, y, w, h = 0.0, 0.0, bounds.width, bounds.height
 
-        # Prepare image data URI if available
+        # Prepare image data URI if available.  The image must stay in the
+        # same coordinate frame as the editor pixmap/full source PNG, then be
+        # translated behind the contour's cropped bounding box.  The previous
+        # code squeezed the whole PNG into the contour bbox, so arms/heads with
+        # transparent margins looked different from the editor and their
+        # texture no longer aligned with the red cut path.
         image_href = None
         try:
-            if hasattr(scaled_contour, "source_image_path") and scaled_contour.source_image_path:
+            if getattr(scaled_contour, "source_image_data_uri", None):
+                image_href = str(scaled_contour.source_image_data_uri)
+            elif hasattr(scaled_contour, "source_image_path") and scaled_contour.source_image_path:
                 import base64
 
                 with open(scaled_contour.source_image_path, "rb") as f:
@@ -1535,6 +1556,22 @@ class BlueprintLayoutOptimizer:
                     image_href = f"data:{mime};base64,{b64}"
         except Exception:
             image_href = None
+
+        image_x = -float(x)
+        image_y = -float(y)
+        image_w = float(w)
+        image_h = float(h)
+        source_size_mm = getattr(scaled_contour, "source_image_size_mm", None)
+        if isinstance(source_size_mm, list | tuple) and len(source_size_mm) >= 2:
+            try:
+                source_w = float(source_size_mm[0])
+                source_h = float(source_size_mm[1])
+                if math.isfinite(source_w) and source_w > 0.0:
+                    image_w = source_w
+                if math.isfinite(source_h) and source_h > 0.0:
+                    image_h = source_h
+            except (TypeError, ValueError):
+                pass
 
         # Unique clipPath id - store for later defs collection
         import uuid as _uuid
@@ -1555,8 +1592,10 @@ class BlueprintLayoutOptimizer:
         if image_href:
             # Use both href and xlink:href for maximum compatibility
             parts.append(
-                f'  <image href="{image_href}" xlink:href="{image_href}" x="0" y="0" '
-                f'width="{w:.1f}" height="{h:.1f}" preserveAspectRatio="none" clip-path="url(#{clip_id})" />'
+                f'  <image href="{image_href}" xlink:href="{image_href}" '
+                f'x="{image_x:.1f}" y="{image_y:.1f}" '
+                f'width="{image_w:.1f}" height="{image_h:.1f}" '
+                f'preserveAspectRatio="none" clip-path="url(#{clip_id})" />'
             )
             try:
                 self.logger.debug(

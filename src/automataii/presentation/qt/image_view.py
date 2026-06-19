@@ -117,7 +117,7 @@ class ImageProcessingView(QGraphicsView):
         self.viewport().setStyleSheet("background-color: white; border-radius: 10px;")
 
         # Unit and DPI settings
-        self.display_unit = "cm"  # Default unit: 'cm', 'inch', or 'px'
+        self.display_unit = "inch"  # Default unit: 'cm', 'inch', or 'px'
         try:
             self.dpi = QApplication.primaryScreen().logicalDotsPerInch()
         except AttributeError:

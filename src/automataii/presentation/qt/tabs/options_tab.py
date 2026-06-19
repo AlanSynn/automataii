@@ -19,6 +19,7 @@ from automataii.shared.physical_kit import (
     grid_cell_cm_for_pitch_choice,
     nearest_pitch_choice,
     physical_context_from_settings,
+    physical_kit_preset_summary,
 )
 
 
@@ -332,8 +333,8 @@ class OptionsTab(QWidget):
         if enabled:
             text = (
                 "Preset / Fabrication-ready: mechanisms snap to the selected physical board "
-                "pitch and kit parts; assembly-guide PDFs can be generated when the physical "
-                "contract has no warnings."
+                f"pitch and kit parts ({physical_kit_preset_summary()}); assembly-guide PDFs "
+                "can be generated when the physical contract has no warnings."
             )
         else:
             text = (
