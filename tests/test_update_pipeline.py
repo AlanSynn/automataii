@@ -663,10 +663,46 @@ def test_generate_production_appcast_uses_official_tool_and_stdin_secret(monkeyp
     assert appcast_path == tmp_path / "payload" / "appcast.xml"
     command, stdin = calls[0]
     assert command[0] == str(tool.resolve())
+    assert command[command.index("-o") + 1] == str(tmp_path / "payload" / "appcast.xml")
     assert "--ed-key-file" in command
     assert "-" in command
     assert "private-key-material" not in command
     assert stdin == "private-key-material"
+
+
+def test_generate_production_appcast_recovers_appcast_written_to_cwd(monkeypatch, tmp_path):
+    artifact = tmp_path / "MotionSmith-macos-universal2.dmg"
+    artifact.write_bytes(b"dmg")
+    tool = tmp_path / "generate_appcast"
+    tool.write_text("#!/bin/sh\n", encoding="utf-8")
+
+    def fake_run(cmd, **kwargs):
+        Path("appcast.xml").write_text(_signed_appcast_xml(), encoding="utf-8")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(generate_appcast.subprocess, "run", fake_run)
+
+    args = generate_appcast.build_parser().parse_args(
+        [
+            "production",
+            "--artifact",
+            str(artifact),
+            "--output-dir",
+            str(tmp_path / "payload"),
+            "--expected-version",
+            "1.2.3",
+            "--sparkle-generate-appcast",
+            str(tool),
+            "--keychain-account",
+            "ci-ed25519",
+        ]
+    )
+    appcast_path = generate_appcast.generate_production_appcast(args)
+
+    assert appcast_path == tmp_path / "payload" / "appcast.xml"
+    assert appcast_path.exists()
+    assert not (tmp_path / "appcast.xml").exists()
 
 
 def test_generate_production_appcast_can_use_keychain_account(monkeypatch, tmp_path):

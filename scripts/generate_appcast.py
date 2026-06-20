@@ -130,7 +130,8 @@ def generate_production_appcast(args: argparse.Namespace) -> Path:
         notes_destination = staged_artifacts[0].with_suffix(args.release_notes.suffix)
         shutil.copy2(args.release_notes, notes_destination)
 
-    appcast_name = args.appcast_name
+    appcast_name = Path(args.appcast_name).name
+    appcast_path = output_dir / appcast_name
     command = [
         str(tool),
         "--download-url-prefix",
@@ -140,7 +141,7 @@ def generate_production_appcast(args: argparse.Namespace) -> Path:
         "--maximum-versions",
         str(args.maximum_versions),
         "-o",
-        appcast_name,
+        str(appcast_path),
     ]
     if args.embed_release_notes:
         command.append("--embed-release-notes")
@@ -171,9 +172,12 @@ def generate_production_appcast(args: argparse.Namespace) -> Path:
     if result.returncode != 0:
         raise AppcastGenerationError("Sparkle generate_appcast failed.")
 
-    appcast_path = output_dir / appcast_name
     if not appcast_path.exists():
-        raise AppcastGenerationError(f"Sparkle did not create expected appcast: {appcast_path}")
+        fallback_path = Path.cwd() / appcast_name
+        if fallback_path.exists() and fallback_path.resolve() != appcast_path.resolve():
+            shutil.move(str(fallback_path), appcast_path)
+        else:
+            raise AppcastGenerationError(f"Sparkle did not create expected appcast: {appcast_path}")
 
     if args.validate:
         expected_artifact = args.expected_artifact or staged_artifacts[0].name
@@ -197,7 +201,9 @@ def generate_production_appcast(args: argparse.Namespace) -> Path:
     return appcast_path
 
 
-def get_github_releases(repo_owner: str, repo_name: str, token: str | None = None) -> list[dict[str, object]]:
+def get_github_releases(
+    repo_owner: str, repo_name: str, token: str | None = None
+) -> list[dict[str, object]]:
     """Fetch GitHub releases using GitHub API for diagnostic appcasts."""
     url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/releases"
     headers = {"Accept": "application/vnd.github+json"}
@@ -232,7 +238,11 @@ def create_diagnostic_appcast_from_github(
         if not isinstance(assets, list):
             continue
         dmg_asset = next(
-            (asset for asset in assets if isinstance(asset, dict) and str(asset.get("name", "")).endswith(".dmg")),
+            (
+                asset
+                for asset in assets
+                if isinstance(asset, dict) and str(asset.get("name", "")).endswith(".dmg")
+            ),
             None,
         )
         if not dmg_asset:
@@ -258,14 +268,20 @@ def create_diagnostic_appcast_from_github(
     return output_file
 
 
-def create_diagnostic_appcast(releases_dir: Path, base_url: str, output_file: str = "appcast.xml") -> Path:
+def create_diagnostic_appcast(
+    releases_dir: Path, base_url: str, output_file: str = "appcast.xml"
+) -> Path:
     """Create unsigned diagnostic Sparkle appcast XML from local files."""
     rss, channel = _new_rss_channel(base_url)
-    dmg_files = sorted(releases_dir.glob("*.dmg"), key=lambda path: path.stat().st_mtime, reverse=True)
+    dmg_files = sorted(
+        releases_dir.glob("*.dmg"), key=lambda path: path.stat().st_mtime, reverse=True
+    )
 
     for dmg_file in dmg_files:
         filename = dmg_file.stem
-        version = filename.split("-v", 1)[1] if "-v" in filename else str(int(dmg_file.stat().st_mtime))
+        version = (
+            filename.split("-v", 1)[1] if "-v" in filename else str(int(dmg_file.stat().st_mtime))
+        )
         size, sha256 = get_file_info(dmg_file)
         item = ET.SubElement(channel, "item")
         ET.SubElement(item, "title").text = f"MotionSmith {version}"
