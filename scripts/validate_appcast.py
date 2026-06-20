@@ -31,6 +31,10 @@ def main() -> int:
         help="Expected HTTPS URL prefix for every enclosure/release-notes URL.",
     )
     parser.add_argument(
+        "--expected-hardware-requirements",
+        help="Expected item-level sparkle:hardwareRequirements value, such as arm64.",
+    )
+    parser.add_argument(
         "--payload-dir",
         type=Path,
         help="Local publication payload directory; every appcast-referenced URL must exist here.",
@@ -42,6 +46,7 @@ def main() -> int:
         expected_artifact_name=args.expected_artifact,
         expected_version=args.expected_version,
         expected_url_prefix=args.expected_url_prefix,
+        expected_hardware_requirements=args.expected_hardware_requirements,
         payload_dir=args.payload_dir,
     )
     if validation.passed:

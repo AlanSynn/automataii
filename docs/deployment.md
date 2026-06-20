@@ -102,12 +102,11 @@ notarized Apple Silicon and Intel DMGs in CI because current binary dependencies
 
 Temporary test-signed distribution is possible only through manual `workflow_dispatch` with
 `publish_external=true` and `allow_test_windows_certificate=true`. That path still builds the
-notarized macOS DMGs and signed Windows zip, but marks the GitHub Release as a prerelease and
-adds a warning that the Windows artifact uses a self-signed/test certificate. Replace
+notarized macOS DMGs and signed Windows zip, creates a stable GitHub Release, and
+adds a release-note warning that the Windows artifact uses a self-signed/test certificate. Replace
 `WINDOWS_CERT_PFX` with a CA-issued code-signing certificate before treating Windows builds as
-trusted public distribution artifacts. `publish-ota.yml` refuses to publish OTA metadata from
-draft or prerelease GitHub Releases, so this temporary test-signed prerelease cannot become the
-stable Sparkle update feed by accident.
+trusted public distribution artifacts. `publish-ota.yml` still refuses draft or prerelease
+GitHub Releases; MotionSmith OTA is published from stable releases only.
 
 ## Local signed Windows build
 
@@ -211,8 +210,14 @@ gh workflow run publish-ota.yml \
   -f version=v0.1.1 \
   -f dmg_asset_name=MotionSmith-macos-arm64.dmg \
   -f publish_pages=true \
-  -f ota_smoke_passed=true
+  -f ota_smoke_passed=true \
+  -f hardware_requirements=arm64
 ```
+
+`hardware_requirements=arm64` is required for Apple Silicon-only thin DMGs. Do not publish a
+thin `arm64` appcast item without that guard, or Intel Macs could see an incompatible update.
+Use an empty `hardware_requirements` value only for a future universal2 DMG or a feed design that
+separates Intel and Apple Silicon artifacts explicitly.
 
 The workflow will:
 
@@ -223,10 +228,11 @@ The workflow will:
 5. Verify the downloaded DMG is signed, notarized, strict-distribution-ready, and OTA-ready via `scripts/verify_macos_release.py`.
 6. Mount the DMG and compare the app's `SUPublicEDKey` to the configured `SPARKLE_PUBLIC_ED_KEY`.
 7. Generate a signed `appcast.xml` using Sparkle's official `generate_appcast`.
-8. Validate version, HTTPS URL prefix, EdDSA signature presence, and local payload references.
-9. Upload generated OTA metadata, excluding the DMG, back to the GitHub Release.
-10. If `publish_pages=true`, preflight write access to `AlanSynn/motionsmith` and publish the payload to Pages.
-11. Check live HTTPS reachability for the published appcast and assets.
+8. Optionally add and validate Sparkle `hardwareRequirements` for thin-architecture DMGs.
+9. Validate version, HTTPS URL prefix, EdDSA signature presence, and local payload references.
+10. Upload generated OTA metadata, excluding the DMG, back to the GitHub Release.
+11. If `publish_pages=true`, preflight write access to `AlanSynn/motionsmith` and publish the payload to Pages.
+12. Check live HTTPS reachability for the published appcast and assets.
 
 Keep `ota_smoke_passed=false` until the candidate local build and update path have been tested. The flag is a deliberate manual release gate and attests that the configured Sparkle public/private keys are intended for this release.
 
@@ -262,10 +268,29 @@ python3 scripts/generate_appcast.py production \
   --sparkle-generate-appcast "$SPARKLE_GENERATE_APPCAST" \
   --private-key-env SPARKLE_PRIVATE_ED_KEY
 
+# Required for a thin Apple Silicon DMG. Omit this edit only for universal2.
+python3 - "$PAYLOAD/appcast.xml" <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+path = Path(sys.argv[1])
+namespace = "http://www.andymatuschak.org/xml-namespaces/sparkle"
+ET.register_namespace("sparkle", namespace)
+tree = ET.parse(path)
+for item in list(tree.getroot().iter("item")):
+    child = item.find(f"{{{namespace}}}hardwareRequirements")
+    if child is None:
+        child = ET.SubElement(item, f"{{{namespace}}}hardwareRequirements")
+    child.text = "arm64"
+tree.write(path, encoding="utf-8", xml_declaration=True)
+PY
+
 python3 scripts/validate_appcast.py "$PAYLOAD/appcast.xml" \
   --expected-artifact "$(basename "$DMG")" \
   --expected-version "$VERSION" \
   --expected-url-prefix https://alansynn.com/motionsmith/ \
+  --expected-hardware-requirements arm64 \
   --payload-dir "$PAYLOAD"
 
 # Use either a Pages deploy key or a token with push/admin permission.

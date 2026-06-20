@@ -102,6 +102,7 @@ def validate_signed_appcast(
     expected_artifact_name: str | None = None,
     expected_version: str | None = None,
     expected_url_prefix: str | None = None,
+    expected_hardware_requirements: str | None = None,
     payload_dir: str | Path | None = None,
 ) -> AppcastValidation:
     """Validate that an appcast contains signed Sparkle OTA metadata.
@@ -124,6 +125,7 @@ def validate_signed_appcast(
     payload_root = Path(payload_dir) if payload_dir is not None else None
     normalized_prefix = expected_url_prefix.rstrip("/") + "/" if expected_url_prefix else None
     expected_normalized_version = normalize_release_version(expected_version)
+    expected_hardware = (expected_hardware_requirements or "").strip()
 
     items = list(root.iter("item"))
     if not items:
@@ -136,6 +138,7 @@ def validate_signed_appcast(
         item_short_version = normalize_release_version(
             _sparkle_child_text(item, "shortVersionString")
         )
+        item_hardware_requirements = _sparkle_child_text(item, "hardwareRequirements")
         _collect_release_notes_reference(
             item,
             item_index,
@@ -180,6 +183,11 @@ def validate_signed_appcast(
                 continue
 
             matched_enclosures += 1
+            if expected_hardware and item_hardware_requirements != expected_hardware:
+                errors.append(
+                    f"Item #{item_index} sparkle:hardwareRequirements "
+                    f"{item_hardware_requirements!r} does not match {expected_hardware!r}."
+                )
             if expected_normalized_version and version != expected_normalized_version:
                 errors.append(
                     f"Enclosure #{enclosure_count} sparkle:version {version!r} does not match "

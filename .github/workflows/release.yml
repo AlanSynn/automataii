@@ -20,7 +20,7 @@ on:
         default: false
         type: boolean
       allow_test_windows_certificate:
-        description: 'TEMPORARY: allow a self-signed/test Windows certificate and mark the GitHub Release as prerelease'
+        description: 'TEMPORARY: allow a self-signed/test Windows certificate and add a release warning'
         required: true
         default: false
         type: boolean
@@ -351,7 +351,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create Test-Signed Prerelease
+      - name: Create Test-Signed Release
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_external && !inputs.ota_smoke_passed && inputs.allow_test_windows_certificate }}
         uses: softprops/action-gh-release@v2
         with:
@@ -360,11 +360,10 @@ jobs:
             macos-dmg-*/*
             linux-appimage/*
             windows-release/*
-          prerelease: true
           body: |
-            ⚠️ Temporary test-signed Windows release note:
-            This workflow run was allowed to use a self-signed/test Windows certificate only when `allow_test_windows_certificate=true`.
-            Replace `WINDOWS_CERT_PFX` with a CA-issued Windows code-signing certificate before treating Windows artifacts as trusted public distribution builds.
+            ⚠️ Windows signing trust note:
+            This is a stable MotionSmith release. This workflow run was allowed to use a self-signed/test Windows certificate because `allow_test_windows_certificate=true`.
+            macOS artifacts are still Developer ID signed and notarized. Replace `WINDOWS_CERT_PFX` with a CA-issued Windows code-signing certificate before expecting Windows SmartScreen/trust-chain behavior equivalent to a commercial public Windows distribution.
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

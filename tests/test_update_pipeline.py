@@ -187,6 +187,7 @@ def _signed_appcast_xml(
     length: int = 123,
     top_level_version: bool = False,
     notes: str | None = None,
+    hardware_requirements: str | None = None,
 ) -> str:
     version_attrs = (
         ""
@@ -202,12 +203,18 @@ def _signed_appcast_xml(
     notes_xml = (
         f"<sparkle:releaseNotesLink>{notes}</sparkle:releaseNotesLink>" if notes is not None else ""
     )
+    hardware_xml = (
+        f"<sparkle:hardwareRequirements>{hardware_requirements}</sparkle:hardwareRequirements>"
+        if hardware_requirements is not None
+        else ""
+    )
     return f"""<?xml version="1.0" encoding="utf-8"?>
 <rss version="2.0" xmlns:sparkle="{update_config.SPARKLE_NAMESPACE}">
   <channel>
     <item>
       {item_versions}
       {notes_xml}
+      {hardware_xml}
       <enclosure
         url="https://alansynn.com/motionsmith/{artifact}"
         length="{length}"
@@ -264,6 +271,52 @@ def test_signed_appcast_validation_accepts_sparkle_top_level_version_shape(tmp_p
 
     assert validation.passed is True
     assert len(validation.referenced_urls) == 2
+
+
+def test_signed_appcast_validation_accepts_expected_hardware_requirements(tmp_path):
+    appcast = tmp_path / "appcast.xml"
+    artifact = tmp_path / "MotionSmith-macos-arm64.dmg"
+    artifact.write_bytes(b"dmg")
+    appcast.write_text(
+        _signed_appcast_xml(
+            artifact="MotionSmith-macos-arm64.dmg",
+            hardware_requirements="arm64",
+        ),
+        encoding="utf-8",
+    )
+
+    validation = update_config.validate_signed_appcast(
+        appcast,
+        expected_artifact_name="MotionSmith-macos-arm64.dmg",
+        expected_version="1.2.3",
+        expected_hardware_requirements="arm64",
+        expected_url_prefix=update_config.UPDATE_SITE_BASE_URL,
+        payload_dir=tmp_path,
+    )
+
+    assert validation.passed is True
+
+
+def test_signed_appcast_validation_rejects_missing_expected_hardware_requirements(tmp_path):
+    appcast = tmp_path / "appcast.xml"
+    artifact = tmp_path / "MotionSmith-macos-arm64.dmg"
+    artifact.write_bytes(b"dmg")
+    appcast.write_text(
+        _signed_appcast_xml(artifact="MotionSmith-macos-arm64.dmg"),
+        encoding="utf-8",
+    )
+
+    validation = update_config.validate_signed_appcast(
+        appcast,
+        expected_artifact_name="MotionSmith-macos-arm64.dmg",
+        expected_version="1.2.3",
+        expected_hardware_requirements="arm64",
+        expected_url_prefix=update_config.UPDATE_SITE_BASE_URL,
+        payload_dir=tmp_path,
+    )
+
+    assert validation.passed is False
+    assert any("hardwareRequirements" in error for error in validation.errors)
 
 
 def test_signed_appcast_validation_rejects_empty_signature(tmp_path):
@@ -747,6 +800,7 @@ def test_deploy_only_ota_workflow_uses_release_asset_without_building():
         "release_notes_asset_name:",
         "publish_pages:",
         "ota_smoke_passed:",
+        "hardware_requirements:",
     ):
         assert input_name in workflow
 
@@ -758,7 +812,10 @@ def test_deploy_only_ota_workflow_uses_release_asset_without_building():
     assert "gh release download" in workflow
     assert 'gh release view "$VERSION"' in workflow
     assert "--json isDraft,isPrerelease" in workflow
-    assert "Refusing OTA publication from a draft or prerelease GitHub Release" in workflow
+    assert "Refusing OTA publication from a draft GitHub Release" in workflow
+    assert "MotionSmith OTA is published only from stable releases" in workflow
+    assert "allow_prerelease_ota" not in workflow
+    assert "Apple Silicon-only DMGs require hardware_requirements=arm64" in workflow
     assert workflow.index('gh release view "$VERSION"') < workflow.index("gh release download")
     assert "gh release upload" in workflow
     assert "scripts/install_sparkle.py" in workflow
@@ -771,6 +828,9 @@ def test_deploy_only_ota_workflow_uses_release_asset_without_building():
     assert "SPARKLE_PRIVATE_ED_KEY" in workflow
     assert "scripts/generate_appcast.py production" in workflow
     assert "scripts/validate_appcast.py sparkle-appcast-payload/appcast.xml" in workflow
+    assert "Apply thin-architecture Sparkle hardware requirements" in workflow
+    assert "--expected-hardware-requirements" in workflow
+    assert "Unsupported hardware_requirements value" in workflow
     assert "python3 scripts/publish_ota_pages.py preflight" in workflow
     assert "python3 scripts/publish_ota_pages.py publish" in workflow
     assert "MOTIONSMITH_PAGES_DEPLOY_KEY_FINGERPRINT" in workflow
@@ -834,7 +894,7 @@ def test_deployment_docs_cover_local_build_and_deploy_only_ota():
         "extra `.dmg`",
         "MACOS_CERT_P12",
         "MACOS_CERT_PASSWORD",
-        "draft or prerelease GitHub Releases",
+        "refuses draft or prerelease",
         "Sparkle/Pages OTA payload directly",
     ):
         assert required in docs

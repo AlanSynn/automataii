@@ -25,6 +25,10 @@ on:
         required: true
         default: false
         type: boolean
+      hardware_requirements:
+        description: 'Optional Sparkle hardwareRequirements value for thin-architecture DMGs, e.g. arm64'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -57,19 +61,28 @@ jobs:
           VERSION: ${{ inputs.version }}
           DMG_ASSET_NAME: ${{ inputs.dmg_asset_name }}
           RELEASE_NOTES_ASSET_NAME: ${{ inputs.release_notes_asset_name }}
+          SPARKLE_HARDWARE_REQUIREMENTS: ${{ inputs.hardware_requirements }}
         run: |
           release_state="$(gh release view "$VERSION" \
             --repo "$GITHUB_REPOSITORY" \
             --json isDraft,isPrerelease \
             --jq '[.isDraft,.isPrerelease] | @tsv')"
           read -r is_draft is_prerelease <<< "$release_state"
-          if [[ "$is_draft" == "true" || "$is_prerelease" == "true" ]]; then
-            echo "::error::Refusing OTA publication from a draft or prerelease GitHub Release. Promote the release only after every platform artifact is production-ready."
+          if [[ "$is_draft" == "true" ]]; then
+            echo "::error::Refusing OTA publication from a draft GitHub Release."
+            exit 1
+          fi
+          if [[ "$is_prerelease" == "true" ]]; then
+            echo "::error::Refusing OTA publication from a prerelease GitHub Release. MotionSmith OTA is published only from stable releases."
             exit 1
           fi
 
           if [[ "$DMG_ASSET_NAME" != *.dmg ]]; then
             echo "::error::dmg_asset_name must end with .dmg."
+            exit 1
+          fi
+          if [[ "$DMG_ASSET_NAME" == *arm64* && "$SPARKLE_HARDWARE_REQUIREMENTS" != "arm64" ]]; then
+            echo "::error::Apple Silicon-only DMGs require hardware_requirements=arm64."
             exit 1
           fi
           case "$DMG_ASSET_NAME" in
@@ -185,16 +198,53 @@ jobs:
             --private-key-env SPARKLE_PRIVATE_ED_KEY \
             "${release_notes_args[@]}"
 
+      - name: Apply thin-architecture Sparkle hardware requirements
+        if: ${{ inputs.hardware_requirements != '' }}
+        env:
+          SPARKLE_HARDWARE_REQUIREMENTS: ${{ inputs.hardware_requirements }}
+        run: |
+          if [[ "$SPARKLE_HARDWARE_REQUIREMENTS" != "arm64" ]]; then
+            echo "::error::Unsupported hardware_requirements value: $SPARKLE_HARDWARE_REQUIREMENTS"
+            exit 1
+          fi
+          python3 - sparkle-appcast-payload/appcast.xml "$SPARKLE_HARDWARE_REQUIREMENTS" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          appcast = Path(sys.argv[1])
+          hardware_requirements = sys.argv[2].strip()
+          namespace = "http://www.andymatuschak.org/xml-namespaces/sparkle"
+          ET.register_namespace("sparkle", namespace)
+
+          tree = ET.parse(appcast)
+          root = tree.getroot()
+          items = list(root.iter("item")) or [root]
+          child_name = f"{{{namespace}}}hardwareRequirements"
+          for item in items:
+              existing = item.find(child_name)
+              if existing is None:
+                  existing = ET.SubElement(item, child_name)
+              existing.text = hardware_requirements
+          tree.write(appcast, encoding="utf-8", xml_declaration=True)
+          PY
+
       - name: Validate generated appcast payload
         env:
           VERSION: ${{ inputs.version }}
           DMG_ASSET_NAME: ${{ inputs.dmg_asset_name }}
+          SPARKLE_HARDWARE_REQUIREMENTS: ${{ inputs.hardware_requirements }}
         run: |
+          hardware_args=()
+          if [[ -n "$SPARKLE_HARDWARE_REQUIREMENTS" ]]; then
+            hardware_args=(--expected-hardware-requirements "$SPARKLE_HARDWARE_REQUIREMENTS")
+          fi
           python3 scripts/validate_appcast.py sparkle-appcast-payload/appcast.xml \
             --expected-artifact "$DMG_ASSET_NAME" \
             --expected-version "$VERSION" \
             --expected-url-prefix "$MOTIONSMITH_UPDATE_BASE_URL" \
-            --payload-dir sparkle-appcast-payload
+            --payload-dir sparkle-appcast-payload \
+            "${hardware_args[@]}"
 
       - name: Upload generated OTA metadata to GitHub Release
         env:

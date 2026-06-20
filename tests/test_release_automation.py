@@ -113,9 +113,10 @@ def test_release_workflow_separates_github_release_from_ota_publish() -> None:
     assert "Create Release with OTA payload" not in workflow
     assert "Create Release" in workflow
     assert "allow_test_windows_certificate" in workflow
-    assert "Create Test-Signed Prerelease" in workflow
-    assert "prerelease: true" in workflow
-    assert "Temporary test-signed Windows release note" in workflow
+    assert "Create Test-Signed Release" in workflow
+    assert "prerelease: true" not in workflow
+    assert "Windows signing trust note" in workflow
+    assert "This is a stable MotionSmith release" in workflow
     assert (
         "github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish_external)"
         in workflow
