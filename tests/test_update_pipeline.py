@@ -894,6 +894,13 @@ def test_deploy_only_ota_workflow_uses_release_asset_without_building():
     assert '--expected-artifact "$DMG_ASSET_NAME"' in workflow
     assert '--artifact "release-assets/$DMG_ASSET_NAME"' in workflow
     assert "--expected-artifact MotionSmith-macos-universal2.dmg" not in workflow
+    assert (
+        "RELEASE_DOWNLOAD_BASE_URL: https://github.com/${{ github.repository }}/releases/download/${{ inputs.version }}/"
+        in workflow
+    )
+    assert '--download-url-prefix "$RELEASE_DOWNLOAD_BASE_URL"' in workflow
+    assert '--expected-url-prefix "$RELEASE_DOWNLOAD_BASE_URL"' in workflow
+    assert '--download-url-prefix "$MOTIONSMITH_UPDATE_BASE_URL"' not in workflow
 
     for forbidden in (
         "MACOS_CERT_P12",
@@ -931,25 +938,30 @@ def test_deployment_docs_cover_local_build_and_deploy_only_ota():
         "MACOS_CERT_P12",
         "MACOS_CERT_PASSWORD",
         "refuses draft or prerelease",
-        "Sparkle/Pages OTA payload directly",
+        "Sparkle appcast payload directly",
+        "GitHub Release asset URL",
     ):
         assert required in docs
     assert "if publishing OTA in the same workflow" not in docs
 
 
-def test_pages_payload_copy_preserves_unrelated_site_files(tmp_path):
+def test_pages_payload_copy_publishes_metadata_only_and_preserves_site_files(tmp_path):
     payload = tmp_path / "payload"
     destination = tmp_path / "site"
     payload.mkdir()
     destination.mkdir()
     (payload / "appcast.xml").write_text("<rss />", encoding="utf-8")
+    (payload / "release-notes.html").write_text("<p>notes</p>", encoding="utf-8")
     (payload / "MotionSmith-macos-universal2.dmg").write_bytes(b"dmg")
+    (destination / "MotionSmith-old.dmg").write_bytes(b"old")
     (destination / "index.html").write_text("<p>site</p>", encoding="utf-8")
 
     publish_ota_pages.copy_payload(payload, destination)
 
     assert (destination / "appcast.xml").read_text(encoding="utf-8") == "<rss />"
-    assert (destination / "MotionSmith-macos-universal2.dmg").read_bytes() == b"dmg"
+    assert (destination / "release-notes.html").read_text(encoding="utf-8") == "<p>notes</p>"
+    assert not (destination / "MotionSmith-macos-universal2.dmg").exists()
+    assert not (destination / "MotionSmith-old.dmg").exists()
     assert (destination / "index.html").read_text(encoding="utf-8") == "<p>site</p>"
 
 

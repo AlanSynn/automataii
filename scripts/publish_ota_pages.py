@@ -42,6 +42,8 @@ from automataii.utils.update_config import (  # noqa: E402
 
 GITHUB_API_VERSION = "2022-11-28"
 PAGES_DEPLOY_KEY_FINGERPRINT_ENV = "MOTIONSMITH_PAGES_DEPLOY_KEY_FINGERPRINT"
+BINARY_UPDATE_SUFFIXES = {".dmg", ".zip", ".pkg", ".appimage"}
+
 GITHUB_KNOWN_HOSTS = (
     "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl",
     "github.com ecdsa-sha2-nistp256 "
@@ -291,16 +293,30 @@ def publish_pages_payload(args: argparse.Namespace) -> None:
 
 
 def copy_payload(payload_dir: Path, destination_dir: Path) -> None:
-    """Copy payload files into the Pages repository root without deleting unrelated site files."""
+    """Copy appcast metadata into Pages without committing large release binaries."""
     if not payload_dir.exists():
         raise PagesPublishError(f"Payload directory does not exist: {payload_dir}")
+    remove_stale_binary_update_payloads(destination_dir)
     for source in payload_dir.rglob("*"):
-        if not source.is_file():
+        if not source.is_file() or source.suffix.lower() in BINARY_UPDATE_SUFFIXES:
             continue
         relative = source.relative_to(payload_dir)
         destination = destination_dir / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
+
+
+def remove_stale_binary_update_payloads(destination_dir: Path) -> None:
+    """Remove old MotionSmith binary update artifacts from the Pages root."""
+    if not destination_dir.exists():
+        return
+    for path in destination_dir.iterdir():
+        if (
+            path.is_file()
+            and path.name.startswith("MotionSmith-")
+            and path.suffix.lower() in BINARY_UPDATE_SUFFIXES
+        ):
+            path.unlink()
 
 
 def run_git(

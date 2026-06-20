@@ -3,7 +3,7 @@
 MotionSmith has two production release lanes:
 
 1. **Full CI release** (`make deploy`, backed by `.github/workflows/release.yml`) builds all public platforms in GitHub Actions. This requires macOS signing/notarization secrets and Windows signing secrets in Actions.
-2. **Local build + deploy-only OTA** (`.github/workflows/publish-ota.yml`) assumes the macOS DMG was already built, signed, notarized, and uploaded to a GitHub Release. Actions then verifies that DMG, generates the Sparkle appcast, uploads generated OTA metadata to the Release, and can publish the OTA payload to MotionSmith Pages.
+2. **Local build + deploy-only OTA** (`.github/workflows/publish-ota.yml`) assumes the macOS DMG was already built, signed, notarized, and uploaded to a GitHub Release. Actions then verifies that DMG, generates the Sparkle appcast, uploads generated OTA metadata to the Release, and can publish the appcast metadata to MotionSmith Pages. The DMG itself remains a GitHub Release asset because Pages git pushes cannot carry large release binaries.
 
 Use lane 2 when GitHub Actions does not have `MACOS_CERT_P12` / `MACOS_CERT_PASSWORD` but the local machine can already sign and notarize.
 
@@ -227,12 +227,12 @@ The workflow will:
 4. Install pinned Sparkle 2.9.3.
 5. Verify the downloaded DMG is signed, notarized, strict-distribution-ready, and OTA-ready via `scripts/verify_macos_release.py`.
 6. Mount the DMG and compare the app's `SUPublicEDKey` to the configured `SPARKLE_PUBLIC_ED_KEY`.
-7. Generate a signed `appcast.xml` using Sparkle's official `generate_appcast`.
+7. Generate a signed `appcast.xml` using Sparkle's official `generate_appcast`; the enclosure URL uses the GitHub Release asset URL, while the feed itself stays at `https://alansynn.com/motionsmith/appcast.xml`.
 8. Optionally add and validate Sparkle `hardwareRequirements` for thin-architecture DMGs.
-9. Validate version, HTTPS URL prefix, EdDSA signature presence, and local payload references.
+9. Validate version, GitHub Release asset URL prefix, EdDSA signature presence, and local payload references.
 10. Upload generated OTA metadata, excluding the DMG, back to the GitHub Release.
-11. If `publish_pages=true`, preflight write access to `AlanSynn/motionsmith` and publish the payload to Pages.
-12. Check live HTTPS reachability for the published appcast and assets.
+11. If `publish_pages=true`, preflight write access to `AlanSynn/motionsmith` and publish appcast/release-note metadata only to Pages; large `.dmg`/`.zip`/`.pkg`/`.AppImage` files are deliberately skipped.
+12. Check live HTTPS reachability for the Pages appcast and the GitHub Release-hosted asset URLs.
 
 Keep `ota_smoke_passed=false` until the candidate local build and update path have been tested. The flag is a deliberate manual release gate and attests that the configured Sparkle public/private keys are intended for this release.
 
@@ -258,10 +258,12 @@ python3 scripts/verify_macos_release.py "$DMG" \
   --require-ota \
   --expected-appcast-url https://alansynn.com/motionsmith/appcast.xml
 
+RELEASE_DOWNLOAD_BASE_URL="https://github.com/AlanSynn/automataii/releases/download/$VERSION/"
+
 python3 scripts/generate_appcast.py production \
   --artifact "$DMG" \
   --output-dir "$PAYLOAD" \
-  --download-url-prefix https://alansynn.com/motionsmith/ \
+  --download-url-prefix "$RELEASE_DOWNLOAD_BASE_URL" \
   --link https://alansynn.com/motionsmith/ \
   --expected-artifact "$(basename "$DMG")" \
   --expected-version "$VERSION" \
@@ -289,7 +291,7 @@ PY
 python3 scripts/validate_appcast.py "$PAYLOAD/appcast.xml" \
   --expected-artifact "$(basename "$DMG")" \
   --expected-version "$VERSION" \
-  --expected-url-prefix https://alansynn.com/motionsmith/ \
+  --expected-url-prefix "$RELEASE_DOWNLOAD_BASE_URL" \
   --expected-hardware-requirements arm64 \
   --payload-dir "$PAYLOAD"
 
@@ -300,7 +302,7 @@ python3 scripts/publish_ota_pages.py publish \
   --payload-dir "$PAYLOAD" \
   --version "$VERSION" \
   --expected-artifact "$(basename "$DMG")" \
-  --expected-url-prefix https://alansynn.com/motionsmith/ \
+  --expected-url-prefix "$RELEASE_DOWNLOAD_BASE_URL" \
   --appcast-url https://alansynn.com/motionsmith/appcast.xml
 ```
 
@@ -326,7 +328,7 @@ Pushes to `main` run `.github/workflows/auto-release.yml`:
 - if production signing secrets are missing, it fails before changing `pyproject.toml` or creating a tag
 
 `release.yml` builds the GitHub Release in Actions for strict `vX.Y.Z` tags only. It does not
-publish the Sparkle/Pages OTA payload directly; if `ota_smoke_passed=true` is supplied to
+publish the Sparkle appcast payload directly; if `ota_smoke_passed=true` is supplied to
 `release.yml`, the workflow fails with instructions to run `publish-ota.yml` after selecting one
 verified macOS DMG. Auto push releases dispatch with `ota_smoke_passed=false`.
 
