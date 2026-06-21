@@ -154,14 +154,21 @@ class WindowsBuilder:
         raise FileNotFoundError("Built one-folder executable not found.")
 
     @staticmethod
-    def _contains_path_suffix(root: Path, suffix: Path) -> bool:
+    def _matching_path_suffixes(root: Path, suffix: Path) -> list[Path]:
         suffix_parts = suffix.parts
+        matches: list[Path] = []
         for candidate in root.rglob(suffix.name):
             if not candidate.is_file():
                 continue
             if candidate.parts[-len(suffix_parts) :] == suffix_parts:
-                return True
-        return False
+                matches.append(candidate)
+        return matches
+
+    @staticmethod
+    def _is_git_lfs_pointer(path: Path) -> bool:
+        if path.stat().st_size > 1024:
+            return False
+        return path.read_bytes().startswith(b"version https://git-lfs.github.com/spec")
 
     def verify_image_processing_runtime_files(self, app_dir: Path) -> None:
         """
@@ -175,14 +182,24 @@ class WindowsBuilder:
             Path("models") / "onnx" / "pose_model.onnx",
             Path("models") / "onnx" / "detector_backbone.onnx",
         ]
-        missing = [
-            str(suffix)
-            for suffix in required_suffixes
-            if not self._contains_path_suffix(app_dir, suffix)
-        ]
+        missing: list[str] = []
+        lfs_pointers: list[str] = []
+        for suffix in required_suffixes:
+            matches = self._matching_path_suffixes(app_dir, suffix)
+            if not matches:
+                missing.append(str(suffix))
+                continue
+            for match in matches:
+                if self._is_git_lfs_pointer(match):
+                    lfs_pointers.append(str(match.relative_to(app_dir)))
         if missing:
             raise RuntimeError(
                 "Image-processing models missing from packaged app: " + ", ".join(missing)
+            )
+        if lfs_pointers:
+            raise RuntimeError(
+                "Image-processing models are Git LFS pointer files, not ONNX binaries. "
+                "Enable Git LFS checkout before building: " + ", ".join(lfs_pointers)
             )
 
         native_files = [path for path in app_dir.rglob("*") if path.is_file()]

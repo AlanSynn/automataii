@@ -228,6 +228,7 @@ def test_windows_build_regression_files_are_release_ready() -> None:
     assert "Windows README missing" in windows_builder
     assert "Avoid stale Python toolcache VC runtime shadowing ONNXRuntime" in workflow
     assert "ONNXRuntime import ok" in workflow
+    assert "lfs: true" in workflow
     assert "MotionSmith.exe" in windows_readme
     assert "Double-click" in windows_readme
     assert "install.ps1" not in windows_builder
@@ -456,6 +457,34 @@ def test_image_processing_runtime_files_accept_pyinstaller_internal_layout(
     (internal / "onnxruntime" / "capi" / "onnxruntime.dll").write_bytes(b"dll")
 
     builder.verify_image_processing_runtime_files(app_dir)
+
+
+def test_image_processing_runtime_files_reject_git_lfs_pointer_models(
+    tmp_path: Path,
+) -> None:
+    builder = build_windows.WindowsBuilder(tmp_path)
+    app_dir = tmp_path / "dist" / "MotionSmith"
+    internal = app_dir / "_internal"
+    (internal / "models" / "onnx").mkdir(parents=True)
+    lfs_pointer = (
+        b"version https://git-lfs.github.com/spec/v1\n"
+        b"oid sha256:abc123\n"
+        b"size 135929562\n"
+    )
+    (internal / "models" / "onnx" / "pose_model.onnx").write_bytes(lfs_pointer)
+    (internal / "models" / "onnx" / "detector_backbone.onnx").write_bytes(b"detector")
+    (internal / "onnxruntime" / "capi").mkdir(parents=True)
+    (internal / "onnxruntime" / "capi" / "onnxruntime_pybind11_state.pyd").write_bytes(
+        b"pybind"
+    )
+    (internal / "onnxruntime" / "capi" / "onnxruntime.dll").write_bytes(b"dll")
+
+    try:
+        builder.verify_image_processing_runtime_files(app_dir)
+    except RuntimeError as exc:
+        assert "Git LFS pointer files" in str(exc)
+    else:  # pragma: no cover - assertion path
+        raise AssertionError("Git LFS pointer models must fail the Windows build")
 
 
 def test_image_processing_runtime_files_reject_missing_onnxruntime_native_files(
