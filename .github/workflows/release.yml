@@ -270,14 +270,39 @@ jobs:
           $exe = Join-Path $extractDir "MotionSmith.exe"
           if (-not (Test-Path $exe)) { Write-Error "Missing extracted Windows executable: $exe"; exit 1 }
 
+          function Show-MotionSmithScenarioDiagnostics($Name, $OutputDir, $Stdout, $Stderr) {
+            Write-Host "::group::MotionSmith scenario diagnostics: $Name"
+            if (Test-Path $Stdout) {
+              Write-Host "--- stdout ---"
+              Get-Content $Stdout -ErrorAction SilentlyContinue
+            }
+            if (Test-Path $Stderr) {
+              Write-Host "--- stderr ---"
+              Get-Content $Stderr -ErrorAction SilentlyContinue
+            }
+            if (Test-Path $OutputDir) {
+              Write-Host "--- output files ---"
+              Get-ChildItem -Path $OutputDir -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
+            }
+            Write-Host "::endgroup::"
+          }
+
           function Invoke-MotionSmithScenario($Name, $OutputDir, $TimeoutMs) {
-            $process = Start-Process -FilePath $exe -ArgumentList @("--scenario", $Name, "--scenario-output", $OutputDir) -PassThru
+            New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
+            $stdout = Join-Path $OutputDir "scenario-$Name.stdout.log"
+            $stderr = Join-Path $OutputDir "scenario-$Name.stderr.log"
+            $process = Start-Process -FilePath $exe -ArgumentList @("--scenario", $Name, "--scenario-output", $OutputDir) -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
             if (-not $process.WaitForExit($TimeoutMs)) {
               Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+              Show-MotionSmithScenarioDiagnostics $Name $OutputDir $stdout $stderr
               Write-Error "Windows executable scenario '$Name' timed out."
               exit 1
             }
-            if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+            if ($process.ExitCode -ne 0) {
+              Show-MotionSmithScenarioDiagnostics $Name $OutputDir $stdout $stderr
+              exit $process.ExitCode
+            }
+            Show-MotionSmithScenarioDiagnostics $Name $OutputDir $stdout $stderr
           }
 
           Invoke-MotionSmithScenario "blueprint-export" $scenarioDir 120000
@@ -334,14 +359,39 @@ jobs:
           $exe = Join-Path $extractDir "MotionSmith.exe"
           if (-not (Test-Path $exe)) { Write-Error "Missing downloaded Windows executable: $exe"; exit 1 }
 
+          function Show-MotionSmithScenarioDiagnostics($Name, $OutputDir, $Stdout, $Stderr) {
+            Write-Host "::group::MotionSmith scenario diagnostics: $Name"
+            if (Test-Path $Stdout) {
+              Write-Host "--- stdout ---"
+              Get-Content $Stdout -ErrorAction SilentlyContinue
+            }
+            if (Test-Path $Stderr) {
+              Write-Host "--- stderr ---"
+              Get-Content $Stderr -ErrorAction SilentlyContinue
+            }
+            if (Test-Path $OutputDir) {
+              Write-Host "--- output files ---"
+              Get-ChildItem -Path $OutputDir -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
+            }
+            Write-Host "::endgroup::"
+          }
+
           function Invoke-MotionSmithScenario($Name, $OutputDir, $TimeoutMs) {
-            $process = Start-Process -FilePath $exe -ArgumentList @("--scenario", $Name, "--scenario-output", $OutputDir) -PassThru
+            New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
+            $stdout = Join-Path $OutputDir "scenario-$Name.stdout.log"
+            $stderr = Join-Path $OutputDir "scenario-$Name.stderr.log"
+            $process = Start-Process -FilePath $exe -ArgumentList @("--scenario", $Name, "--scenario-output", $OutputDir) -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
             if (-not $process.WaitForExit($TimeoutMs)) {
               Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+              Show-MotionSmithScenarioDiagnostics $Name $OutputDir $stdout $stderr
               Write-Error "Downloaded Windows executable scenario '$Name' timed out."
               exit 1
             }
-            if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+            if ($process.ExitCode -ne 0) {
+              Show-MotionSmithScenarioDiagnostics $Name $OutputDir $stdout $stderr
+              exit $process.ExitCode
+            }
+            Show-MotionSmithScenarioDiagnostics $Name $OutputDir $stdout $stderr
           }
 
           Invoke-MotionSmithScenario "blueprint-export" $scenarioDir 120000

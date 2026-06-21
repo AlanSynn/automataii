@@ -4,6 +4,7 @@ import os
 import platform
 import sys
 from pathlib import Path
+from typing import NoReturn
 
 if not os.environ.get("QT_QPA_PLATFORM"):
     ci_mode_enabled = os.environ.get("CI", "").lower() in {
@@ -194,8 +195,13 @@ def main() -> None:
     setup_logging(console_log_level=log_level)
 
     if args.scenario:
-        _run_scenario(args)
-        return
+        exit_code = 0
+        try:
+            _run_scenario(args)
+        except Exception:
+            logging.getLogger(__name__).exception("Scenario failed: %s", args.scenario)
+            exit_code = 1
+        _exit_after_scenario(exit_code)
 
     try:
         QApplication.setAttribute(
@@ -313,6 +319,24 @@ def _run_scenario(args: argparse.Namespace) -> None:
         print(f"[scenario:{scenario_name}] artifacts={parts_dir}, {manifest_path}, {metrics_path}")
     else:
         raise ValueError(f"Unsupported scenario: {scenario_name}")
+
+
+def _exit_after_scenario(exit_code: int) -> NoReturn:
+    """
+    Terminate automation scenarios without waiting on lingering native runtime threads.
+
+    PyInstaller/Windows ONNXRuntime and image-processing dependencies can leave
+    non-interactive smoke processes alive after the scenario artifacts are already
+    written.  Scenarios are explicitly one-shot CLI automation paths, so flushing
+    logs and using os._exit keeps CI and packaged smoke runs deterministic without
+    affecting the normal GUI application event loop.
+    """
+    logging.shutdown()
+    try:
+        sys.stdout.flush()
+        sys.stderr.flush()
+    finally:
+        os._exit(exit_code)
 
 
 if __name__ == "__main__":
