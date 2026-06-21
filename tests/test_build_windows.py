@@ -207,6 +207,8 @@ def test_windows_build_regression_files_are_release_ready() -> None:
     assert build_windows.WINSPARKLE_ZIP_SHA256 in windows_builder
     assert "verify_file_sha256" in windows_builder
     assert "verify_image_processing_runtime_files" in windows_builder
+    assert "remove_root_vc_runtime_shadow_dlls" in windows_builder
+    assert "ROOT_VC_RUNTIME_SHADOW_DLLS" in windows_builder
     assert "--no-installer" not in Path("scripts/build.py").read_text(encoding="utf-8")
     assert "--no-installer" not in windows_builder
     assert "create_installer" not in windows_builder
@@ -224,6 +226,8 @@ def test_windows_build_regression_files_are_release_ready() -> None:
     assert "'wget'" not in linux_builder
     assert "README-Windows.txt" in windows_builder
     assert "Windows README missing" in windows_builder
+    assert "Avoid stale Python toolcache VC runtime shadowing ONNXRuntime" in workflow
+    assert "ONNXRuntime import ok" in workflow
     assert "MotionSmith.exe" in windows_readme
     assert "Double-click" in windows_readme
     assert "install.ps1" not in windows_builder
@@ -406,6 +410,34 @@ def test_find_built_executable_rejects_flat_layout(tmp_path: Path) -> None:
         assert "one-folder" in str(exc)
     else:  # pragma: no cover - assertion path
         raise AssertionError("flat Windows layout should not be accepted")
+
+
+def test_remove_root_vc_runtime_shadow_dlls_preserves_nested_package_dlls(
+    tmp_path: Path,
+) -> None:
+    builder = build_windows.WindowsBuilder(tmp_path)
+    app_dir = tmp_path / "dist" / "MotionSmith"
+    internal = app_dir / "_internal"
+    qt_bin = internal / "PyQt6" / "Qt6" / "bin"
+    numpy_libs = internal / "numpy.libs"
+    qt_bin.mkdir(parents=True)
+    numpy_libs.mkdir(parents=True)
+
+    root_msvcp = internal / "msvcp140.dll"
+    root_vcruntime = internal / "vcruntime140_1.dll"
+    nested_qt_msvcp = qt_bin / "MSVCP140.dll"
+    nested_numpy_msvcp = numpy_libs / "msvcp140-abc.dll"
+    unrelated = internal / "onnxruntime.dll"
+    for path in (root_msvcp, root_vcruntime, nested_qt_msvcp, nested_numpy_msvcp, unrelated):
+        path.write_bytes(b"dll")
+
+    builder.remove_root_vc_runtime_shadow_dlls(app_dir)
+
+    assert not root_msvcp.exists()
+    assert not root_vcruntime.exists()
+    assert nested_qt_msvcp.exists()
+    assert nested_numpy_msvcp.exists()
+    assert unrelated.exists()
 
 
 def test_image_processing_runtime_files_accept_pyinstaller_internal_layout(

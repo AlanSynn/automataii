@@ -198,6 +198,38 @@ jobs:
         run: |
           uv sync --group build
 
+      - name: Avoid stale Python toolcache VC runtime shadowing ONNXRuntime
+        shell: pwsh
+        run: |
+          $names = @(
+            "concrt140.dll",
+            "msvcp140.dll",
+            "msvcp140_1.dll",
+            "msvcp140_2.dll",
+            "vccorlib140.dll",
+            "vcruntime140.dll",
+            "vcruntime140_1.dll"
+          )
+          $pythonRoot = $env:pythonLocation
+          if (-not $pythonRoot -or -not (Test-Path $pythonRoot)) {
+            Write-Error "pythonLocation is unavailable; cannot sanitize Windows VC runtime shadow DLLs."
+            exit 1
+          }
+          $removed = @()
+          Get-ChildItem -Path $pythonRoot -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
+            if ($names -contains $_.Name.ToLowerInvariant()) {
+              $removed += $_.FullName
+              Remove-Item -LiteralPath $_.FullName -Force
+            }
+          }
+          if ($removed.Count -gt 0) {
+            Write-Host "Removed stale Python toolcache VC runtime DLLs that shadow ONNXRuntime:"
+            $removed | ForEach-Object { Write-Host "  $_" }
+          } else {
+            Write-Host "No Python toolcache VC runtime shadow DLLs found."
+          }
+          uv run python -c "import onnxruntime as ort; print('ONNXRuntime import ok', ort.__version__, ort.get_available_providers())"
+
       - name: Prepare Windows signing certificate
         timeout-minutes: 5
         env:

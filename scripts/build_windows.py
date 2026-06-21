@@ -33,6 +33,15 @@ DEFAULT_TIMESTAMP_URL = "http://timestamp.digicert.com"
 DEFAULT_CERT_PASSWORD_ENV = "WINDOWS_CERT_PASSWORD"
 WINSPARKLE_ZIP_SHA256 = "ffada2df3180de5376bfcde076a13ef406c87a83173ca62ae02b583cd7103c58"
 DEFAULT_WINSPARKLE_TARGET_ARCH = "x64"
+ROOT_VC_RUNTIME_SHADOW_DLLS = {
+    "concrt140.dll",
+    "msvcp140.dll",
+    "msvcp140_1.dll",
+    "msvcp140_2.dll",
+    "vccorlib140.dll",
+    "vcruntime140.dll",
+    "vcruntime140_1.dll",
+}
 PE_MACHINE_BY_ARCH = {
     "x86": 0x014C,
     "x64": 0x8664,
@@ -132,6 +141,7 @@ class WindowsBuilder:
         subprocess.run(cmd, cwd=self.project_root, check=True)
 
         exe_path = self.find_built_executable()
+        self.remove_root_vc_runtime_shadow_dlls(exe_path.parent)
         self.verify_image_processing_runtime_files(exe_path.parent)
         logger.info(f"Executable built successfully: {exe_path}")
         return exe_path
@@ -199,6 +209,36 @@ class WindowsBuilder:
             )
 
         logger.info("Image-processing runtime files verified in packaged app.")
+
+    def remove_root_vc_runtime_shadow_dlls(self, app_dir: Path) -> None:
+        """Remove stale root-level VC runtime DLLs that can break ONNXRuntime on Windows.
+
+        GitHub Actions' Python toolcache can contain older MSVC runtime DLLs.
+        PyInstaller copies those into ``_internal`` and Windows then loads them
+        before the newer system redistributable required by onnxruntime 1.22+.
+        That produces ``DLL initialization routine failed`` while importing
+        ``onnxruntime_pybind11_state``.  Remove only direct ``_internal``
+        shadows; keep nested package-owned DLLs such as PyQt6/Qt6/bin and
+        numpy.libs intact.
+        """
+        internal_dir = app_dir / "_internal"
+        if not internal_dir.exists():
+            return
+
+        removed: list[str] = []
+        for path in internal_dir.iterdir():
+            if not path.is_file():
+                continue
+            if path.name.lower() not in ROOT_VC_RUNTIME_SHADOW_DLLS:
+                continue
+            path.unlink()
+            removed.append(path.name)
+
+        if removed:
+            logger.info(
+                "Removed root VC runtime shadow DLLs from packaged app: %s",
+                ", ".join(sorted(removed)),
+            )
 
     def find_signtool(self, signtool: str | Path | None = None) -> Path:
         """Find Microsoft SignTool."""
