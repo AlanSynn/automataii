@@ -75,12 +75,15 @@ class ONNXImageProcessor:
         # resolve_path를 사용하여 개발 및 번들 환경 모두에서 모델 경로를 찾습니다.
         models_dir = resolve_path("models")
 
-        if detector_onnx is None:
-            detector_onnx = models_dir / "onnx" / "detector_backbone.onnx"
         if pose_onnx is None:
             pose_onnx = models_dir / "onnx" / "pose_model.onnx"
 
-        self.detector_path = Path(detector_onnx)
+        # The bundled detector file is a backbone-only model and this pipeline
+        # does not parse usable boxes from its output; detect_person ultimately
+        # uses the full image either way.  Keep detector loading opt-in so the
+        # packaged Windows path runs the required pose model instead of spending
+        # minutes on dead inference.
+        self.detector_path = Path(detector_onnx) if detector_onnx is not None else None
         self.pose_path = Path(pose_onnx)
 
         self._load_models()
@@ -93,7 +96,9 @@ class ONNXImageProcessor:
         providers = self._runtime_providers()
 
         # Load detector
-        if self.detector_path.exists():
+        if self.detector_path is None:
+            logging.info("Detector ONNX disabled; using full-image detection.")
+        elif self.detector_path.exists():
             try:
                 self.detector_session = cast(
                     _ONNXSession,
