@@ -141,7 +141,7 @@ class WindowsBuilder:
         subprocess.run(cmd, cwd=self.project_root, check=True)
 
         exe_path = self.find_built_executable()
-        self.remove_root_vc_runtime_shadow_dlls(exe_path.parent)
+        self.remove_vc_runtime_shadow_dlls(exe_path.parent)
         self.verify_image_processing_runtime_files(exe_path.parent)
         logger.info(f"Executable built successfully: {exe_path}")
         return exe_path
@@ -210,33 +210,35 @@ class WindowsBuilder:
 
         logger.info("Image-processing runtime files verified in packaged app.")
 
-    def remove_root_vc_runtime_shadow_dlls(self, app_dir: Path) -> None:
-        """Remove stale root-level VC runtime DLLs that can break ONNXRuntime on Windows.
+    def remove_vc_runtime_shadow_dlls(self, app_dir: Path) -> None:
+        """Remove stale VC runtime DLL shadows that can break ONNXRuntime on Windows.
 
-        GitHub Actions' Python toolcache can contain older MSVC runtime DLLs.
-        PyInstaller copies those into ``_internal`` and Windows then loads them
-        before the newer system redistributable required by onnxruntime 1.22+.
-        That produces ``DLL initialization routine failed`` while importing
-        ``onnxruntime_pybind11_state``.  Remove only direct ``_internal``
-        shadows; keep nested package-owned DLLs such as PyQt6/Qt6/bin and
-        numpy.libs intact.
+        GitHub Actions' Python toolcache and Qt wheels can contain older MSVC
+        runtime DLLs. PyInstaller copies them into ``_internal`` and adds nested
+        package directories (for example PyQt6/Qt6/bin) to the DLL search path.
+        ONNXRuntime 1.22+ can then load those older exact-name DLLs before the
+        newer system redistributable, producing ``DLL initialization routine
+        failed`` while importing ``onnxruntime_pybind11_state``. Remove exact-name
+        shadows throughout ``_internal``; keep hashed/private package DLLs such as
+        numpy.libs/msvcp140-<hash>.dll intact.
         """
         internal_dir = app_dir / "_internal"
         if not internal_dir.exists():
             return
 
         removed: list[str] = []
-        for path in internal_dir.iterdir():
+        for path in internal_dir.rglob("*"):
             if not path.is_file():
                 continue
             if path.name.lower() not in ROOT_VC_RUNTIME_SHADOW_DLLS:
                 continue
+            relative = path.relative_to(app_dir)
             path.unlink()
-            removed.append(path.name)
+            removed.append(str(relative))
 
         if removed:
             logger.info(
-                "Removed root VC runtime shadow DLLs from packaged app: %s",
+                "Removed VC runtime shadow DLLs from packaged app: %s",
                 ", ".join(sorted(removed)),
             )
 

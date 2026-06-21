@@ -207,7 +207,7 @@ def test_windows_build_regression_files_are_release_ready() -> None:
     assert build_windows.WINSPARKLE_ZIP_SHA256 in windows_builder
     assert "verify_file_sha256" in windows_builder
     assert "verify_image_processing_runtime_files" in windows_builder
-    assert "remove_root_vc_runtime_shadow_dlls" in windows_builder
+    assert "remove_vc_runtime_shadow_dlls" in windows_builder
     assert "ROOT_VC_RUNTIME_SHADOW_DLLS" in windows_builder
     assert "--no-installer" not in Path("scripts/build.py").read_text(encoding="utf-8")
     assert "--no-installer" not in windows_builder
@@ -412,7 +412,7 @@ def test_find_built_executable_rejects_flat_layout(tmp_path: Path) -> None:
         raise AssertionError("flat Windows layout should not be accepted")
 
 
-def test_remove_root_vc_runtime_shadow_dlls_preserves_nested_package_dlls(
+def test_remove_vc_runtime_shadow_dlls_preserves_private_hashed_dlls(
     tmp_path: Path,
 ) -> None:
     builder = build_windows.WindowsBuilder(tmp_path)
@@ -431,11 +431,11 @@ def test_remove_root_vc_runtime_shadow_dlls_preserves_nested_package_dlls(
     for path in (root_msvcp, root_vcruntime, nested_qt_msvcp, nested_numpy_msvcp, unrelated):
         path.write_bytes(b"dll")
 
-    builder.remove_root_vc_runtime_shadow_dlls(app_dir)
+    builder.remove_vc_runtime_shadow_dlls(app_dir)
 
     assert not root_msvcp.exists()
     assert not root_vcruntime.exists()
-    assert nested_qt_msvcp.exists()
+    assert not nested_qt_msvcp.exists()
     assert nested_numpy_msvcp.exists()
     assert unrelated.exists()
 
