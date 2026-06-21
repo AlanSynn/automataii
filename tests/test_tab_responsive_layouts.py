@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QGraphicsItem,
     QGraphicsScene,
+    QLabel,
     QScrollArea,
     QSizePolicy,
     QSplitter,
@@ -134,6 +135,7 @@ def test_mechanism_design_control_panel_is_resizable() -> None:
     assert scroll_area is not None
     assert scroll_area.minimumWidth() < scroll_area.maximumWidth()
     assert scroll_area.sizePolicy().horizontalPolicy() != QSizePolicy.Policy.Fixed
+    assert all("Fabrication-ready" not in label.text() for label in host.findChildren(QLabel))
 
 
 def test_image_processing_uses_splitter_with_scrollable_controls() -> None:

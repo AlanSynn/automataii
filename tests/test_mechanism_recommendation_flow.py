@@ -142,18 +142,6 @@ class TestAnimationFrameCoordinatorDefensiveChecks:
 class TestMechanismTypeHandling:
     """Test handling of different mechanism types in recommendation flow."""
 
-    def test_recommendation_physical_banner_defaults_to_fabrication_ready(self):
-        from automataii.presentation.qt.dialogs.recommendation_dialog import (
-            _recommendation_physical_mode_summary,
-        )
-        from automataii.shared.physical_kit import physical_context_from_settings
-
-        assert "Fabrication-ready preset mode ON" in _recommendation_physical_mode_summary(None)
-        assert "G1/G3/G5/G7" in _recommendation_physical_mode_summary(None)
-        assert "Simulation-only" in _recommendation_physical_mode_summary(
-            physical_context_from_settings(False, 2.0)
-        )
-
     @pytest.mark.parametrize(
         "mechanism_type,internal_type",
         [

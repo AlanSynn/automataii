@@ -18,8 +18,6 @@ from automataii.shared.physical_kit import (
     DEFAULT_PHYSICAL_KIT_PROFILE,
     PhysicalKitContext,
     PhysicalKitProfile,
-    physical_context_from_settings,
-    physical_context_mode_summary,
 )
 
 
@@ -43,7 +41,6 @@ class GalleryView(QWidget):
         self._physical_profile = physical_profile
         self._grid_cell_cm = grid_cell_cm
         self._grid_enabled = True
-        self._physical_mode_label: QLabel | None = None
         self._grid_layout: QGridLayout | None = None
         self._setup_ui()
 
@@ -72,24 +69,6 @@ class GalleryView(QWidget):
             """
         )
         layout.addWidget(subtitle)
-
-        self._physical_mode_label = QLabel()
-        self._physical_mode_label.setWordWrap(True)
-        self._physical_mode_label.setStyleSheet(
-            """
-            QLabel {
-                color: #0f5132;
-                font-size: 13px;
-                font-weight: 650;
-                background-color: #d1e7dd;
-                border: 1px solid #badbcc;
-                border-radius: 10px;
-                padding: 8px 10px;
-            }
-            """
-        )
-        layout.addWidget(self._physical_mode_label)
-        self._update_physical_mode_label()
 
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
@@ -126,45 +105,6 @@ class GalleryView(QWidget):
         self._grid_enabled = context.enabled
         self._grid_cell_cm = context.grid_cell_cm
         self._physical_profile = context.profile
-        self._update_physical_mode_label()
-
-    def _update_physical_mode_label(self) -> None:
-        if self._physical_mode_label is None:
-            return
-        context = physical_context_from_settings(
-            self._grid_enabled,
-            self._grid_cell_cm,
-            profile=self._physical_profile,
-        )
-        self._physical_mode_label.setText(physical_context_mode_summary(context))
-        if context.enabled:
-            self._physical_mode_label.setStyleSheet(
-                """
-                QLabel {
-                    color: #0f5132;
-                    font-size: 13px;
-                    font-weight: 650;
-                    background-color: #d1e7dd;
-                    border: 1px solid #badbcc;
-                    border-radius: 10px;
-                    padding: 8px 10px;
-                }
-                """
-            )
-        else:
-            self._physical_mode_label.setStyleSheet(
-                """
-                QLabel {
-                    color: #7a4b00;
-                    font-size: 13px;
-                    font-weight: 650;
-                    background-color: #fff3cd;
-                    border: 1px solid #ffecb5;
-                    border-radius: 10px;
-                    padding: 8px 10px;
-                }
-                """
-            )
 
     def _populate_gallery(self, grid_layout: QGridLayout) -> None:
         mechanisms = self.controller.list_mechanisms()

@@ -11,6 +11,7 @@ SRC_ROOT = PROJECT_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
+from PyInstaller.utils.hooks import collect_dynamic_libs
 from scripts.pyinstaller_datas import existing_datas
 
 from automataii.utils.update_config import (
@@ -108,10 +109,26 @@ def macos_extra_binaries():
     return []
 
 
+def onnxruntime_extra_binaries():
+    # PyInstaller's import graph can see onnxruntime's Python modules while still
+    # missing the platform-native runtime/provider DLLs that the C extension loads
+    # at runtime.  Collect them explicitly so Windows image processing can run from
+    # the packaged app instead of failing at InferenceSession construction.
+    return collect_dynamic_libs("onnxruntime")
+
+
+RUNTIME_UPX_EXCLUDES = [
+    "onnxruntime*.dll",
+    "onnxruntime*.pyd",
+    "opencv*.dll",
+    "cv2*.pyd",
+]
+
+
 a = Analysis(
     [project_path("src", "automataii", "__main__.py")],
     pathex=[project_path("src")],
-    binaries=macos_extra_binaries(),
+    binaries=[*macos_extra_binaries(), *onnxruntime_extra_binaries()],
     datas=[
         (project_path("models", "onnx"), "models/onnx"),
         (
@@ -158,7 +175,7 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    upx_exclude=[],
+    upx_exclude=RUNTIME_UPX_EXCLUDES,
     runtime_tmpdir=None,
     console=False,  # Set to False for GUI applications
     disable_windowed_traceback=False,
@@ -176,7 +193,7 @@ coll = COLLECT(
     a.datas,
     strip=False,
     upx=True,
-    upx_exclude=[],
+    upx_exclude=RUNTIME_UPX_EXCLUDES,
     name="MotionSmith",
 )
 

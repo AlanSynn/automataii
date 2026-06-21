@@ -8,13 +8,14 @@ import logging
 import math
 import sys
 import uuid
+from collections.abc import Sequence
 from hashlib import sha256
 from pathlib import Path
-from typing import TypedDict
+from typing import Protocol, TypedDict, cast
 
 import cv2
 import numpy as np
-import yaml
+import yaml  # type: ignore[import-untyped]
 from scipy import ndimage
 
 try:
@@ -39,10 +40,28 @@ class AnnotationResults(TypedDict):
     bounding_box_path: str
 
 
+class _ONNXInput(Protocol):
+    name: str
+
+
+class _ONNXSession(Protocol):
+    def get_inputs(self) -> list[_ONNXInput]: ...
+
+    def run(
+        self,
+        output_names: object,
+        input_feed: dict[str, np.ndarray],
+    ) -> list[np.ndarray]: ...
+
+
 class ONNXImageProcessor:
     """ONNX-based image processing pipeline for character animation"""
 
-    def __init__(self, detector_onnx=None, pose_onnx=None):
+    def __init__(
+        self,
+        detector_onnx: str | Path | None = None,
+        pose_onnx: str | Path | None = None,
+    ) -> None:
         """
         Initialize with ONNX model paths
 
@@ -50,8 +69,8 @@ class ONNXImageProcessor:
             detector_onnx: Path to detector ONNX model
             pose_onnx: Path to pose estimation ONNX model
         """
-        self.detector_session = None
-        self.pose_session = None
+        self.detector_session: _ONNXSession | None = None
+        self.pose_session: _ONNXSession | None = None
 
         # resolve_path를 사용하여 개발 및 번들 환경 모두에서 모델 경로를 찾습니다.
         models_dir = resolve_path("models")
@@ -66,35 +85,71 @@ class ONNXImageProcessor:
 
         self._load_models()
 
-    def _load_models(self):
+    def _load_models(self) -> None:
         """Load ONNX models used by this pipeline."""
         if not ort:
             raise ImportError("ONNXRuntime required. Install with: pip install onnxruntime")
 
+        providers = self._runtime_providers()
+
         # Load detector
         if self.detector_path.exists():
             try:
-                self.detector_session = ort.InferenceSession(str(self.detector_path))
+                self.detector_session = cast(
+                    _ONNXSession,
+                    ort.InferenceSession(
+                        str(self.detector_path),
+                        providers=providers,
+                    ),
+                )
                 logging.info(f"Loaded detector ONNX: {self.detector_path}")
             except Exception as e:
-                logging.warning(f"Failed to load detector: {e}")
+                logging.warning(
+                    "Failed to load detector model %s; full-image detection will be used: %s",
+                    self.detector_path,
+                    e,
+                )
         else:
-            logging.warning(f"Detector model not found: {self.detector_path}")
-            # Note: ONNX models are included in the build, so this shouldn't happen
-            # But if it does, we could implement download logic here
+            logging.warning(
+                "Detector model not found: %s; full-image detection will be used.",
+                self.detector_path,
+            )
 
         # Load pose model
-        if self.pose_path.exists():
-            try:
-                self.pose_session = ort.InferenceSession(str(self.pose_path))
-                logging.info(f"Loaded pose ONNX: {self.pose_path}")
-            except Exception as e:
-                logging.warning(f"Failed to load pose model: {e}")
-        else:
-            logging.warning(f"Pose model not found: {self.pose_path}")
-            # Note: ONNX models are included in the build, so this shouldn't happen
+        if not self.pose_path.exists():
+            raise FileNotFoundError(
+                f"Required pose ONNX model not found: {self.pose_path}. "
+                "The packaged app must include models/onnx/pose_model.onnx."
+            )
 
-    def preprocess_for_detection(self, image):
+        try:
+            self.pose_session = cast(
+                _ONNXSession,
+                ort.InferenceSession(str(self.pose_path), providers=providers),
+            )
+            logging.info(f"Loaded pose ONNX: {self.pose_path}")
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to load required pose model {self.pose_path}. "
+                "Check that onnxruntime native libraries are bundled for this platform."
+            ) from e
+
+    @staticmethod
+    def _runtime_providers() -> list[str]:
+        if not ort:
+            raise ImportError("ONNXRuntime required. Install with: pip install onnxruntime")
+
+        available = set(ort.get_available_providers())
+        if "CPUExecutionProvider" not in available:
+            raise RuntimeError(
+                "ONNXRuntime CPUExecutionProvider is unavailable. "
+                f"Available providers: {sorted(available)}"
+            )
+        return ["CPUExecutionProvider"]
+
+    def preprocess_for_detection(
+        self, image: np.ndarray
+    ) -> tuple[np.ndarray, float, tuple[int, int], tuple[int, int]]:
         """Preprocess image for detection - Exact MMDetection pipeline"""
         h, w = image.shape[:2]
 
@@ -106,7 +161,7 @@ class ONNXImageProcessor:
         # Pad to make divisible by 32
         pad_h = ((new_h + 31) // 32) * 32
         pad_w = ((new_w + 31) // 32) * 32
-        padded = np.zeros((pad_h, pad_w, 3), dtype=np.float32)
+        padded: np.ndarray = np.zeros((pad_h, pad_w, 3), dtype=np.float32)
         padded[:new_h, :new_w] = resized
 
         # Normalize: mean=[103.53, 116.28, 123.675], std=[1.0, 1.0, 1.0], to_rgb=False (BGR)
@@ -120,7 +175,9 @@ class ONNXImageProcessor:
 
         return input_tensor, scale, (new_h, new_w), (pad_h, pad_w)
 
-    def preprocess_for_pose(self, image, bbox=None):
+    def preprocess_for_pose(
+        self, image: np.ndarray, bbox: Sequence[float] | None = None
+    ) -> tuple[np.ndarray, np.ndarray]:
         """Preprocess image for pose estimation - Exact MMPose pipeline"""
         if bbox is not None:
             # Crop image using bbox
@@ -148,7 +205,7 @@ class ONNXImageProcessor:
 
         return input_tensor, cropped
 
-    def detect_person(self, image):
+    def detect_person(self, image: np.ndarray) -> list[float]:
         """Run detection and extract person bounding box"""
         if self.detector_session is None:
             # Fallback: use entire image as bounding box
@@ -175,7 +232,9 @@ class ONNXImageProcessor:
             h, w = image.shape[:2]
             return [0, 0, w, h, 0.5]
 
-    def estimate_pose(self, image, bbox):
+    def estimate_pose(
+        self, image: np.ndarray, bbox: Sequence[float]
+    ) -> tuple[np.ndarray, np.ndarray] | None:
         """Run pose estimation on detected person"""
         if self.pose_session is None:
             logging.error("No pose model loaded")
@@ -195,9 +254,11 @@ class ONNXImageProcessor:
 
         except Exception as e:
             logging.error(f"Pose estimation failed: {e}")
-            return None, None
+            return None
 
-    def extract_keypoints_from_heatmap(self, heatmap, bbox):
+    def extract_keypoints_from_heatmap(
+        self, heatmap: np.ndarray, bbox: Sequence[float]
+    ) -> np.ndarray:
         """Extract keypoints from pose heatmap output"""
         if len(heatmap.shape) == 4:
             heatmap = heatmap[0]  # Remove batch dimension
@@ -227,7 +288,7 @@ class ONNXImageProcessor:
 
             keypoints.append([x_orig, y_orig, confidence])
 
-        return np.array(keypoints)
+        return cast(np.ndarray, np.array(keypoints))
 
 
 def _build_image_temp_session_id(img_fn: str) -> str | None:
@@ -259,11 +320,76 @@ def _build_image_temp_session_id(img_fn: str) -> str | None:
     return f"{safe_stem}_{source_digest}_{run_suffix}"
 
 
+def _read_image_file(path: str | Path, flags: int = cv2.IMREAD_UNCHANGED) -> np.ndarray | None:
+    """Read an image through NumPy so Windows Unicode paths work reliably."""
+
+    try:
+        data = np.fromfile(str(path), dtype=np.uint8)
+        if data.size:
+            image = cv2.imdecode(data, flags)
+            if image is not None:
+                return cast(np.ndarray, image)
+    except OSError as exc:
+        logging.warning("image_to_annotations: NumPy image read failed for %s: %s", path, exc)
+
+    return cast(np.ndarray | None, cv2.imread(str(path), flags))
+
+
+def _write_image_file(path: str | Path, image: np.ndarray) -> bool:
+    """Write an image through NumPy so Windows Unicode output paths work reliably."""
+
+    suffix = Path(path).suffix or ".png"
+    try:
+        ok, encoded = cv2.imencode(suffix, image)
+        if ok:
+            encoded.tofile(str(path))
+            return True
+    except OSError as exc:
+        logging.warning("image_to_annotations: NumPy image write failed for %s: %s", path, exc)
+
+    return bool(cv2.imwrite(str(path), image))
+
+
+def _write_required_image(path: str | Path, image: np.ndarray) -> None:
+    if not _write_image_file(path, image):
+        raise OSError(f"Failed to write image artifact: {path}")
+
+
+def _image_as_bgr(image: np.ndarray) -> np.ndarray:
+    """Normalize decoded image data to BGR for ONNX/OpenCV processing."""
+
+    if image.ndim == 2:
+        return cast(np.ndarray, cv2.cvtColor(image, cv2.COLOR_GRAY2BGR))
+    if image.shape[2] == 4:
+        return cast(np.ndarray, cv2.cvtColor(image, cv2.COLOR_BGRA2BGR))
+    if image.shape[2] == 1:
+        return cast(np.ndarray, cv2.cvtColor(image[:, :, 0], cv2.COLOR_GRAY2BGR))
+    return cast(np.ndarray, image[:, :, :3].copy())
+
+
+def _image_as_bgra(image: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    """Return a BGRA texture, preserving alpha when present and using mask as fallback."""
+
+    if image.ndim == 2:
+        texture = cast(np.ndarray, cv2.cvtColor(image, cv2.COLOR_GRAY2BGRA))
+        texture[:, :, 3] = mask
+        return texture
+    if image.shape[2] == 4:
+        texture = image.copy()
+        if np.mean(texture[:, :, 3]) < 5:
+            texture[:, :, 3] = mask
+        return cast(np.ndarray, texture)
+
+    texture = cast(np.ndarray, cv2.cvtColor(image[:, :, :3], cv2.COLOR_BGR2BGRA))
+    texture[:, :, 3] = mask
+    return texture
+
+
 def segment(img: np.ndarray) -> np.ndarray:
     """Robust segmentation for both photos and line art"""
 
     def _to_binary(mask: np.ndarray) -> np.ndarray:
-        return (mask > 0).astype(np.uint8) * 255
+        return cast(np.ndarray, (mask > 0).astype(np.uint8) * 255)
 
     def _keep_significant_components(
         mask: np.ndarray,
@@ -302,7 +428,7 @@ def segment(img: np.ndarray) -> np.ndarray:
             largest_label = int(np.argmax(component_areas)) + 1
             kept[labels == largest_label] = 255
 
-        return kept
+        return cast(np.ndarray, kept)
 
     # Check if image has alpha channel
     has_alpha = img.shape[2] == 4 if len(img.shape) == 3 else False
@@ -321,7 +447,10 @@ def segment(img: np.ndarray) -> np.ndarray:
             mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
 
             # Fill holes
-            mask_filled = ndimage.binary_fill_holes(mask > 0).astype(np.uint8) * 255
+            mask_filled = cast(
+                np.ndarray,
+                ndimage.binary_fill_holes(mask > 0).astype(np.uint8) * 255,
+            )
 
             return _keep_significant_components(mask_filled)
 
@@ -336,8 +465,8 @@ def segment(img: np.ndarray) -> np.ndarray:
 
     # Check for line art characteristics
     h, w = gray.shape[:2]
-    white_pixels = np.sum(gray > 240)
-    total_pixels = gray.size
+    white_pixels = int(np.sum(gray > 240))
+    total_pixels = int(gray.size)
     white_percentage = (white_pixels / total_pixels) * 100
 
     if white_percentage > 40:  # Likely line art with white background
@@ -348,7 +477,10 @@ def segment(img: np.ndarray) -> np.ndarray:
         # Use morphology to connect broken lines
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
         binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=3)
-        mask = ndimage.binary_fill_holes(binary > 0).astype(np.uint8) * 255
+        mask = cast(
+            np.ndarray,
+            ndimage.binary_fill_holes(binary > 0).astype(np.uint8) * 255,
+        )
         return _keep_significant_components(mask)
     else:
         # Photo or dark background - use adaptive threshold
@@ -382,12 +514,12 @@ def segment(img: np.ndarray) -> np.ndarray:
     if not contours:
         # If no contours found, return a filled rectangle
         mask = np.ones((h, w), dtype=np.uint8) * 255
-        return mask
+        return cast(np.ndarray, mask)
 
     mask = _keep_significant_components(im_floodfill)
-    mask = ndimage.binary_fill_holes(mask > 0).astype(np.uint8) * 255
+    mask = cast(np.ndarray, ndimage.binary_fill_holes(mask > 0).astype(np.uint8) * 255)
 
-    return mask
+    return cast(np.ndarray, mask)
 
 
 def _compute_mask_bbox(mask: np.ndarray) -> tuple[float, float, float, float] | None:
@@ -517,7 +649,7 @@ def _reconcile_skeleton_to_mask(
     return skeleton
 
 
-def create_skeleton_config(keypoints):
+def create_skeleton_config(keypoints: np.ndarray) -> list[dict]:
     """Create skeleton configuration from COCO keypoints"""
     kpts = keypoints[:, :2]
 
@@ -559,7 +691,9 @@ def create_skeleton_config(keypoints):
 
 
 def image_to_annotations(
-    img_fn: str, detector_onnx=None, pose_onnx=None
+    img_fn: str,
+    detector_onnx: str | Path | None = None,
+    pose_onnx: str | Path | None = None,
 ) -> AnnotationResults | None:
     """
     Modern ONNX-based image to annotations pipeline
@@ -590,19 +724,23 @@ def image_to_annotations(
         (outdir / IMAGE_TEMP_SESSION_MARKER).touch(exist_ok=True)
         logger.info(f"Processing {img_fn}, outputting to: {outdir}")
 
-        # Read image
-        image = cv2.imread(str(img_fn))
-        if image is None:
+        # Read image.  cv2.imread/imwrite can fail on Windows Unicode paths, so all
+        # artifact IO in this pipeline goes through NumPy-backed helpers.
+        original_image = _read_image_file(img_fn)
+        if original_image is None:
             logger.error(f"Cannot read image: {img_fn}")
             return None
+        image = _image_as_bgr(original_image)
 
         orig_h, orig_w = image.shape[:2]
         logger.info(f"Image shape: {image.shape}")
 
         # Copy original image
-        cv2.imwrite(str(outdir / "image.png"), image)
+        _write_required_image(outdir / "image.png", original_image)
 
-        # Initialize ONNX processor
+        # Initialize the actual ONNX processor.  Pose estimation is required for
+        # this pipeline; packaging/runtime failures must fail closed instead of
+        # silently producing a fake skeleton.
         processor = ONNXImageProcessor(detector_onnx, pose_onnx)
 
         # Step 1: Detection
@@ -611,10 +749,10 @@ def image_to_annotations(
 
         # Give margin to the bounding box (same as original)
         margin = 0.2
-        left = max(0, x1 - int(margin * x1))
-        top = max(0, y1 - int(margin * y1))
-        right = min(orig_w, x2 + int(margin * x2))
-        bottom = min(orig_h, y2 + int(margin * y2))
+        left = int(max(0, x1 - int(margin * x1)))
+        top = int(max(0, y1 - int(margin * y1)))
+        right = int(min(orig_w, x2 + int(margin * x2)))
+        bottom = int(min(orig_h, y2 + int(margin * y2)))
 
         # Save bounding box info
         bbox_data = {
@@ -631,32 +769,38 @@ def image_to_annotations(
         with open(bbox_path, "w") as f:
             yaml.dump(bbox_data, f)
 
-        # Step 2: Pose estimation
-        pose_result = processor.estimate_pose(image, [left, top, right, bottom])
-        if pose_result is None:
-            logger.error("Pose estimation failed")
-            return None
-
-        keypoints, cropped_image = pose_result
-        if keypoints is None or len(keypoints) < 17:
-            logger.error("Insufficient keypoints detected")
-            return None
-
         # Crop image
         cropped = image[top:bottom, left:right]
+        cropped_original = original_image[top:bottom, left:right]
+
+        # Build silhouette mask for texture/part extraction and for reconciling
+        # real ONNX pose output to the segmented character.
+        mask = segment(cropped_original)
+
+        # Step 2: Pose estimation
+        pose_result = processor.estimate_pose(image, [left, top, right, bottom])
+        keypoints = None
+        if pose_result is not None:
+            keypoints, _cropped_image = pose_result
 
         # Step 3: Create skeleton config
-        skeleton = create_skeleton_config(keypoints)
+        if keypoints is not None and len(keypoints) >= 17:
+            skeleton = create_skeleton_config(keypoints)
 
-        # Adjust skeleton coordinates to cropped image space
-        for joint in skeleton:
-            orig_x, orig_y = joint["loc"]
-            joint["loc"] = [orig_x - left, orig_y - top]  # Convert to cropped coordinates
-            joint["loc_original"] = [orig_x, orig_y]  # Keep original coordinates
+            # Adjust skeleton coordinates to cropped image space
+            for joint in skeleton:
+                orig_x, orig_y = joint["loc"]
+                joint["loc"] = [orig_x - left, orig_y - top]  # Convert to cropped coordinates
+                joint["loc_original"] = [orig_x, orig_y]  # Keep original coordinates
 
-        # Build silhouette mask early so skeleton can be reconciled to actual character bounds.
-        mask = segment(cropped)
-        skeleton = _reconcile_skeleton_to_mask(skeleton, mask)
+            skeleton = _reconcile_skeleton_to_mask(skeleton, mask)
+        else:
+            logger.error(
+                "Pose estimation failed to produce the required 17 COCO keypoints for %s. "
+                "Annotations were not generated.",
+                img_fn,
+            )
+            return None
 
         char_cfg = {
             "skeleton": skeleton,
@@ -671,23 +815,13 @@ def image_to_annotations(
 
         # Step 4: Save outputs
         mask_path = outdir / "mask.png"
-        cv2.imwrite(str(mask_path), mask)
+        _write_required_image(mask_path, mask)
 
         # Convert texture to BGRA and apply mask to alpha
-        if cropped.shape[2] == 4:
-            # Already has alpha channel
-            texture = cropped.copy()
-            # Combine with mask if alpha is empty
-            if np.mean(texture[:, :, 3]) < 5:
-                texture[:, :, 3] = mask
-        else:
-            # Convert to BGRA
-            texture = cv2.cvtColor(cropped, cv2.COLOR_BGR2BGRA)
-            # Use mask as alpha
-            texture[:, :, 3] = mask
+        texture = _image_as_bgra(cropped_original, mask)
 
         texture_path = outdir / "texture.png"
-        cv2.imwrite(str(texture_path), texture)
+        _write_required_image(texture_path, texture)
 
         # Save character config
         char_cfg_path = outdir / "char_cfg.yaml"
@@ -713,7 +847,7 @@ def image_to_annotations(
                 )
 
         joint_overlay_path = outdir / "joint_overlay.png"
-        cv2.imwrite(str(joint_overlay_path), joint_overlay)
+        _write_required_image(joint_overlay_path, joint_overlay)
 
         logger.info(f"Annotation generation complete. Output at {outdir}")
 
@@ -731,7 +865,7 @@ def image_to_annotations(
         return None
 
 
-def main():
+def main() -> None:
     """Command line interface"""
     import argparse
 

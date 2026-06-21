@@ -6,7 +6,20 @@ from pathlib import Path
 import pytest
 
 from automataii.scenarios import run_image_processing_scenario
-from automataii.scenarios.image_processing import GENERATED_TREE_MARKER, _copy_tree
+from automataii.scenarios.image_processing import (
+    DEFAULT_IMAGE_CANDIDATES,
+    GENERATED_TREE_MARKER,
+    _copy_tree,
+)
+
+
+def test_default_image_candidates_support_packaged_and_dev_layouts() -> None:
+    assert DEFAULT_IMAGE_CANDIDATES[:4] == (
+        "examples/girl.png",
+        "examples/boy.png",
+        "src/examples/girl.png",
+        "src/examples/boy.png",
+    )
 
 
 def test_run_image_processing_scenario(tmp_path):

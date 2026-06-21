@@ -298,20 +298,6 @@ def physical_kit_preset_summary(
     return f"{gear_labels} gears + S10 spacer + 4 mm holes"
 
 
-def physical_context_mode_summary(context: PhysicalKitContext) -> str:
-    """Return a concise UI summary for the active physical-kit mode."""
-
-    if context.enabled:
-        return (
-            "Fabrication-ready preset mode ON — "
-            f"{physical_kit_preset_summary(context.profile)}; mechanisms snap to board spaces."
-        )
-    return (
-        "Custom / Simulation-only mode — physical preset snapping is off; "
-        "board assembly PDFs require conversion back to kit presets."
-    )
-
-
 def pitch_cm_to_mm(grid_cell_cm: object = DEFAULT_GRID_CELL_CM) -> float:
     return grid_step_mm(grid_cell_cm)
 

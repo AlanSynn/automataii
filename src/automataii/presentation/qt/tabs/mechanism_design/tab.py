@@ -13,7 +13,6 @@ from PyQt6.QtWidgets import (
     QGraphicsItem,
     QGraphicsLineItem,
     QInputDialog,
-    QLabel,
     QMessageBox,
     QWidget,
 )
@@ -125,7 +124,6 @@ from automataii.shared.physical_kit import (
     grid_step_mm,
     physical_context_from_params,
     physical_context_from_settings,
-    physical_context_mode_summary,
     physical_profile_from_params,
     snap_gear_params,
     snap_physical_params,
@@ -323,7 +321,6 @@ class MechanismDesignTab(QWidget):
         self.layout_manager = MechanismDesignTabLayout()
         self.layout_manager.setup_main_layout(self)
         self.ui_widgets = self.layout_manager.get_all_widgets()
-        self._update_physical_mode_label()
 
         # Now mechanism_scene is available - initialize dependent components
         self.visualization_adapter: VisualizationAdapter | None = None
@@ -1965,7 +1962,6 @@ class MechanismDesignTab(QWidget):
         self._grid_cell_cm = context.grid_cell_cm
         self._grid_pitch_choice = context.grid_pitch_choice
         self._physical_profile = context.profile
-        self._update_physical_mode_label()
         if hasattr(self, "_mechanism_instantiation") and self._mechanism_instantiation:
             self._mechanism_instantiation.set_physical_context(context)
         if hasattr(self, "parametric_manager") and self.parametric_manager:
@@ -2026,42 +2022,6 @@ class MechanismDesignTab(QWidget):
             profile=context.profile,
             pitch_choice_key=context.grid_pitch_choice,
         )
-
-    def _update_physical_mode_label(self) -> None:
-        label = getattr(self, "ui_widgets", {}).get("physical_mode_label")
-        if not isinstance(label, QLabel):
-            return
-        context = physical_context_from_settings(
-            self._grid_system_enabled,
-            self._grid_cell_cm,
-            self._grid_pitch_choice,
-            profile=self._physical_profile,
-        )
-        label.setText(physical_context_mode_summary(context))
-        if context.enabled:
-            label.setStyleSheet("""
-                QLabel {
-                    color: #0f5132;
-                    font-size: 11px;
-                    font-weight: 650;
-                    background-color: #d1e7dd;
-                    border: 1px solid #badbcc;
-                    border-radius: 8px;
-                    padding: 6px 8px;
-                }
-            """)
-        else:
-            label.setStyleSheet("""
-                QLabel {
-                    color: #7a4b00;
-                    font-size: 11px;
-                    font-weight: 650;
-                    background-color: #fff3cd;
-                    border: 1px solid #ffecb5;
-                    border-radius: 8px;
-                    padding: 6px 8px;
-                }
-            """)
 
     # --- Foundry Integration ---
 

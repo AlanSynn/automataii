@@ -27,7 +27,6 @@ from automataii.shared.physical_kit import (
     nearest_cam_preset,
     nearest_gear_radius_mm,
     physical_context_from_settings,
-    physical_context_mode_summary,
     physical_kit_preset_summary,
     physical_profile_from_key,
     snap_physical_params,
@@ -313,16 +312,8 @@ def test_fabrication_ready_params_preserves_explicit_custom_mode() -> None:
     assert ready["gear2_teeth"] == 17
 
 
-def test_physical_mode_summary_names_enforced_part_contract() -> None:
-    enabled = physical_context_from_settings(True, 2.0)
-    disabled = physical_context_from_settings(False, 2.0)
-
+def test_physical_kit_summary_names_enforced_part_contract() -> None:
     assert physical_kit_preset_summary() == "G1/G3/G5/G7 gears + S10 spacer + 4 mm holes"
-    assert "Fabrication-ready preset mode ON" in physical_context_mode_summary(enabled)
-    assert "G1/G3/G5/G7 gears + S10 spacer + 4 mm holes" in physical_context_mode_summary(
-        enabled
-    )
-    assert "Simulation-only" in physical_context_mode_summary(disabled)
 
 
 def test_gear_attachment_grid_offsets_match_fabrication_scale() -> None:

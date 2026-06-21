@@ -1,3 +1,4 @@
+import logging
 import shutil
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from automataii.domain.animation.image_to_annotations import (
     _build_image_temp_session_id,
     _compute_skeleton_bbox,
     _reconcile_skeleton_to_mask,
+    image_to_annotations,
     segment,
 )
 from automataii.utils.paths import get_session_temp_dir
@@ -166,3 +168,45 @@ def test_image_temp_session_id_truncates_long_stems(tmp_path: Path) -> None:
     assert len(source_digest) == 12
     assert len(run_suffix) == 8
     assert len(session_id) < 120
+
+
+def test_image_to_annotations_fails_when_required_pose_model_is_missing(
+    tmp_path: Path,
+    caplog,
+) -> None:
+    image_path = tmp_path / "missing_pose_character.png"
+    image = np.full((160, 120, 3), 255, dtype=np.uint8)
+    cv2.rectangle(image, (35, 20), (85, 145), (0, 0, 0), thickness=-1)
+    assert cv2.imwrite(str(image_path), image)
+
+    with caplog.at_level(logging.ERROR):
+        result = image_to_annotations(
+            str(image_path),
+            detector_onnx=tmp_path / "missing_detector.onnx",
+            pose_onnx=tmp_path / "missing_pose.onnx",
+        )
+
+    assert result is None
+    assert "Required pose ONNX model not found" in caplog.text
+
+
+def test_image_to_annotations_handles_unicode_paths(tmp_path: Path) -> None:
+    image_dir = tmp_path / "윈도우_이미지"
+    image_dir.mkdir()
+    image_path = image_dir / "캐릭터.png"
+    image = np.full((96, 96, 4), 0, dtype=np.uint8)
+    cv2.circle(image, (48, 48), 32, (40, 80, 200, 255), thickness=-1)
+    ok, encoded = cv2.imencode(".png", image)
+    assert ok
+    encoded.tofile(str(image_path))
+
+    result = image_to_annotations(str(image_path))
+
+    assert result is not None
+    output_dir = Path(result["output_dir"])
+    try:
+        assert Path(result["char_cfg_path"]).is_file()
+        assert Path(result["texture_path"]).is_file()
+        assert Path(result["mask_path"]).is_file()
+    finally:
+        shutil.rmtree(output_dir, ignore_errors=True)

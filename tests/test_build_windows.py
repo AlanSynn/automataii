@@ -206,12 +206,15 @@ def test_windows_build_regression_files_are_release_ready() -> None:
     assert "Build signed Windows distribution zip" in makefile
     assert build_windows.WINSPARKLE_ZIP_SHA256 in windows_builder
     assert "verify_file_sha256" in windows_builder
+    assert "verify_image_processing_runtime_files" in windows_builder
     assert "--no-installer" not in Path("scripts/build.py").read_text(encoding="utf-8")
     assert "--no-installer" not in windows_builder
     assert "create_installer" not in windows_builder
     spec = Path("packaging/pyinstaller/automataii.spec").read_text(encoding="utf-8")
     assert 'if sys.platform == "darwin":' in spec
     assert spec.index('if sys.platform == "darwin":') < spec.index("app = BUNDLE(")
+    assert 'collect_dynamic_libs("onnxruntime")' in spec
+    assert '"onnxruntime*.dll"' in spec
     assert "import requests" not in windows_builder
     assert "import requests" not in linux_builder
     assert "download_file" in windows_builder
@@ -248,8 +251,13 @@ def test_windows_build_regression_files_are_release_ready() -> None:
         "--verify-signature",
         "Smoke Windows executable",
         "Start-Process",
-        "WaitForExit(120000)",
-        '"--scenario", "blueprint-export"',
+        "WaitForExit($TimeoutMs)",
+        "Invoke-MotionSmithScenario",
+        "blueprint-export",
+        '"image-processing"',
+        "image_processing_manifest.json",
+        "annotations\\char_cfg.yaml",
+        "parts\\parts_info.json",
         "smoke-windows-portable",
         "Download Windows release artifact",
         "Smoke downloaded Windows executable",
@@ -396,3 +404,40 @@ def test_find_built_executable_rejects_flat_layout(tmp_path: Path) -> None:
         assert "one-folder" in str(exc)
     else:  # pragma: no cover - assertion path
         raise AssertionError("flat Windows layout should not be accepted")
+
+
+def test_image_processing_runtime_files_accept_pyinstaller_internal_layout(
+    tmp_path: Path,
+) -> None:
+    builder = build_windows.WindowsBuilder(tmp_path)
+    app_dir = tmp_path / "dist" / "MotionSmith"
+    internal = app_dir / "_internal"
+    (internal / "models" / "onnx").mkdir(parents=True)
+    (internal / "models" / "onnx" / "pose_model.onnx").write_bytes(b"pose")
+    (internal / "models" / "onnx" / "detector_backbone.onnx").write_bytes(b"detector")
+    (internal / "onnxruntime" / "capi").mkdir(parents=True)
+    (internal / "onnxruntime" / "capi" / "onnxruntime_pybind11_state.pyd").write_bytes(
+        b"pybind"
+    )
+    (internal / "onnxruntime" / "capi" / "onnxruntime.dll").write_bytes(b"dll")
+
+    builder.verify_image_processing_runtime_files(app_dir)
+
+
+def test_image_processing_runtime_files_reject_missing_onnxruntime_native_files(
+    tmp_path: Path,
+) -> None:
+    builder = build_windows.WindowsBuilder(tmp_path)
+    app_dir = tmp_path / "dist" / "MotionSmith"
+    (app_dir / "_internal" / "models" / "onnx").mkdir(parents=True)
+    (app_dir / "_internal" / "models" / "onnx" / "pose_model.onnx").write_bytes(b"pose")
+    (app_dir / "_internal" / "models" / "onnx" / "detector_backbone.onnx").write_bytes(
+        b"detector"
+    )
+
+    try:
+        builder.verify_image_processing_runtime_files(app_dir)
+    except RuntimeError as exc:
+        assert "ONNXRuntime native binaries missing" in str(exc)
+    else:  # pragma: no cover - assertion path
+        raise AssertionError("missing ONNXRuntime native files must fail the Windows build")

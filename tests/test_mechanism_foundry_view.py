@@ -23,6 +23,7 @@ def test_view_instantiation(qapp):
     assert view.current_mechanism is not None
     assert view.mechanism_selector is not None
     assert view.mechanism_selector.count() > 0
+    assert all("Fabrication-ready" not in label.text() for label in view.findChildren(QLabel))
 
 
 def test_foundry_canvas_retains_wheel_zoom_controller(qapp):
@@ -1022,8 +1023,7 @@ def test_foundry_gear_render_matches_fabrication_attachment_holes(qapp):
         "board_origin": "H8",
         "board_coords": {"gear1_center": "H6", "gear2_center": "H13"},
     }
-    assert view.physical_mode_label is not None
-    assert "Fabrication-ready preset mode ON" in view.physical_mode_label.text()
+    assert not hasattr(view, "physical_mode_label")
 
     view.current_parameters.update({"gear1_teeth": 8, "gear2_teeth": 24})
     view._state_cache_valid = False
@@ -1035,8 +1035,7 @@ def test_foundry_gear_render_matches_fabrication_attachment_holes(qapp):
 
     view.set_grid_system(False, 2.0)
 
-    assert view.physical_mode_label is not None
-    assert "Simulation-only" in view.physical_mode_label.text()
+    assert not hasattr(view, "physical_mode_label")
 
 
 def test_foundry_update_from_design_preserves_disabled_grid_freeform_teeth(qapp):

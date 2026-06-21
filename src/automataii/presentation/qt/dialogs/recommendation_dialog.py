@@ -50,7 +50,6 @@ from automataii.shared.physical_kit import (
     gear_center_distance,
     gear_clearance_from_params,
     grid_enabled_from_params,
-    physical_context_mode_summary,
     physical_profile_from_params,
 )
 from automataii.utils.paths import resolve_path
@@ -138,22 +137,6 @@ def _dialog_physical_context(dialog: object) -> PhysicalKitContext | None:
     except (AttributeError, RuntimeError):
         return None
     return context if isinstance(context, PhysicalKitContext) else None
-
-
-def _recommendation_physical_mode_summary(context: PhysicalKitContext | None) -> str:
-    if context is None:
-        return cast(
-            str,
-            physical_context_mode_summary(
-                PhysicalKitContext(
-                    enabled=True,
-                    grid_cell_cm=2.0,
-                    grid_pitch_choice="2cm",
-                    profile=physical_profile_from_params({}),
-                )
-            ),
-        )
-    return cast(str, physical_context_mode_summary(context))
 
 
 def _cumulative_arc_length(points: np.ndarray) -> np.ndarray:
@@ -1251,28 +1234,6 @@ class MechanismRecommendationDialog(QDialog):
             }
         """)
         main_layout.addWidget(subtitle_label)
-
-        physical_mode_label = QLabel(_recommendation_physical_mode_summary(self.physical_context))
-        physical_mode_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        physical_mode_label.setWordWrap(True)
-        physical_context_enabled = self.physical_context.enabled if self.physical_context else True
-        physical_color = "#0f5132" if physical_context_enabled else "#7a4b00"
-        physical_bg = "#d1e7dd" if physical_context_enabled else "#fff3cd"
-        physical_border = "#badbcc" if physical_context_enabled else "#ffecb5"
-        physical_mode_label.setStyleSheet(
-            f"""
-            QLabel {{
-                font-size: 13px;
-                font-weight: 650;
-                color: {physical_color};
-                background-color: {physical_bg};
-                border: 1px solid {physical_border};
-                border-radius: 10px;
-                padding: 8px 10px;
-            }}
-        """
-        )
-        main_layout.addWidget(physical_mode_label)
 
         # Use scroll area to handle multiple recommendations properly
         scroll_area = QScrollArea()

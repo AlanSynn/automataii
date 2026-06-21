@@ -132,6 +132,7 @@ class WindowsBuilder:
         subprocess.run(cmd, cwd=self.project_root, check=True)
 
         exe_path = self.find_built_executable()
+        self.verify_image_processing_runtime_files(exe_path.parent)
         logger.info(f"Executable built successfully: {exe_path}")
         return exe_path
 
@@ -141,6 +142,63 @@ class WindowsBuilder:
         if exe_path.exists():
             return exe_path
         raise FileNotFoundError("Built one-folder executable not found.")
+
+    @staticmethod
+    def _contains_path_suffix(root: Path, suffix: Path) -> bool:
+        suffix_parts = suffix.parts
+        for candidate in root.rglob(suffix.name):
+            if not candidate.is_file():
+                continue
+            if candidate.parts[-len(suffix_parts) :] == suffix_parts:
+                return True
+        return False
+
+    def verify_image_processing_runtime_files(self, app_dir: Path) -> None:
+        """
+        Fail the Windows build if packaged image processing cannot load its real runtime.
+
+        The image-processing scenario depends on bundled ONNX models and onnxruntime
+        native binaries.  The CI smoke test exercises the executable, but this
+        structural check catches incomplete PyInstaller bundles before signing/zipping.
+        """
+        required_suffixes = [
+            Path("models") / "onnx" / "pose_model.onnx",
+            Path("models") / "onnx" / "detector_backbone.onnx",
+        ]
+        missing = [
+            str(suffix)
+            for suffix in required_suffixes
+            if not self._contains_path_suffix(app_dir, suffix)
+        ]
+        if missing:
+            raise RuntimeError(
+                "Image-processing models missing from packaged app: " + ", ".join(missing)
+            )
+
+        native_files = [path for path in app_dir.rglob("*") if path.is_file()]
+        has_pybind = any(
+            path.name.lower().startswith("onnxruntime_pybind11_state")
+            and path.suffix.lower() in {".pyd", ".so", ".dll"}
+            for path in native_files
+        )
+        has_runtime = any(
+            path.name.lower() == "onnxruntime.dll"
+            or path.name.lower().startswith("libonnxruntime")
+            or path.name.lower().startswith("onnxruntime_providers")
+            for path in native_files
+        )
+        if not has_pybind or not has_runtime:
+            packaged = "\n".join(
+                f"  - {path.relative_to(app_dir)}"
+                for path in native_files
+                if "onnxruntime" in path.name.lower()
+            )
+            raise RuntimeError(
+                "ONNXRuntime native binaries missing from packaged app. "
+                f"pybind={has_pybind}, runtime={has_runtime}. Found:\n{packaged or '  <none>'}"
+            )
+
+        logger.info("Image-processing runtime files verified in packaged app.")
 
     def find_signtool(self, signtool: str | Path | None = None) -> Path:
         """Find Microsoft SignTool."""

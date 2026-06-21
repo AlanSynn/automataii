@@ -264,20 +264,37 @@ jobs:
         run: |
           $extractDir = Join-Path $env:RUNNER_TEMP "motionsmith-windows"
           $scenarioDir = Join-Path $env:RUNNER_TEMP "motionsmith-scenario"
-          Remove-Item -Recurse -Force $extractDir, $scenarioDir -ErrorAction SilentlyContinue
+          $imageScenarioDir = Join-Path $env:RUNNER_TEMP "motionsmith-image-scenario"
+          Remove-Item -Recurse -Force $extractDir, $scenarioDir, $imageScenarioDir -ErrorAction SilentlyContinue
           Expand-Archive -Path "dist/MotionSmith-windows.zip" -DestinationPath $extractDir -Force
           $exe = Join-Path $extractDir "MotionSmith.exe"
           if (-not (Test-Path $exe)) { Write-Error "Missing extracted Windows executable: $exe"; exit 1 }
-          $process = Start-Process -FilePath $exe -ArgumentList @("--scenario", "blueprint-export", "--scenario-output", $scenarioDir) -PassThru
-          if (-not $process.WaitForExit(120000)) {
-            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-            Write-Error "Windows executable smoke timed out."
-            exit 1
+
+          function Invoke-MotionSmithScenario($Name, $OutputDir, $TimeoutMs) {
+            $process = Start-Process -FilePath $exe -ArgumentList @("--scenario", $Name, "--scenario-output", $OutputDir) -PassThru
+            if (-not $process.WaitForExit($TimeoutMs)) {
+              Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+              Write-Error "Windows executable scenario '$Name' timed out."
+              exit 1
+            }
+            if ($process.ExitCode -ne 0) { exit $process.ExitCode }
           }
-          if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+
+          Invoke-MotionSmithScenario "blueprint-export" $scenarioDir 120000
           $manifest = Join-Path $scenarioDir "foundry_blueprint_manifest.json"
-          if (-not (Test-Path $manifest)) { Write-Error "Windows executable smoke manifest missing: $manifest"; exit 1 }
-          Write-Host "Windows executable smoke passed with manifest: $manifest"
+          if (-not (Test-Path $manifest)) { Write-Error "Windows executable blueprint smoke manifest missing: $manifest"; exit 1 }
+
+          Invoke-MotionSmithScenario "image-processing" $imageScenarioDir 180000
+          $imageManifest = Join-Path $imageScenarioDir "image_processing_manifest.json"
+          $charConfig = Join-Path $imageScenarioDir "annotations\char_cfg.yaml"
+          $partsInfo = Join-Path $imageScenarioDir "parts\parts_info.json"
+          foreach ($required in @($imageManifest, $charConfig, $partsInfo)) {
+            if (-not (Test-Path $required)) {
+              Write-Error "Windows executable image-processing artifact missing: $required"
+              exit 1
+            }
+          }
+          Write-Host "Windows executable smoke passed with manifests: $manifest and $imageManifest"
 
       - name: Clean Windows signing certificate
         if: ${{ always() }}
@@ -310,21 +327,38 @@ jobs:
           $zip = Join-Path "windows-release" "MotionSmith-windows.zip"
           $extractDir = Join-Path $env:RUNNER_TEMP "motionsmith-portable"
           $scenarioDir = Join-Path $env:RUNNER_TEMP "motionsmith-portable-scenario"
-          Remove-Item -Recurse -Force $extractDir, $scenarioDir -ErrorAction SilentlyContinue
+          $imageScenarioDir = Join-Path $env:RUNNER_TEMP "motionsmith-portable-image-scenario"
+          Remove-Item -Recurse -Force $extractDir, $scenarioDir, $imageScenarioDir -ErrorAction SilentlyContinue
 
           Expand-Archive -Path $zip -DestinationPath $extractDir -Force
           $exe = Join-Path $extractDir "MotionSmith.exe"
           if (-not (Test-Path $exe)) { Write-Error "Missing downloaded Windows executable: $exe"; exit 1 }
-          $process = Start-Process -FilePath $exe -ArgumentList @("--scenario", "blueprint-export", "--scenario-output", $scenarioDir) -PassThru
-          if (-not $process.WaitForExit(120000)) {
-            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-            Write-Error "Downloaded Windows executable smoke timed out."
-            exit 1
+
+          function Invoke-MotionSmithScenario($Name, $OutputDir, $TimeoutMs) {
+            $process = Start-Process -FilePath $exe -ArgumentList @("--scenario", $Name, "--scenario-output", $OutputDir) -PassThru
+            if (-not $process.WaitForExit($TimeoutMs)) {
+              Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+              Write-Error "Downloaded Windows executable scenario '$Name' timed out."
+              exit 1
+            }
+            if ($process.ExitCode -ne 0) { exit $process.ExitCode }
           }
-          if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+
+          Invoke-MotionSmithScenario "blueprint-export" $scenarioDir 120000
           $manifest = Join-Path $scenarioDir "foundry_blueprint_manifest.json"
           if (-not (Test-Path $manifest)) { Write-Error "Downloaded Windows smoke manifest missing: $manifest"; exit 1 }
-          Write-Host "Windows portable exe smoke passed with manifest: $manifest"
+
+          Invoke-MotionSmithScenario "image-processing" $imageScenarioDir 180000
+          $imageManifest = Join-Path $imageScenarioDir "image_processing_manifest.json"
+          $charConfig = Join-Path $imageScenarioDir "annotations\char_cfg.yaml"
+          $partsInfo = Join-Path $imageScenarioDir "parts\parts_info.json"
+          foreach ($required in @($imageManifest, $charConfig, $partsInfo)) {
+            if (-not (Test-Path $required)) {
+              Write-Error "Downloaded Windows image-processing artifact missing: $required"
+              exit 1
+            }
+          }
+          Write-Host "Windows portable exe smoke passed with manifests: $manifest and $imageManifest"
 
   create-release:
     needs: [validate-release-ref, build-macos, build-linux, build-windows, smoke-windows-portable]

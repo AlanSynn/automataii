@@ -85,7 +85,6 @@ from automataii.shared.physical_kit import (
     nearest_pitch_choice,
     physical_context_from_params,
     physical_context_from_settings,
-    physical_context_mode_summary,
     physical_profile_from_params,
     snap_parameter_value,
     snap_physical_params,
@@ -602,7 +601,6 @@ class MechanismFoundryView(QWidget):
         self.info_panel_action: QAction | None = None
         self.info_panel_collapsed: bool = True
         self.motion_modes_label: QLabel | None = None
-        self.physical_mode_label: QLabel | None = None
         self.output_point_selector: QComboBox | None = None
 
         self._build_ui()
@@ -929,8 +927,6 @@ class MechanismFoundryView(QWidget):
         self._grid_pitch_choice = context.grid_pitch_choice
         self._physical_profile = context.profile
         self._apply_physical_context_overrides(context.as_params())
-        self._update_physical_mode_label()
-
         if profile_changed or cell_changed:
             self._refresh_controller_for_physical_context()
         if profile_changed or cell_changed or enabled_changed or pitch_changed:
@@ -1100,25 +1096,6 @@ class MechanismFoundryView(QWidget):
             """
         )
         display_layout.addWidget(self.motion_modes_label)
-
-        self.physical_mode_label = QLabel()
-        self.physical_mode_label.setTextFormat(Qt.TextFormat.PlainText)
-        self.physical_mode_label.setWordWrap(True)
-        self.physical_mode_label.setStyleSheet(
-            """
-            QLabel {
-                color: #0f5132;
-                font-size: 12px;
-                font-weight: 650;
-                background-color: #d1e7dd;
-                border: 1px solid #badbcc;
-                border-radius: 10px;
-                padding: 6px 8px;
-            }
-            """
-        )
-        display_layout.addWidget(self.physical_mode_label)
-        self._update_physical_mode_label()
 
         self.safety_label = QLabel("Status: Unknown")
         display_layout.addWidget(self.safety_label)
@@ -1304,45 +1281,6 @@ class MechanismFoundryView(QWidget):
         if len(text) > 240:
             text = f"{text[:239]}…"
         self.motion_modes_label.setText(text)
-
-    def _update_physical_mode_label(self) -> None:
-        if self.physical_mode_label is None:
-            return
-        context = physical_context_from_settings(
-            self._grid_system_enabled,
-            self._grid_cell_cm,
-            self._grid_pitch_choice,
-            profile=self._physical_profile,
-        )
-        self.physical_mode_label.setText(physical_context_mode_summary(context))
-        if context.enabled:
-            self.physical_mode_label.setStyleSheet(
-                """
-                QLabel {
-                    color: #0f5132;
-                    font-size: 12px;
-                    font-weight: 650;
-                    background-color: #d1e7dd;
-                    border: 1px solid #badbcc;
-                    border-radius: 10px;
-                    padding: 6px 8px;
-                }
-                """
-            )
-        else:
-            self.physical_mode_label.setStyleSheet(
-                """
-                QLabel {
-                    color: #7a4b00;
-                    font-size: 12px;
-                    font-weight: 650;
-                    background-color: #fff3cd;
-                    border: 1px solid #ffecb5;
-                    border-radius: 10px;
-                    padding: 6px 8px;
-                }
-                """
-            )
 
     def _current_controller_mechanism_type(self) -> str:
         if self.mechanism_selector is not None:
@@ -1756,7 +1694,6 @@ class MechanismFoundryView(QWidget):
         )
         if not changed:
             self._apply_physical_context_overrides(context.as_params())
-            self._update_physical_mode_label()
             if self.gallery_view is not None:
                 self.gallery_view.set_physical_context(context)
             return
@@ -1766,7 +1703,6 @@ class MechanismFoundryView(QWidget):
         self._grid_pitch_choice = context.grid_pitch_choice
         self._physical_profile = context.profile
         self._apply_physical_context_overrides(context.as_params())
-        self._update_physical_mode_label()
         if self.gallery_view is not None:
             self.gallery_view.set_physical_context(context)
         if (

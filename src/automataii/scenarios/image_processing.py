@@ -15,9 +15,14 @@ from automataii.utils.paths import resolve_path
 logger = logging.getLogger("automataii.scenario.image_processing")
 
 DEFAULT_IMAGE_CANDIDATES = (
-    "data/characters/astronaut.png",
+    # PyInstaller stores root-level sample images at bundle_root/examples.
+    "examples/girl.png",
+    "examples/boy.png",
+    # Development tree fallback.
     "src/examples/girl.png",
     "src/examples/boy.png",
+    # Last-resort packaged resource that is always collected with resources/.
+    "resources/examples/raw/placeholder.png",
 )
 GENERATED_TREE_MARKER = ".motionsmith-scenario-generated"
 

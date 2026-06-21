@@ -21,7 +21,6 @@ from PyQt6.QtWidgets import (
     QGraphicsItem,
     QGraphicsPixmapItem,
     QGraphicsScene,
-    QLabel,
     QMainWindow,
     QMessageBox,
     QTabWidget,
@@ -74,8 +73,6 @@ from automataii.presentation.qt.windows.components import (
 )
 from automataii.shared.physical_kit import (
     PhysicalKitContext,
-    physical_context_mode_summary,
-    physical_kit_preset_summary,
 )
 from automataii.utils.config import AppConfig
 from automataii.utils.paths import resolve_path
@@ -3036,51 +3033,10 @@ class AutomataDesigner(QMainWindow):
         self._update_physical_context_affordances(context)
 
     def _update_physical_context_affordances(self, context: PhysicalKitContext) -> None:
-        """Keep the app shell explicit about the active physical-kit contract."""
+        """Keep tab tooltips focused on navigation, not transient physical-kit state."""
 
-        summary = physical_context_mode_summary(context)
-        status_bar = self.statusBar() if hasattr(self, "statusBar") else None
-        if status_bar is not None:
-            status_bar.showMessage(summary, 3500)
-            badge = self._ensure_physical_mode_badge()
-            badge.setToolTip(summary)
-            if context.enabled:
-                badge.setText(
-                    f"Fabrication-ready kit: {physical_kit_preset_summary(context.profile)}"
-                )
-                badge.setStyleSheet(
-                    """
-                    QLabel {
-                        color: #0f5132;
-                        background-color: #d1e7dd;
-                        border: 1px solid #badbcc;
-                        border-radius: 8px;
-                        padding: 3px 8px;
-                        font-weight: 650;
-                    }
-                    """
-                )
-            else:
-                badge.setText("Custom / Simulation-only (assembly PDFs gated)")
-                badge.setStyleSheet(
-                    """
-                    QLabel {
-                        color: #7a4b00;
-                        background-color: #fff3cd;
-                        border: 1px solid #ffecb5;
-                        border-radius: 8px;
-                        padding: 3px 8px;
-                        font-weight: 650;
-                    }
-                    """
-                )
         if not hasattr(self, "tab_widget") or self.tab_widget is None:
             return
-        suffix = (
-            "Fabrication-ready preset mode is ON."
-            if context.enabled
-            else "Custom / Simulation-only mode is ON."
-        )
         for widget, base in (
             (
                 getattr(self, "image_proc_tab", None),
@@ -3103,22 +3059,7 @@ class AutomataDesigner(QMainWindow):
                 continue
             index = self.tab_widget.indexOf(widget)
             if index >= 0:
-                self.tab_widget.setTabToolTip(index, f"{base}\n{suffix}")
-
-    def _ensure_physical_mode_badge(self) -> QLabel:
-        """Create the status-bar physical-kit badge once so every tab shows the mode."""
-
-        badge = self.__dict__.get("_physical_mode_badge")
-        if isinstance(badge, QLabel):
-            return badge
-        badge = QLabel()
-        badge.setObjectName("physicalModeBadge")
-        badge.setTextFormat(Qt.TextFormat.PlainText)
-        self.__dict__["_physical_mode_badge"] = badge
-        status_bar = self.statusBar()
-        assert status_bar is not None
-        status_bar.addPermanentWidget(badge)
-        return badge
+                self.tab_widget.setTabToolTip(index, base)
 
     def _handle_project_manager_error(self, error_message: str):
         """Handles error signals from the ProjectDataManager."""
