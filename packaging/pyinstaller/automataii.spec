@@ -11,7 +11,7 @@ SRC_ROOT = PROJECT_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from PyInstaller.utils.hooks import collect_dynamic_libs
+from PyInstaller.utils.hooks import collect_dynamic_libs, collect_submodules
 from scripts.pyinstaller_datas import existing_datas
 
 from automataii.utils.update_config import (
@@ -117,6 +117,15 @@ def onnxruntime_extra_binaries():
     return collect_dynamic_libs("onnxruntime")
 
 
+def onnxruntime_hiddenimports():
+    # The top-level package imports capi._pybind_state, validation, and inference
+    # collection modules dynamically.  A single hidden import for the .pyd/.so is
+    # not enough on Windows: the packaged app can find native files but still fail
+    # at `import onnxruntime`.  Keep the scope to capi instead of collecting all
+    # optional training/quantization/tooling modules.
+    return ["onnxruntime", *collect_submodules("onnxruntime.capi")]
+
+
 RUNTIME_UPX_EXCLUDES = [
     "onnxruntime*.dll",
     "onnxruntime*.pyd",
@@ -152,7 +161,7 @@ a = Analysis(
         "PyQt6.QtWidgets",
         "sklearn.utils._cython_blas",
         "scipy.special._cdflib",
-        "onnxruntime.capi.onnxruntime_pybind11_state",
+        *onnxruntime_hiddenimports(),
     ],
     hookspath=[],
     hooksconfig={},

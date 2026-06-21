@@ -20,9 +20,12 @@ from scipy import ndimage
 
 try:
     import onnxruntime as ort
-except ImportError:
+except ImportError as exc:
     ort = None
-    logging.warning("ONNXRuntime not available. Install with: pip install onnxruntime")
+    logging.warning(
+        "ONNXRuntime not available. Install with: pip install onnxruntime. Cause: %s",
+        exc,
+    )
 
 from automataii.utils.paths import cleanup_old_app_temp_dirs, get_session_temp_dir, resolve_path
 

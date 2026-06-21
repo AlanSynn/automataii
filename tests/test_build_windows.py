@@ -214,6 +214,8 @@ def test_windows_build_regression_files_are_release_ready() -> None:
     assert 'if sys.platform == "darwin":' in spec
     assert spec.index('if sys.platform == "darwin":') < spec.index("app = BUNDLE(")
     assert 'collect_dynamic_libs("onnxruntime")' in spec
+    assert 'collect_submodules("onnxruntime.capi")' in spec
+    assert '"onnxruntime", *collect_submodules("onnxruntime.capi")' in spec
     assert '"onnxruntime*.dll"' in spec
     assert "import requests" not in windows_builder
     assert "import requests" not in linux_builder

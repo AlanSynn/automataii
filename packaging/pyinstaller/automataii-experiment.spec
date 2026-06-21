@@ -8,6 +8,7 @@ PROJECT_ROOT = Path(SPECPATH).parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from PyInstaller.utils.hooks import collect_dynamic_libs, collect_submodules
 from scripts.pyinstaller_datas import existing_datas
 
 # Increase recursion limit for complex projects
@@ -32,6 +33,21 @@ def macos_extra_binaries():
     return []
 
 
+def onnxruntime_extra_binaries():
+    return collect_dynamic_libs("onnxruntime")
+
+
+def onnxruntime_hiddenimports():
+    return ["onnxruntime", *collect_submodules("onnxruntime.capi")]
+
+
+RUNTIME_UPX_EXCLUDES = [
+    "onnxruntime*.dll",
+    "onnxruntime*.pyd",
+    "opencv*.dll",
+    "cv2*.pyd",
+]
+
 # Create entry script for experiment mode
 entry_script = """
 import sys
@@ -47,7 +63,7 @@ with open("motionsmith_experiment_entry.py", "w") as f:
 a = Analysis(
     [project_path("motionsmith_experiment_entry.py")],
     pathex=[project_path("src")],
-    binaries=macos_extra_binaries(),
+    binaries=[*macos_extra_binaries(), *onnxruntime_extra_binaries()],
     datas=[
         (project_path("models", "onnx"), "models/onnx"),
         (
@@ -72,7 +88,7 @@ a = Analysis(
         "PyQt6.QtWidgets",
         "sklearn.utils._cython_blas",
         "scipy.special._cdflib",
-        "onnxruntime.capi.onnxruntime_pybind11_state",
+        *onnxruntime_hiddenimports(),
     ],
     hookspath=[],
     hooksconfig={},
@@ -95,7 +111,7 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    upx_exclude=[],
+    upx_exclude=RUNTIME_UPX_EXCLUDES,
     runtime_tmpdir=None,
     console=False,
     disable_windowed_traceback=False,
@@ -111,7 +127,7 @@ coll = COLLECT(
     a.datas,
     strip=False,
     upx=True,
-    upx_exclude=[],
+    upx_exclude=RUNTIME_UPX_EXCLUDES,
     name="MotionSmith-Experiment",
 )
 
