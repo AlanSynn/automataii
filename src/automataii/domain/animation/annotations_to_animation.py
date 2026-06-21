@@ -57,7 +57,7 @@ def annotations_to_animation(
 
     # write the new mvc config file out
     output_mvc_cfn_fn = str(Path(char_anno_dir, "mvc_cfg.yaml"))
-    with open(output_mvc_cfn_fn, "w") as f:
+    with open(output_mvc_cfn_fn, "w", encoding="utf-8") as f:
         yaml.dump(dict(mvc_cfg), f)
 
     try:

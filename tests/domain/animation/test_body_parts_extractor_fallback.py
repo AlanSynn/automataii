@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 import json
 import logging
 
@@ -169,6 +170,30 @@ def test_process_exports_normalized_parents_and_float_positions(tmp_path) -> Non
     assert joints["left_elbow"]["parent"] == "left_shoulder"
     assert joints["left_elbow"]["position"] == [30.75, 45.5]
     assert joints["left_shoulder"]["parent"] == "torso"
+
+
+def test_process_writes_unicode_outputs_under_windows_default_encoding(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Windows CI defaults can be cp1252; generated Korean HTML must still write."""
+    char_dir = tmp_path / "character"
+    _write_minimal_character(char_dir)
+    output_dir = tmp_path / "bpe-output"
+    original_open = builtins.open
+
+    def cp1252_default_open(file, mode="r", *args, **kwargs):
+        if "b" not in mode and kwargs.get("encoding") is None:
+            kwargs["encoding"] = "cp1252"
+        return original_open(file, mode, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", cp1252_default_open)
+
+    extractor = BodyPartsExtractor(char_dir=str(char_dir), output_dir=str(output_dir))
+    extractor.process()
+
+    assert "캐릭터 신체 부위" in (output_dir / "viewer.html").read_text(encoding="utf-8")
+    assert (output_dir / "parts_info.json").is_file()
 
 
 def test_synthesize_missing_limb_masks_creates_upper_arms() -> None:

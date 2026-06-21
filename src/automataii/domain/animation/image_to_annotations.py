@@ -774,7 +774,7 @@ def image_to_annotations(
         }
 
         bbox_path = outdir / "bounding_box.yaml"
-        with open(bbox_path, "w") as f:
+        with open(bbox_path, "w", encoding="utf-8") as f:
             yaml.dump(bbox_data, f)
 
         # Crop image
@@ -833,7 +833,7 @@ def image_to_annotations(
 
         # Save character config
         char_cfg_path = outdir / "char_cfg.yaml"
-        with open(char_cfg_path, "w") as f:
+        with open(char_cfg_path, "w", encoding="utf-8") as f:
             yaml.dump(char_cfg, f)
 
         # Create joint overlay

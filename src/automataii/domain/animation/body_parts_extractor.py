@@ -300,7 +300,7 @@ class BodyPartsExtractor:
 
     def _read_char_config(self, config_path: str) -> dict[str, Any] | None:
         try:
-            with open(config_path) as f:
+            with open(config_path, encoding="utf-8") as f:
                 return yaml.safe_load(f)
         except (OSError, yaml.YAMLError):
             return None
@@ -659,7 +659,7 @@ class BodyPartsExtractor:
             part_cards=part_cards,
         )
         html_output_path = os.path.join(self.output_dir, "viewer.html")
-        with open(html_output_path, "w") as f:
+        with open(html_output_path, "w", encoding="utf-8") as f:
             f.write(html_content)
 
     def process(self):
@@ -878,7 +878,7 @@ class BodyPartsExtractor:
         }
 
         parts_info_filepath = self.output_dir / "parts_info.json"
-        with open(parts_info_filepath, "w") as f:
+        with open(parts_info_filepath, "w", encoding="utf-8") as f:
             json.dump(output_data, f, indent=4)
 
 
