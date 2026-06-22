@@ -351,9 +351,22 @@ jobs:
           $imageManifest = Join-Path $imageScenarioDir "image_processing_manifest.json"
           $charConfig = Join-Path $imageScenarioDir "annotations\char_cfg.yaml"
           $partsInfo = Join-Path $imageScenarioDir "parts\parts_info.json"
-          foreach ($required in @($imageManifest, $charConfig, $partsInfo)) {
+          $viewerHtml = Join-Path $imageScenarioDir "parts\viewer.html"
+          foreach ($required in @($imageManifest, $charConfig, $partsInfo, $viewerHtml)) {
             if (-not (Test-Path $required)) {
               Write-Error "Windows executable image-processing artifact missing: $required"
+              exit 1
+            }
+          }
+          $viewerText = [System.IO.File]::ReadAllText($viewerHtml, [System.Text.Encoding]::UTF8)
+          if (-not $viewerText.Contains('<html lang="en">') -or -not $viewerText.Contains('Character Body Part Segmentation Results')) {
+            Write-Error "Windows executable image-processing viewer is not the expected English UTF-8 HTML: $viewerHtml"
+            exit 1
+          }
+          foreach ($char in $viewerText.ToCharArray()) {
+            $codepoint = [int][char]$char
+            if ($codepoint -ge 0xAC00 -and $codepoint -le 0xD7A3) {
+              Write-Error "Windows executable image-processing viewer contains Hangul text: $viewerHtml"
               exit 1
             }
           }
@@ -440,9 +453,22 @@ jobs:
           $imageManifest = Join-Path $imageScenarioDir "image_processing_manifest.json"
           $charConfig = Join-Path $imageScenarioDir "annotations\char_cfg.yaml"
           $partsInfo = Join-Path $imageScenarioDir "parts\parts_info.json"
-          foreach ($required in @($imageManifest, $charConfig, $partsInfo)) {
+          $viewerHtml = Join-Path $imageScenarioDir "parts\viewer.html"
+          foreach ($required in @($imageManifest, $charConfig, $partsInfo, $viewerHtml)) {
             if (-not (Test-Path $required)) {
               Write-Error "Downloaded Windows image-processing artifact missing: $required"
+              exit 1
+            }
+          }
+          $viewerText = [System.IO.File]::ReadAllText($viewerHtml, [System.Text.Encoding]::UTF8)
+          if (-not $viewerText.Contains('<html lang="en">') -or -not $viewerText.Contains('Character Body Part Segmentation Results')) {
+            Write-Error "Downloaded Windows image-processing viewer is not the expected English UTF-8 HTML: $viewerHtml"
+            exit 1
+          }
+          foreach ($char in $viewerText.ToCharArray()) {
+            $codepoint = [int][char]$char
+            if ($codepoint -ge 0xAC00 -and $codepoint -le 0xD7A3) {
+              Write-Error "Downloaded Windows image-processing viewer contains Hangul text: $viewerHtml"
               exit 1
             }
           }
