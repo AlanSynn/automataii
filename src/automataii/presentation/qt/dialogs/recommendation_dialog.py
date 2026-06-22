@@ -1330,7 +1330,7 @@ class MechanismRecommendationDialog(QDialog):
         """Loads mechanism paths from a JSON file and prepares them."""
         loaded_paths: list[dict[str, Any]] = []
         try:
-            with open(filepath) as f:
+            with open(filepath, encoding="utf-8") as f:
                 raw_data = json.load(f)
 
             if not isinstance(raw_data, list):

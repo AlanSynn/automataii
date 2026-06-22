@@ -346,7 +346,7 @@ class ImageProcessingView(QGraphicsView):
             )
 
             if bb_file and os.path.exists(bb_file):
-                with open(bb_file) as f:
+                with open(bb_file, encoding="utf-8") as f:
                     loaded_bb_data = yaml.safe_load(f)
                 # Validate format *after* loading
                 if not (

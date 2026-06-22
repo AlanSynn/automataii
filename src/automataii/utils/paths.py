@@ -313,7 +313,7 @@ if __name__ == "__main__":
     print(f"Session temp dir 1 (auto-ID): {session_dir1}")
     assert session_dir1.exists()
     assert session_dir1.parent == app_dir
-    (session_dir1 / "test_file.txt").write_text("hello")
+    (session_dir1 / "test_file.txt").write_text("hello", encoding="utf-8")
 
     # Test get_session_temp_dir with provided ID
     custom_id = "my_test_session_123"
@@ -324,7 +324,7 @@ if __name__ == "__main__":
     assert not (session_dir2 / "test_file.txt").exists()  # Should be cleared
 
     # Test clearing
-    (session_dir2 / "another_file.txt").write_text("world")
+    (session_dir2 / "another_file.txt").write_text("world", encoding="utf-8")
     assert (session_dir2 / "another_file.txt").exists()
     session_dir3 = get_session_temp_dir(session_id=custom_id, clear_existing=True)
     print(f"Session temp dir 3 (cleared): {session_dir3}")

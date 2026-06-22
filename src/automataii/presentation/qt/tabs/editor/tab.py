@@ -506,14 +506,14 @@ class EditorTab(QWidget):
             item = QListWidgetItem(part_name)
             item.setData(Qt.ItemDataRole.UserRole, part_name)
 
-            # 🔧 upper 파츠들과 torso 비활성화
+            # Disable upper body parts and torso for direct path editing.
             if any(disabled_part in part_name.lower() for disabled_part in disabled_parts):
-                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)  # 선택 불가
-                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)  # 비활성화
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)  # Not selectable.
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)  # Disabled.
 
-                # 시각적으로 비활성화 표시
-                item.setForeground(QBrush(QColor(150, 150, 150)))  # 회색 텍스트
-                item.setBackground(QBrush(QColor(240, 240, 240)))  # 연한 회색 배경
+                # Visual disabled state.
+                item.setForeground(QBrush(QColor(150, 150, 150)))  # Gray text.
+                item.setBackground(QBrush(QColor(240, 240, 240)))  # Light gray background.
             else:
                 self.parts_list.addItem(item)
         self._update_button_states()

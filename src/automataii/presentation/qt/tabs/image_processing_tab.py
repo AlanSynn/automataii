@@ -974,7 +974,7 @@ class ImageProcessingTab(QWidget):
             return False
 
         try:
-            with open(char_cfg_filepath) as f:
+            with open(char_cfg_filepath, encoding="utf-8") as f:
                 loaded_skeleton_data = yaml.safe_load(f)
             if (
                 not loaded_skeleton_data or "skeleton" not in loaded_skeleton_data
@@ -1041,7 +1041,7 @@ class ImageProcessingTab(QWidget):
             if not current_skeleton_data:
                 raise ValueError("Could not retrieve skeleton data from view.")
 
-            with open(save_path, "w") as f:
+            with open(save_path, "w", encoding="utf-8") as f:
                 yaml.dump(current_skeleton_data, f, default_flow_style=None, sort_keys=False)
 
             self.skeleton_data = current_skeleton_data  # Update internal state

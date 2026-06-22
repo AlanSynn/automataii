@@ -595,7 +595,7 @@ class InteractiveSegmentationEditor(QDialog):
         }
 
         try:
-            with open(save_path, "w") as f:
+            with open(save_path, "w", encoding="utf-8") as f:
                 json.dump(save_data, f, indent=4)
             self.status_label.setText(f"Boundaries saved to {save_path.name}")
         except Exception as e:
@@ -610,7 +610,7 @@ class InteractiveSegmentationEditor(QDialog):
             return
 
         try:
-            with open(load_path) as f:
+            with open(load_path, encoding="utf-8") as f:
                 load_data = json.load(f)
 
             self.boundary_points = load_data.get("boundary_points", {})
@@ -640,7 +640,7 @@ class InteractiveSegmentationEditor(QDialog):
                 "boundary_points": self.boundary_points,
                 "selected_joints": list(self.selected_joints),
             }
-            with open(auto_save_path, "w") as f:
+            with open(auto_save_path, "w", encoding="utf-8") as f:
                 json.dump(save_data, f, indent=4)
         except (OSError, TypeError, ValueError):
             pass  # Ignore auto-save errors (file access, JSON serialization)

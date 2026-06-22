@@ -176,7 +176,7 @@ def test_process_writes_unicode_outputs_under_windows_default_encoding(
     tmp_path,
     monkeypatch,
 ) -> None:
-    """Windows CI defaults can be cp1252; generated Korean HTML must still write."""
+    """Windows CI defaults can be cp1252; generated UTF-8 HTML must still write."""
     char_dir = tmp_path / "character"
     _write_minimal_character(char_dir)
     output_dir = tmp_path / "bpe-output"
@@ -192,7 +192,11 @@ def test_process_writes_unicode_outputs_under_windows_default_encoding(
     extractor = BodyPartsExtractor(char_dir=str(char_dir), output_dir=str(output_dir))
     extractor.process()
 
-    assert "캐릭터 신체 부위" in (output_dir / "viewer.html").read_text(encoding="utf-8")
+    html = (output_dir / "viewer.html").read_text(encoding="utf-8")
+    assert '<html lang="en">' in html
+    assert "Character Body Part Segmentation Results" in html
+    assert "Body Part List" in html
+    assert not any("\uac00" <= char <= "\ud7a3" for char in html)
     assert (output_dir / "parts_info.json").is_file()
 
 

@@ -597,13 +597,13 @@ if __name__ == "__main__":
 
     project_root = get_project_root()
     dummy_filepath = project_root / "dummy_project_pydantic.json"
-    with open(dummy_filepath, "w") as f:
+    with open(dummy_filepath, "w", encoding="utf-8") as f:
         json.dump(dummy_parts_info_content, f, indent=4)
 
     # Test with an invalid file (e.g. missing character key)
     invalid_dummy_content = {"char": {}}
     invalid_filepath = project_root / "invalid_project_pydantic.json"
-    with open(invalid_filepath, "w") as f:
+    with open(invalid_filepath, "w", encoding="utf-8") as f:
         json.dump(invalid_dummy_content, f, indent=4)
 
     manager = ProjectDataManager()

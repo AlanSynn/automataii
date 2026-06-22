@@ -1,9 +1,9 @@
 HTML_VIEWER_TEMPLATE = """<!DOCTYPE html>
-<html lang="ko">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>신체 부위 뷰어</title>
+    <title>Body Parts Viewer</title>
     <style>
         body {{
             font-family: Arial, sans-serif;
@@ -89,21 +89,21 @@ HTML_VIEWER_TEMPLATE = """<!DOCTYPE html>
     </style>
 </head>
 <body>
-    <h1>캐릭터 신체 부위 분할 결과</h1>
+    <h1>Character Body Part Segmentation Results</h1>
 
     <div class="tabs">
-        <button class="tab active" onclick="openTab('preview')">미리보기</button>
-        <button class="tab" onclick="openTab('parts')">신체 부위</button>
+        <button class="tab active" onclick="openTab('preview')">Preview</button>
+        <button class="tab" onclick="openTab('parts')">Body Parts</button>
     </div>
 
     <div id="preview" class="tab-content active">
-        <h2>원본 이미지와 분할 결과</h2>
-        <img src="{texture_path}" alt="원본 이미지" class="orig-image">
-        <img src="{segmentation_path}" alt="분할 결과" class="segmentation">
+        <h2>Source Image and Segmentation Result</h2>
+        <img src="{texture_path}" alt="Source image" class="orig-image">
+        <img src="{segmentation_path}" alt="Segmentation result" class="segmentation">
     </div>
 
     <div id="parts" class="tab-content">
-        <h2>신체 부위 목록</h2>
+        <h2>Body Part List</h2>
         <div class="container">
             {part_cards}
         </div>

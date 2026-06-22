@@ -116,7 +116,7 @@ class ImageProcessingTabAdapter(TabAdapter):
                 logger.warning(f"parts_info.json not found at {parts_info_path}")
                 return
 
-            with open(parts_info_path) as f:
+            with open(parts_info_path, encoding="utf-8") as f:
                 parts_info = json.load(f)
 
             # Transform to domain models

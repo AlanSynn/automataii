@@ -15,7 +15,7 @@ The JSON schema is minimal:
   "width": 1920,
   "height": 1080,
   "segments": [
-    {"name": "Title & Hero Shot", "duration": 3, "lines": ["MotionSmith: 하고 제목하고 타이틀 홀더"]},
+    {"name": "Title & Hero Shot", "duration": 3, "lines": ["MotionSmith title card"]},
     {"name": "Background & Problem", "duration": 11, "lines": ["Automata combine art, engineering, and storytelling.", "But designing them remains complex."]}
   ]
 }
@@ -30,7 +30,6 @@ import argparse
 import json
 import os
 import sys
-import textwrap
 import xml.sax.saxutils as saxutils
 
 
@@ -46,7 +45,7 @@ def default_config() -> dict:
                 "name": "Title & Hero Shot",
                 "duration": 3,
                 "lines": [
-                    "MotionSmith: 하고 제목하고 타이틀 홀더",
+                    "MotionSmith title card",
                 ],
             },
             {
@@ -105,7 +104,7 @@ def default_config() -> dict:
 def read_config(path: str | None) -> dict:
     if not path:
         return default_config()
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 

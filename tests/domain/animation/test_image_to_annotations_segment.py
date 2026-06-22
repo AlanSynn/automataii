@@ -191,9 +191,9 @@ def test_image_to_annotations_fails_when_required_pose_model_is_missing(
 
 
 def test_image_to_annotations_handles_unicode_paths(tmp_path: Path) -> None:
-    image_dir = tmp_path / "윈도우_이미지"
+    image_dir = tmp_path / "windows_image_é"
     image_dir.mkdir()
-    image_path = image_dir / "캐릭터.png"
+    image_path = image_dir / "character_é.png"
     image = np.full((96, 96, 4), 0, dtype=np.uint8)
     cv2.circle(image, (48, 48), 32, (40, 80, 200, 255), thickness=-1)
     ok, encoded = cv2.imencode(".png", image)

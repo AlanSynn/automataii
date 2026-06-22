@@ -87,10 +87,10 @@ class CharacterPartItem(QGraphicsPixmapItem):
         self.z_value = part_info.z_value if part_info.z_value is not None else Z_PART_DEFAULT
         self.setZValue(self.z_value)
 
-        # 초기 회전각을 명시적으로 0으로 설정 (월드 기준)
+        # Explicitly reset the initial world-space rotation.
         self.setRotation(0.0)
-        self._initial_world_rotation = 0.0  # 초기 월드 회전값은 항상 0
-        self._initial_local_rotation = 0.0  # 초기 로컬 회전값도 0
+        self._initial_world_rotation = 0.0  # Initial world rotation is always zero.
+        self._initial_local_rotation = 0.0  # Initial local rotation is always zero.
 
         self._load_texture()
         self._setup_selection_highlight()

@@ -75,7 +75,7 @@ class ONNXImageProcessor:
         self.detector_session: _ONNXSession | None = None
         self.pose_session: _ONNXSession | None = None
 
-        # resolve_path를 사용하여 개발 및 번들 환경 모두에서 모델 경로를 찾습니다.
+        # Use resolve_path so model paths work in both development and bundled apps.
         models_dir = resolve_path("models")
 
         if pose_onnx is None:
@@ -898,10 +898,10 @@ def main() -> None:
     result = image_to_annotations(args.image, args.detector_onnx, args.pose_onnx)
 
     if result:
-        print(f"✅ Success! Output saved to: {result['output_dir']}")
+        print(f"Success! Output saved to: {result['output_dir']}")
         print(f"Character config: {result['char_cfg_path']}")
     else:
-        print("❌ Failed to process image")
+        print("Failed to process image")
         sys.exit(1)
 
 
