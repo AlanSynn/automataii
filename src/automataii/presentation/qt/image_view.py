@@ -1,4 +1,5 @@
 import logging
+import math
 import os
 from typing import Any
 
@@ -17,6 +18,7 @@ from PyQt6.QtWidgets import (
 from automataii.presentation.qt.animation import ViewportConfig, ViewportController
 from automataii.presentation.qt.graphics_items.part_item import CharacterPartItem  # UPDATED
 from automataii.presentation.qt.widgets.view_controls import HoverViewControls
+from automataii.shared.physical_kit import DEFAULT_GRID_CELL_CM, MM_PER_INCH, grid_step_mm
 
 # from .graphics_items.skeleton_item import SkeletonJoint, SkeletonLine # UPDATED # Commented out
 
@@ -119,7 +121,9 @@ class ImageProcessingView(QGraphicsView):
         self.viewport().setStyleSheet("background-color: white; border-radius: 10px;")
 
         # Unit and DPI settings
-        self.display_unit = "inch"  # Default unit: 'cm', 'inch', or 'px'
+        self.display_unit = "cm"  # Default unit: 'cm', 'inch', or 'px'
+        self.grid_enabled = True
+        self.grid_cell_size_cm = DEFAULT_GRID_CELL_CM
         try:
             self.dpi = QApplication.primaryScreen().logicalDotsPerInch()
         except AttributeError:
@@ -142,23 +146,37 @@ class ImageProcessingView(QGraphicsView):
                 f"ImageProcessingView: Invalid display unit '{unit}'. Using current: {self.display_unit}"
             )
 
+    def set_grid_configuration(self, enabled: bool, cell_size_cm: float) -> None:
+        """Apply the app-wide fabrication grid settings."""
+        self.grid_enabled = bool(enabled)
+        self.grid_cell_size_cm = max(0.1, float(cell_size_cm))
+        viewport = self.viewport()
+        if viewport is not None:
+            viewport.update()
+
+    def _grid_spacing_scene_units(self) -> tuple[float, int]:
+        """Return grid spacing in scene units; processed character scenes use millimeters."""
+        if self.display_unit == "cm":
+            return grid_step_mm(self.grid_cell_size_cm), max(
+                1, int(round(10.0 / self.grid_cell_size_cm))
+            )
+        if self.display_unit == "inch":
+            return MM_PER_INCH, 1
+        return 20.0, 5
+
     def drawBackground(self, painter: QPainter, rect: QRectF):
         """Draws a grid background based on the current display unit."""
         super().drawBackground(painter, rect)  # Draw the default background first
+        if not self.grid_enabled:
+            return
 
         painter.save()
         painter.setBrush(Qt.BrushStyle.NoBrush)
 
-        if self.display_unit == "cm":
-            cm_to_inch = 1 / 2.54
-            grid_size_pixels = int(self.dpi * cm_to_inch)  # 1 cm in pixels
-        elif self.display_unit == "inch":
-            grid_size_pixels = int(self.dpi)  # 1 inch in pixels
-        else:  # Default to pixels or if unit is 'px'
-            grid_size_pixels = 20  # Default pixel grid size
+        grid_size_pixels, major_interval = self._grid_spacing_scene_units()
 
         if grid_size_pixels <= 0:  # Safety check
-            grid_size_pixels = 20
+            grid_size_pixels = 20.0
             logging.warning(
                 f"Calculated grid size is invalid ({grid_size_pixels}), defaulting to 20px."
             )
@@ -166,12 +184,10 @@ class ImageProcessingView(QGraphicsView):
         light_pen = QPen(QColor(230, 230, 230), 1)
         dark_pen = QPen(QColor(200, 200, 200), 1.5)
 
-        major_interval = 1 if self.display_unit in ["cm", "inch"] else 5
-
         visible_rect = self.mapToScene(self.viewport().rect()).boundingRect()
 
-        left = int(visible_rect.left() / grid_size_pixels) * grid_size_pixels
-        top = int(visible_rect.top() / grid_size_pixels) * grid_size_pixels
+        left = math.floor(visible_rect.left() / grid_size_pixels) * grid_size_pixels
+        top = math.floor(visible_rect.top() / grid_size_pixels) * grid_size_pixels
         right = visible_rect.right()
         bottom = visible_rect.bottom()
 

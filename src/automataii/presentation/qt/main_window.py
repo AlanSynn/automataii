@@ -3038,6 +3038,10 @@ class AutomataDesigner(QMainWindow):
         grid_setter = getattr(editor_view, "set_grid_configuration", None)
         if callable(grid_setter):
             grid_setter(context.enabled, context.grid_cell_cm)
+        image_view = getattr(getattr(self, "image_proc_tab", None), "image_proc_view", None)
+        grid_setter = getattr(image_view, "set_grid_configuration", None)
+        if callable(grid_setter):
+            grid_setter(context.enabled, context.grid_cell_cm)
         self._update_physical_context_affordances(context)
 
     def _update_physical_context_affordances(self, context: PhysicalKitContext) -> None:
