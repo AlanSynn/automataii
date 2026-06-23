@@ -1001,6 +1001,31 @@ def finite_float(value: object, default: float) -> float:
     return result if math.isfinite(result) else default
 
 
+def page_fit_scale(
+    width: object,
+    height: object,
+    page_width: object,
+    page_height: object,
+) -> float:
+    """Scale a rectangle to fit on a page, allowing portrait or landscape."""
+    rect_width = finite_float(width, 0.0)
+    rect_height = finite_float(height, 0.0)
+    target_width = finite_float(page_width, 0.0)
+    target_height = finite_float(page_height, 0.0)
+    if rect_width <= 0.0 or rect_height <= 0.0 or target_width <= 0.0 or target_height <= 0.0:
+        return 1.0
+
+    portrait = min(target_width / rect_width, target_height / rect_height)
+    landscape = min(target_height / rect_width, target_width / rect_height)
+    scale = max(portrait, landscape)
+    return scale if math.isfinite(scale) and scale > 0.0 else 1.0
+
+
+def letter_page_fit_scale(width: object, height: object) -> float:
+    """Scale a rectangle to fit on a Letter page, allowing portrait or landscape."""
+    return page_fit_scale(width, height, *LETTER_PAGE_SIZE_MM)
+
+
 def grid_enabled_from_params(
     params: Mapping[str, object],
     default: bool = True,

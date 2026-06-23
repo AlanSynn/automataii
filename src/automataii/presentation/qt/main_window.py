@@ -72,7 +72,9 @@ from automataii.presentation.qt.windows.components import (
 )
 from automataii.shared.physical_kit import (
     LETTER_PAGE_HEIGHT_MM,
+    LETTER_PAGE_SIZE_MM,
     PhysicalKitContext,
+    letter_page_fit_scale,
 )
 from automataii.utils.config import AppConfig
 from automataii.utils.styling import DARK_STYLE, LIGHT_STYLE
@@ -92,6 +94,7 @@ _PROJECT_TRANSIENT_LAYER_KEYS = frozenset(
     }
 )
 _PROJECT_RUNTIME_LAYER_KEY_SUFFIXES = ("_cache", "_cached")
+_LETTER_SHEET_WIDTH_PX = LETTER_PAGE_SIZE_MM[0]
 _LETTER_SHEET_HEIGHT_PX = LETTER_PAGE_HEIGHT_MM
 _SKELETON_PART_HEIGHT_RATIO_MIN = 0.6
 _SKELETON_PART_HEIGHT_RATIO_MAX = 1.8
@@ -1632,7 +1635,7 @@ class AutomataDesigner(QMainWindow):
         parts_info: dict[str, PartInfo],
         raw_skeleton_data: list[dict[str, Any]] | None,
     ) -> tuple[dict[str, PartInfo], list[dict[str, Any]] | None, float]:
-        """Normalize loaded character size to Letter sheet height."""
+        """Normalize loaded character size to fit a Letter sheet."""
         if not parts_info:
             return parts_info, raw_skeleton_data, 1.0
 
@@ -1650,17 +1653,19 @@ class AutomataDesigner(QMainWindow):
                 "MainWindow: Pre-aligned skeleton bbox to parts bbox before Letter-scale normalization."
             )
 
+        current_width = 0.0
         current_height = 0.0
         if parts_bbox:
+            current_width = max(0.0, parts_bbox[2] - parts_bbox[0])
             current_height = max(0.0, parts_bbox[3] - parts_bbox[1])
         if current_height <= 1.0 and skeleton_bbox:
+            current_width = max(0.0, skeleton_bbox[2] - skeleton_bbox[0])
             current_height = max(0.0, skeleton_bbox[3] - skeleton_bbox[1])
 
-        if current_height <= 1.0:
+        if current_width <= 1.0 or current_height <= 1.0:
             return parts_info, raw_skeleton_data, 1.0
 
-        target_height = _LETTER_SHEET_HEIGHT_PX
-        scale_factor = target_height / current_height
+        scale_factor = letter_page_fit_scale(current_width, current_height)
 
         if abs(scale_factor - 1.0) < 1e-6:
             return parts_info, raw_skeleton_data, 1.0
@@ -1678,10 +1683,12 @@ class AutomataDesigner(QMainWindow):
             _scale_skeleton_raw_in_place(raw_skeleton_data, scale_factor, center)
 
         logging.info(
-            "MainWindow: Normalized character scale to Letter height (scale=%.3f, current_h=%.1f, target_h=%.1f).",
+            "MainWindow: Normalized character scale to fit Letter sheet (scale=%.3f, current=%.1fx%.1f, sheet=%.1fx%.1f).",
             scale_factor,
+            current_width,
             current_height,
-            target_height,
+            _LETTER_SHEET_WIDTH_PX,
+            _LETTER_SHEET_HEIGHT_PX,
         )
         return parts_info, raw_skeleton_data, scale_factor
 
@@ -1840,7 +1847,7 @@ class AutomataDesigner(QMainWindow):
             status_bar = self.statusBar()
             if status_bar is not None and scale_factor_applied != 1.0:
                 status_bar.showMessage(
-                    f"Project loaded: {project_directory_path} (scaled {scale_factor_applied:.2f}x to Letter height)."
+                    f"Project loaded: {project_directory_path} (scaled {scale_factor_applied:.2f}x to fit Letter sheet)."
                 )
             elif status_bar is not None:
                 status_bar.showMessage(f"Project loaded: {project_directory_path}")

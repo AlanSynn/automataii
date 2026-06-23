@@ -19,7 +19,11 @@ from automataii.presentation.qt.main_window import (
     _scale_parts_in_place,
     _scale_skeleton_raw_in_place,
 )
-from automataii.shared.physical_kit import LETTER_PAGE_HEIGHT_MM
+from automataii.shared.physical_kit import (
+    LETTER_PAGE_HEIGHT_MM,
+    LETTER_PAGE_SIZE_MM,
+    letter_page_fit_scale,
+)
 
 
 @dataclass
@@ -100,7 +104,7 @@ def test_align_skeleton_bbox_to_parts_bbox_when_scale_mismatch() -> None:
     assert abs(aligned_center_y - 50.0) < 1e-6
 
 
-def test_normalize_character_scale_prefers_parts_bbox_height() -> None:
+def test_normalize_character_scale_prefers_parts_bbox_and_fits_letter_sheet() -> None:
     window = AutomataDesigner.__new__(AutomataDesigner)
 
     parts = {"torso": _PartStub([0.0, 0.0, 100.0, 100.0])}
@@ -117,14 +121,14 @@ def test_normalize_character_scale_prefers_parts_bbox_height() -> None:
 
     assert parts_out is parts
     assert skeleton_out is skeleton
-    assert abs(scale - 2.794) < 1e-6
-    assert abs(parts["torso"].roi[2] - 279.4) < 1e-6
+    assert abs(scale - (LETTER_PAGE_SIZE_MM[0] / 100.0)) < 1e-6
+    assert abs(parts["torso"].roi[2] - LETTER_PAGE_SIZE_MM[0]) < 1e-6
     normalized_bbox = _calculate_skeleton_bbox(skeleton)
     assert normalized_bbox is not None
-    assert abs(normalized_bbox[3] - normalized_bbox[1] - 279.4) < 1e-6
+    assert abs(normalized_bbox[3] - normalized_bbox[1] - LETTER_PAGE_SIZE_MM[0]) < 1e-6
 
 
-def test_bundled_dummy_character_normalizes_to_letter_height() -> None:
+def test_bundled_dummy_character_normalizes_to_fit_letter_sheet() -> None:
     payload = json.loads(
         Path("resources/presets/characters/dummy/parts_info.json").read_text(encoding="utf-8")
     )
@@ -139,7 +143,12 @@ def test_bundled_dummy_character_normalizes_to_letter_height() -> None:
     bbox = _calculate_parts_bbox(parts)
     assert bbox is not None
     assert scale < 1.0
-    assert abs(bbox[3] - bbox[1] - 279.4) < 1e-6
+    width = bbox[2] - bbox[0]
+    height = bbox[3] - bbox[1]
+    portrait_fit = width <= LETTER_PAGE_SIZE_MM[0] and height <= LETTER_PAGE_SIZE_MM[1]
+    landscape_fit = width <= LETTER_PAGE_SIZE_MM[1] and height <= LETTER_PAGE_SIZE_MM[0]
+    assert portrait_fit or landscape_fit
+    assert abs(height - LETTER_PAGE_SIZE_MM[0]) < 1e-6
 
 
 def test_near_letter_height_still_normalizes_to_exact_letter_height() -> None:
@@ -150,8 +159,8 @@ def test_near_letter_height_still_normalizes_to_exact_letter_height() -> None:
 
     bbox = _calculate_parts_bbox(parts)
     assert bbox is not None
-    assert abs(scale - (279.4 / 300.0)) < 1e-6
-    assert abs(bbox[3] - bbox[1] - 279.4) < 1e-6
+    assert abs(scale - letter_page_fit_scale(100.0, 300.0)) < 1e-6
+    assert abs(bbox[3] - bbox[1] - LETTER_PAGE_HEIGHT_MM) < 1e-6
 
 
 def test_blueprint_character_parts_use_assembled_bbox_and_emit_pivot_drill_holes() -> None:
@@ -212,15 +221,15 @@ def test_blueprint_pivot_holes_use_roi_coordinate_space_for_resized_png(
 
     assert len(layout_items) == 1
     item = layout_items[0]
-    assert abs(item.bounds.width - LETTER_PAGE_HEIGHT_MM) < 3.0
-    assert abs(item.bounds.height - LETTER_PAGE_HEIGHT_MM) < 3.0
+    assert abs(item.bounds.width - LETTER_PAGE_SIZE_MM[0]) < 3.0
+    assert abs(item.bounds.height - LETTER_PAGE_SIZE_MM[0]) < 3.0
     assert 'class="pivot-drill-hole"' in item.svg_content
     cx_match = re.search(r'cx="([0-9.]+)"', item.svg_content)
     cy_match = re.search(r'cy="([0-9.]+)"', item.svg_content)
     assert cx_match is not None
     assert cy_match is not None
-    assert abs(float(cx_match.group(1)) - (LETTER_PAGE_HEIGHT_MM / 2.0)) < 2.0
-    assert abs(float(cy_match.group(1)) - (LETTER_PAGE_HEIGHT_MM / 2.0)) < 2.0
+    assert abs(float(cx_match.group(1)) - (LETTER_PAGE_SIZE_MM[0] / 2.0)) < 2.0
+    assert abs(float(cy_match.group(1)) - (LETTER_PAGE_SIZE_MM[0] / 2.0)) < 2.0
     assert abs(float(cx_match.group(1)) - 300.0) > 100.0
     assert abs(float(cy_match.group(1)) - 300.0) > 100.0
 

@@ -5,6 +5,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from automataii.shared.physical_kit import LETTER_PAGE_HEIGHT_MM, LETTER_PAGE_SIZE_MM
+
 
 class TestAutoCharacterAssignment:
     @pytest.fixture
@@ -327,7 +329,7 @@ class TestAutoCharacterAssignment:
         window.action_manager.update_actions_for_project_state.assert_called_once_with(False)
         status_bar.showMessage.assert_called()
 
-    def test_project_load_scales_skeleton_to_letter_height_for_plain_image_load(self) -> None:
+    def test_project_load_scales_skeleton_to_fit_letter_sheet_for_plain_image_load(self) -> None:
         from automataii.presentation.qt.main_window import (
             AutomataDesigner,
             _calculate_skeleton_bbox,
@@ -383,9 +385,9 @@ class TestAutoCharacterAssignment:
         loaded_bbox = _calculate_skeleton_bbox(loaded_raw)
         assert loaded_bbox is not None
         loaded_height = loaded_bbox[3] - loaded_bbox[1]
-        assert abs(loaded_height - 279.4) < 1e-6
+        assert abs(loaded_height - LETTER_PAGE_HEIGHT_MM) < 1e-6
 
-    def test_project_load_scales_parts_to_letter_height_for_plain_image_load(self) -> None:
+    def test_project_load_scales_parts_to_fit_letter_sheet_for_plain_image_load(self) -> None:
         from automataii.presentation.qt.main_window import (
             AutomataDesigner,
             _calculate_parts_bbox,
@@ -440,7 +442,7 @@ class TestAutoCharacterAssignment:
         bbox = _calculate_parts_bbox(loaded_parts)
         assert bbox is not None
         height = bbox[3] - bbox[1]
-        assert abs(height - 279.4) < 1e-6
+        assert abs(height - LETTER_PAGE_SIZE_MM[0]) < 1e-6
 
     def test_project_load_forces_skeleton_alignment_for_image_pipeline(self) -> None:
         from automataii.presentation.qt.main_window import (
@@ -499,7 +501,7 @@ class TestAutoCharacterAssignment:
         loaded_bbox = _calculate_skeleton_bbox(loaded_raw)
         assert loaded_bbox is not None
         loaded_height = loaded_bbox[3] - loaded_bbox[1]
-        assert abs(loaded_height - 279.4) < 1e-6
+        assert abs(loaded_height - LETTER_PAGE_HEIGHT_MM) < 1e-6
         assert window._force_skeleton_parts_alignment_next_load is False
 
     def test_parts_generated_uses_dummy_replacement_context_when_dummy_session(

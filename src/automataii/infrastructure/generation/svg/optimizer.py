@@ -34,8 +34,10 @@ from automataii.infrastructure.generation.svg.generators import (
 )
 from automataii.shared.physical_kit import (
     LETTER_PAGE_HEIGHT_MM,
+    LETTER_PAGE_SIZE_MM,
     finite_float,
     normalize_mechanism_type,
+    page_fit_scale,
 )
 
 # Note: ScaleNormalizer and SmartLayoutManager have been moved to
@@ -1323,12 +1325,18 @@ class BlueprintLayoutOptimizer:
             self.logger.info(
                 f"[CHARACTER] Total character dimensions: {total_character_width}x{total_character_height} pixels"
             )
-            self.logger.info(
-                f"[CHARACTER] Target: {self.scale_normalizer.target_height_mm}mm character height"
-            )
+            self.logger.info("[CHARACTER] Target: Letter page fit")
 
-            # Scale factor based on TOTAL CHARACTER HEIGHT
-            scale_factor = self.scale_normalizer.calculate_scale_factor(total_character_height)
+            # Scale factor based on TOTAL CHARACTER BBOX so the assembled
+            # character fits on one target page (portrait or landscape).
+            target_height = self.scale_normalizer.target_height_mm
+            target_width = LETTER_PAGE_SIZE_MM[0] * (target_height / LETTER_PAGE_HEIGHT_MM)
+            scale_factor = page_fit_scale(
+                total_character_width,
+                total_character_height,
+                target_width,
+                target_height,
+            )
 
             # Calculate actual character dimensions after scaling
             actual_character_height = total_character_height * scale_factor
