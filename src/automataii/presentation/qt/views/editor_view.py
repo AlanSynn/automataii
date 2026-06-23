@@ -43,6 +43,7 @@ from automataii.presentation.qt.views.components.path_vertex_editor import (
 from automataii.presentation.qt.views.motion_path_manager import (
     MotionPathDrawer,
 )
+from automataii.shared.physical_kit import DEFAULT_GRID_CELL_CM
 
 
 class EditorView(QGraphicsView):
@@ -228,9 +229,9 @@ class EditorView(QGraphicsView):
         self._setup_hover_controls()
 
         # Unit and DPI settings
-        self.display_unit = "inch"  # Default unit: 'cm', 'inch', or 'px'
+        self.display_unit = "cm"  # Default unit: 'cm', 'inch', or 'px'
         self.grid_enabled = True
-        self.grid_cell_size_cm = 1.0
+        self.grid_cell_size_cm = DEFAULT_GRID_CELL_CM
         try:
             self.dpi = QApplication.primaryScreen().logicalDotsPerInch()
         except AttributeError:

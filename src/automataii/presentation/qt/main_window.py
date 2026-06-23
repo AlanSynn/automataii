@@ -3033,6 +3033,11 @@ class AutomataDesigner(QMainWindow):
                         profile=context.profile,
                         pitch_choice_key=context.grid_pitch_choice,
                     )
+
+        editor_view = getattr(getattr(self, "editor_tab", None), "editor_view", None)
+        grid_setter = getattr(editor_view, "set_grid_configuration", None)
+        if callable(grid_setter):
+            grid_setter(context.enabled, context.grid_cell_cm)
         self._update_physical_context_affordances(context)
 
     def _update_physical_context_affordances(self, context: PhysicalKitContext) -> None:

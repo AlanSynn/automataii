@@ -62,6 +62,20 @@ def test_skeleton_direction_arrows_cover_parent_joints() -> None:
     assert "elbow" in item._bend_arrows
 
 
+def test_skeleton_direction_arrows_tolerate_null_bend_direction() -> None:
+    _ = _get_app()
+    item = SkeletonGraphicsItem(
+        skeleton_data=[
+            {"id": "shoulder", "position": [0, 0], "parent": None, "bend_direction": None},
+            {"id": "elbow", "position": [20, 0], "parent": "shoulder"},
+        ],
+        hierarchy={"shoulder": ["elbow"]},
+    )
+
+    assert item._joint_bend_directions["shoulder"] == 1.0
+    assert "shoulder" in item._bend_arrows
+
+
 def test_character_recognition_manual_editor_is_visible_without_debug_mode() -> None:
     _ = _get_app()
     status_bar = SimpleNamespace(showMessage=lambda *_args, **_kwargs: None)

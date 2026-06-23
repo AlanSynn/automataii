@@ -446,6 +446,7 @@ class TestProductionBranding:
             )
             assert window._grid_pitch_choice == "2_5cm"
             assert window._grid_cell_size_cm == 2.5
+            assert window.editor_tab.editor_view.grid_cell_size_cm == 2.5
 
             dialog.close()
             app.processEvents()

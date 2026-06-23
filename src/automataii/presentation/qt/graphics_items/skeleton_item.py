@@ -80,6 +80,16 @@ class SkeletonGraphicsItem(QGraphicsObject):
         else:
             logging.info("SkeletonGraphicsItem: Initialized without skeleton data.")
 
+    @staticmethod
+    def _bend_direction_value(raw_value: object) -> float:
+        if not isinstance(raw_value, int | float | str):
+            return 1.0
+        try:
+            value = float(raw_value)
+        except ValueError:
+            return 1.0
+        return -1.0 if value < 0 else 1.0
+
     def _clear_visuals(self):
         """Clears all joint and bone QGraphicsItems from the scene and internal tracking."""
         logging.debug(
@@ -150,8 +160,8 @@ class SkeletonGraphicsItem(QGraphicsObject):
                     f"SkeletonItem:load_skeleton_data - Position data for joint '{joint_id}' is not QPointF or list/tuple [x,y]: {pos_data}. Using (0,0)."
                 )
 
-            # Get bend direction (default to 1.0 if not specified)
-            bend_direction = joint_info.get("bend_direction", 1.0)
+            # Get bend direction (default to 1.0 if missing or explicitly null)
+            bend_direction = self._bend_direction_value(joint_info.get("bend_direction", 1.0))
             self._joint_bend_directions[joint_id] = bend_direction
 
             # Cache the processed joint info
@@ -488,7 +498,9 @@ class SkeletonGraphicsItem(QGraphicsObject):
                     # Only allow toggling bend direction for elbow/knee joints
                     if "elbow" in joint_id.lower() or "knee" in joint_id.lower():
                         # Toggle bend direction
-                        current_dir = self._joint_bend_directions.get(joint_id, 1.0)
+                        current_dir = self._bend_direction_value(
+                            self._joint_bend_directions.get(joint_id, 1.0)
+                        )
                         new_dir = -current_dir
                         self._joint_bend_directions[joint_id] = new_dir
 
@@ -527,6 +539,7 @@ class SkeletonGraphicsItem(QGraphicsObject):
     def set_joint_bend_direction(self, joint_id: str, direction: float):
         """Set the bend direction for a specific joint."""
         if joint_id in self._joint_items:
+            direction = self._bend_direction_value(direction)
             self._joint_bend_directions[joint_id] = direction
 
             # Update joint color
