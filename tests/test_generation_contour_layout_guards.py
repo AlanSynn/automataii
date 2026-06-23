@@ -11,6 +11,7 @@ from automataii.domain.generation.contour import AdvancedContourExtractor, Manuf
 from automataii.domain.generation.layout import ScaleNormalizer
 from automataii.infrastructure.generation.processors.png_blueprint import PNGBlueprintProcessor
 from automataii.infrastructure.generation.svg.optimizer import BlueprintLayoutOptimizer
+from automataii.shared.physical_kit import LETTER_PAGE_HEIGHT_MM
 
 
 def _sample_contour() -> ManufacturingContour:
@@ -85,12 +86,18 @@ def test_apply_offset_to_path_handles_exponents_and_bad_tokens() -> None:
 def test_scale_normalizer_handles_bad_scale_inputs_and_svg_tokens() -> None:
     normalizer = ScaleNormalizer(target_character_height_mm=math.nan)
 
-    assert normalizer.target_height_mm == 300.0
+    assert normalizer.target_height_mm == LETTER_PAGE_HEIGHT_MM
     assert normalizer.calculate_scale_factor(math.inf) == 0.36
     assert normalizer.calculate_scale_factor(0.0) == 0.36
     assert normalizer._scale_svg_path("M 1e1 -2.5 L bad 4 L 2 3", math.nan) == (
         "M 10.00 -2.50 L bad 4 L 2.00 3.00"
     )
+
+
+def test_blueprint_optimizer_default_targets_letter_height() -> None:
+    optimizer = BlueprintLayoutOptimizer()
+
+    assert optimizer.scale_normalizer.target_height_mm == LETTER_PAGE_HEIGHT_MM
 
 
 def test_normalize_contour_keeps_scaled_properties_finite() -> None:

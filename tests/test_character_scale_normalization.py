@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,6 +19,7 @@ from automataii.presentation.qt.main_window import (
     _scale_parts_in_place,
     _scale_skeleton_raw_in_place,
 )
+from automataii.shared.physical_kit import LETTER_PAGE_HEIGHT_MM
 
 
 @dataclass
@@ -100,7 +102,6 @@ def test_align_skeleton_bbox_to_parts_bbox_when_scale_mismatch() -> None:
 
 def test_normalize_character_scale_prefers_parts_bbox_height() -> None:
     window = AutomataDesigner.__new__(AutomataDesigner)
-    window._dummy_reference_height_px = 400.0
 
     parts = {"torso": _PartStub([0.0, 0.0, 100.0, 100.0])}
     skeleton = [
@@ -108,7 +109,7 @@ def test_normalize_character_scale_prefers_parts_bbox_height() -> None:
         {"name": "tip", "position": [0.0, 1000.0]},
     ]
 
-    parts_out, skeleton_out, scale = AutomataDesigner._normalize_character_scale_to_dummy(
+    parts_out, skeleton_out, scale = AutomataDesigner._normalize_character_scale_to_letter(
         window,
         parts,
         skeleton,
@@ -116,10 +117,41 @@ def test_normalize_character_scale_prefers_parts_bbox_height() -> None:
 
     assert parts_out is parts
     assert skeleton_out is skeleton
-    assert abs(scale - 4.0) < 1e-6
-    assert abs(parts["torso"].roi[2] - 400.0) < 1e-6
+    assert abs(scale - 2.794) < 1e-6
+    assert abs(parts["torso"].roi[2] - 279.4) < 1e-6
     normalized_bbox = _calculate_skeleton_bbox(skeleton)
     assert normalized_bbox is not None
+    assert abs(normalized_bbox[3] - normalized_bbox[1] - 279.4) < 1e-6
+
+
+def test_bundled_dummy_character_normalizes_to_letter_height() -> None:
+    payload = json.loads(
+        Path("resources/presets/characters/dummy/parts_info.json").read_text(encoding="utf-8")
+    )
+    parts = {
+        name: _PartStub([float(value) for value in part["roi"]])
+        for name, part in payload["character"]["parts"].items()
+    }
+    window = AutomataDesigner.__new__(AutomataDesigner)
+
+    _, _, scale = AutomataDesigner._normalize_character_scale_to_letter(window, parts, None)
+
+    bbox = _calculate_parts_bbox(parts)
+    assert bbox is not None
+    assert scale < 1.0
+    assert abs(bbox[3] - bbox[1] - 279.4) < 1e-6
+
+
+def test_near_letter_height_still_normalizes_to_exact_letter_height() -> None:
+    parts = {"torso": _PartStub([0.0, 0.0, 100.0, 300.0])}
+    window = AutomataDesigner.__new__(AutomataDesigner)
+
+    _, _, scale = AutomataDesigner._normalize_character_scale_to_letter(window, parts, None)
+
+    bbox = _calculate_parts_bbox(parts)
+    assert bbox is not None
+    assert abs(scale - (279.4 / 300.0)) < 1e-6
+    assert abs(bbox[3] - bbox[1] - 279.4) < 1e-6
 
 
 def test_blueprint_character_parts_use_assembled_bbox_and_emit_pivot_drill_holes() -> None:
@@ -145,7 +177,7 @@ def test_blueprint_character_parts_use_assembled_bbox_and_emit_pivot_drill_holes
         type("PartItem", (), {"part_info": head})(),
     ]
 
-    optimizer = BlueprintLayoutOptimizer(target_character_height_mm=300.0)
+    optimizer = BlueprintLayoutOptimizer(target_character_height_mm=LETTER_PAGE_HEIGHT_MM)
     layout_items = optimizer._process_character_parts(part_items)
     by_name = {item.name: item for item in layout_items}
 
@@ -175,20 +207,20 @@ def test_blueprint_pivot_holes_use_roi_coordinate_space_for_resized_png(
     part.name = "square"  # type: ignore[attr-defined]
     part_item = type("PartItem", (), {"part_info": part})()
 
-    optimizer = BlueprintLayoutOptimizer(target_character_height_mm=300.0)
+    optimizer = BlueprintLayoutOptimizer(target_character_height_mm=LETTER_PAGE_HEIGHT_MM)
     layout_items = optimizer._process_character_parts([part_item])
 
     assert len(layout_items) == 1
     item = layout_items[0]
-    assert abs(item.bounds.width - 300.0) < 3.0
-    assert abs(item.bounds.height - 300.0) < 3.0
+    assert abs(item.bounds.width - LETTER_PAGE_HEIGHT_MM) < 3.0
+    assert abs(item.bounds.height - LETTER_PAGE_HEIGHT_MM) < 3.0
     assert 'class="pivot-drill-hole"' in item.svg_content
     cx_match = re.search(r'cx="([0-9.]+)"', item.svg_content)
     cy_match = re.search(r'cy="([0-9.]+)"', item.svg_content)
     assert cx_match is not None
     assert cy_match is not None
-    assert abs(float(cx_match.group(1)) - 150.0) < 2.0
-    assert abs(float(cy_match.group(1)) - 150.0) < 2.0
+    assert abs(float(cx_match.group(1)) - (LETTER_PAGE_HEIGHT_MM / 2.0)) < 2.0
+    assert abs(float(cy_match.group(1)) - (LETTER_PAGE_HEIGHT_MM / 2.0)) < 2.0
     assert abs(float(cx_match.group(1)) - 300.0) > 100.0
     assert abs(float(cy_match.group(1)) - 300.0) > 100.0
 

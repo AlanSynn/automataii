@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from automataii.application.blueprint import BlueprintComposer, BlueprintCompositionResult
 from automataii.domain.generation.layout import LayoutItem, ScaledBounds
 from automataii.infrastructure.generation.svg.blueprint import generate_single_large_blueprint
+from automataii.shared.physical_kit import LETTER_PAGE_HEIGHT_MM
 
 
 @dataclass
@@ -29,6 +30,12 @@ class DummyOptimizer:
 
 def dummy_generator(layout_items, width, height, title, scale_info, snapshot_data_uri, unit_system):
     return f"<svg width='{width}' height='{height}'>{len(layout_items)}</svg>"
+
+
+def test_default_composer_targets_letter_page_character_height() -> None:
+    composer = BlueprintComposer()
+
+    assert composer._optimizer.scale_normalizer.target_height_mm == LETTER_PAGE_HEIGHT_MM
 
 
 def test_compose_single_page_with_layout():

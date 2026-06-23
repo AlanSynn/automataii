@@ -6,6 +6,7 @@ from pathlib import Path
 from automataii.application.fabrication import FabricationGuideExportResult, FabricationGuideSummary
 from automataii.application.managers import BlueprintExportResult
 from automataii.presentation.qt.blueprint.exporter import BlueprintExporter
+from automataii.shared.physical_kit import LETTER_PAGE_HEIGHT_MM
 
 
 def test_blueprint_export_success_copy_is_production_facing() -> None:
@@ -23,6 +24,25 @@ def test_blueprint_package_does_not_gate_board_assembly_for_contract_warnings() 
     assert "fallback_files" in source
     assert "Blueprint Package Exported with Contract Warnings" in source
     assert "gated by physical contract warnings" not in source
+
+
+def test_blueprint_scale_fallback_targets_letter_height() -> None:
+    exporter = BlueprintExporter(
+        parent=None,
+        mechanism_view=None,
+        get_mechanism_layers=lambda: {},
+        get_current_editor_items=lambda: {},
+        get_scene_transform_function=lambda _layer: None,
+    )
+
+    scale_info = exporter.calculate_screen_to_blueprint_scale()
+
+    assert scale_info["character_height_mm"] == LETTER_PAGE_HEIGHT_MM
+    assert scale_info["target_character_height_mm"] == LETTER_PAGE_HEIGHT_MM
+    assert abs(
+        scale_info["mm_per_pixel"] * scale_info["character_height_pixels"]
+        - LETTER_PAGE_HEIGHT_MM
+    ) < 1e-6
 
 
 def test_blueprint_package_accepts_svg_fallback_assembly_export(

@@ -16,6 +16,7 @@ from automataii.shared.physical_kit import (
     DEFAULT_DISPLAY_UNIT_SYSTEM,
     DEFAULT_GRID_CELL_CM,
     FABRICATION_HOLE_DIAMETER_INCH_LABEL,
+    LETTER_PAGE_HEIGHT_MM,
     format_length_for_user,
     gear_center_distance,
     gear_clearance_from_params,
@@ -28,6 +29,9 @@ from automataii.shared.physical_kit import (
 )
 
 _NumericPayload = str | bytes | bytearray | SupportsFloat | SupportsIndex
+_DEFAULT_CHARACTER_HEIGHT_PX = 800.0
+_DEFAULT_LETTER_MM_PER_PIXEL = LETTER_PAGE_HEIGHT_MM / _DEFAULT_CHARACTER_HEIGHT_PX
+_DEFAULT_LETTER_PIXELS_PER_MM = _DEFAULT_CHARACTER_HEIGHT_PX / LETTER_PAGE_HEIGHT_MM
 
 
 def _finite_float(value: object, default: float = 0.0) -> float:
@@ -225,11 +229,11 @@ class BlueprintExporter:
             except Exception as e:
                 logging.error(f"[BLUEPRINT] Error calculating screen scale: {e}")
                 screen_scale_info = {
-                    "pixels_per_mm": 2.78,
-                    "mm_per_pixel": 0.36,
+                    "pixels_per_mm": _DEFAULT_LETTER_PIXELS_PER_MM,
+                    "mm_per_pixel": _DEFAULT_LETTER_MM_PER_PIXEL,
                     "pixels_per_scene_unit": 1.0,
-                    "character_height_mm": 300.0,
-                    "character_height_pixels": 800,
+                    "character_height_mm": LETTER_PAGE_HEIGHT_MM,
+                    "character_height_pixels": _DEFAULT_CHARACTER_HEIGHT_PX,
                     "character_width_pixels": 400,
                     "mechanism_scale_factors": {},
                 }
@@ -769,14 +773,14 @@ class BlueprintExporter:
                     character_height_pixels = (max_y - min_y) * pixels_per_scene_unit
                     character_width_pixels = (max_x - min_x) * pixels_per_scene_unit
 
-            target_character_height_mm = 300.0
+            target_character_height_mm = LETTER_PAGE_HEIGHT_MM
 
             if character_height_pixels > 0:
                 mm_per_pixel = target_character_height_mm / character_height_pixels
                 pixels_per_mm = 1.0 / mm_per_pixel
                 actual_character_height_mm = target_character_height_mm
             else:
-                mm_per_pixel = 0.36
+                mm_per_pixel = _DEFAULT_LETTER_MM_PER_PIXEL
                 pixels_per_mm = 1.0 / mm_per_pixel
                 actual_character_height_mm = target_character_height_mm
 
@@ -821,14 +825,14 @@ class BlueprintExporter:
         except Exception as e:
             logging.warning(f"Error calculating screen scale, using defaults: {e}")
             return {
-                "pixels_per_mm": 2.78,
-                "mm_per_pixel": 0.36,
+                "pixels_per_mm": _DEFAULT_LETTER_PIXELS_PER_MM,
+                "mm_per_pixel": _DEFAULT_LETTER_MM_PER_PIXEL,
                 "pixels_per_scene_unit": 1.0,
-                "character_height_mm": 300.0,
-                "character_height_pixels": 800,
+                "character_height_mm": LETTER_PAGE_HEIGHT_MM,
+                "character_height_pixels": _DEFAULT_CHARACTER_HEIGHT_PX,
                 "character_width_pixels": 400,
                 "mechanism_scale_factors": {},
-                "target_character_height_mm": 300.0,
+                "target_character_height_mm": LETTER_PAGE_HEIGHT_MM,
             }
 
     def enhance_mechanism_layers_with_scale_info(
@@ -848,10 +852,10 @@ class BlueprintExporter:
                 mech_scale_factor = mechanism_scale_factors.get(mech_id, 1.0)
                 enhanced_layer["mechanism_to_screen_scale"] = mech_scale_factor
                 enhanced_layer["screen_to_blueprint_scale"] = screen_scale_info.get(
-                    "mm_per_pixel", 0.36
+                    "mm_per_pixel", _DEFAULT_LETTER_MM_PER_PIXEL
                 )
                 enhanced_layer["total_scale_factor"] = mech_scale_factor * screen_scale_info.get(
-                    "mm_per_pixel", 0.36
+                    "mm_per_pixel", _DEFAULT_LETTER_MM_PER_PIXEL
                 )
 
                 if "params" in enhanced_layer:

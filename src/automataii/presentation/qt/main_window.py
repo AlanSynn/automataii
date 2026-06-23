@@ -1,4 +1,3 @@
-import json
 import logging
 import os
 from pathlib import Path
@@ -72,10 +71,10 @@ from automataii.presentation.qt.windows.components import (
     get_project_storage_dir,
 )
 from automataii.shared.physical_kit import (
+    LETTER_PAGE_HEIGHT_MM,
     PhysicalKitContext,
 )
 from automataii.utils.config import AppConfig
-from automataii.utils.paths import resolve_path
 from automataii.utils.styling import DARK_STYLE, LIGHT_STYLE
 
 # from qframelesswindow import FramelessMainWindow
@@ -93,11 +92,7 @@ _PROJECT_TRANSIENT_LAYER_KEYS = frozenset(
     }
 )
 _PROJECT_RUNTIME_LAYER_KEY_SUFFIXES = ("_cache", "_cached")
-_DEFAULT_DUMMY_REFERENCE_HEIGHT_PX = 960.0
-_CHARACTER_SCALE_LOWER_RATIO = 0.8
-_CHARACTER_SCALE_UPPER_RATIO = 1.25
-_CHARACTER_SCALE_MIN = 0.5
-_CHARACTER_SCALE_MAX = 4.0
+_LETTER_SHEET_HEIGHT_PX = LETTER_PAGE_HEIGHT_MM
 _SKELETON_PART_HEIGHT_RATIO_MIN = 0.6
 _SKELETON_PART_HEIGHT_RATIO_MAX = 1.8
 _PART_TO_SKELETON_MIN_RATIO = 0.9
@@ -651,7 +646,6 @@ class AutomataDesigner(QMainWindow):
         self._character_swap_load_in_progress = False
         self._runtime_to_ssot_sync_in_progress = False
         self._force_skeleton_parts_alignment_next_load = False
-        self._dummy_reference_height_px: float | None = None
 
         # Load Parts and Styles
 
@@ -1300,7 +1294,8 @@ class AutomataDesigner(QMainWindow):
         )
 
         # Replacement context is only when user is replacing an active dummy-based
-        # mechanism session. Plain "Load Image" should not preserve/rebind/scale-to-dummy.
+        # mechanism session. Plain "Load Image" should still normalize to Letter
+        # height, but should not preserve/rebind prior dummy mechanisms in-place.
         is_dummy_replacement_session = False
         image_proc_tab = getattr(self, "image_proc_tab", None)
         if image_proc_tab is not None and hasattr(
@@ -1337,7 +1332,7 @@ class AutomataDesigner(QMainWindow):
         # preserve existing mechanism runtime state and rebind in-place.
         self._force_skeleton_parts_alignment_next_load = is_dummy_replacement_session
         logging.info(
-            "MainWindow: parts_generated context resolved (dummy_replacement=%s, preserve_ui=%s, scale_to_dummy=%s, force_skel_align=%s)",
+            "MainWindow: parts_generated context resolved (dummy_replacement=%s, preserve_ui=%s, replacement_load=%s, force_skel_align=%s)",
             is_dummy_replacement_session,
             self._suppress_project_data_cleared_ui_once,
             self._auto_scale_character_to_dummy_next_load,
@@ -1632,63 +1627,12 @@ class AutomataDesigner(QMainWindow):
         self._project_controller.set_status_bar(self.statusBar())
         return bool(self._project_controller.load_project(selected_path))
 
-    def _get_dummy_reference_height_px(self) -> float:
-        """Get/calculate reference character height from bundled dummy assets."""
-        if self._dummy_reference_height_px is not None:
-            return self._dummy_reference_height_px
-
-        candidates: list[Path] = [resolve_path("resources/presets/characters/dummy")]
-        module_path = Path(__file__).resolve()
-        for parent_idx in (4, 3):
-            try:
-                candidates.append(
-                    module_path.parents[parent_idx]
-                    / "resources"
-                    / "presets"
-                    / "characters"
-                    / "dummy"
-                )
-            except IndexError:
-                continue
-
-        for dummy_dir in candidates:
-            parts_path = dummy_dir / "parts_info.json"
-            if not parts_path.exists():
-                continue
-            try:
-                with open(parts_path, encoding="utf-8") as f:
-                    payload = json.load(f)
-                parts_payload = payload.get("character", {}).get("parts", {})
-                parts_info_dummy: dict[str, Any] = {}
-                if isinstance(parts_payload, dict):
-                    for part_name, part_dict in parts_payload.items():
-                        if not isinstance(part_dict, dict):
-                            continue
-                        roi = part_dict.get("roi")
-                        parts_info_dummy[str(part_name)] = type(
-                            "_DummyPartInfo",
-                            (),
-                            {"roi": roi},
-                        )()
-                dummy_bbox = _calculate_parts_bbox(parts_info_dummy)
-                if dummy_bbox:
-                    self._dummy_reference_height_px = max(1.0, dummy_bbox[3] - dummy_bbox[1])
-                    return self._dummy_reference_height_px
-            except Exception:
-                logging.debug(
-                    "MainWindow: Failed reading dummy reference parts_info for scale normalization.",
-                    exc_info=True,
-                )
-
-        self._dummy_reference_height_px = _DEFAULT_DUMMY_REFERENCE_HEIGHT_PX
-        return self._dummy_reference_height_px
-
-    def _normalize_character_scale_to_dummy(
+    def _normalize_character_scale_to_letter(
         self,
         parts_info: dict[str, PartInfo],
         raw_skeleton_data: list[dict[str, Any]] | None,
     ) -> tuple[dict[str, PartInfo], list[dict[str, Any]] | None, float]:
-        """Normalize loaded character size to dummy reference if size diverges too much."""
+        """Normalize loaded character size to Letter sheet height."""
         if not parts_info:
             return parts_info, raw_skeleton_data, 1.0
 
@@ -1703,7 +1647,7 @@ class AutomataDesigner(QMainWindow):
         ):
             skeleton_bbox = _calculate_skeleton_bbox(raw_skeleton_data)
             logging.info(
-                "MainWindow: Pre-aligned skeleton bbox to parts bbox before dummy-scale normalization."
+                "MainWindow: Pre-aligned skeleton bbox to parts bbox before Letter-scale normalization."
             )
 
         current_height = 0.0
@@ -1715,13 +1659,11 @@ class AutomataDesigner(QMainWindow):
         if current_height <= 1.0:
             return parts_info, raw_skeleton_data, 1.0
 
-        target_height = max(1.0, self._get_dummy_reference_height_px())
+        target_height = _LETTER_SHEET_HEIGHT_PX
         scale_factor = target_height / current_height
 
-        if _CHARACTER_SCALE_LOWER_RATIO <= scale_factor <= _CHARACTER_SCALE_UPPER_RATIO:
+        if abs(scale_factor - 1.0) < 1e-6:
             return parts_info, raw_skeleton_data, 1.0
-
-        scale_factor = max(_CHARACTER_SCALE_MIN, min(_CHARACTER_SCALE_MAX, scale_factor))
 
         center_bbox = parts_bbox or skeleton_bbox
         if not center_bbox:
@@ -1736,7 +1678,7 @@ class AutomataDesigner(QMainWindow):
             _scale_skeleton_raw_in_place(raw_skeleton_data, scale_factor, center)
 
         logging.info(
-            "MainWindow: Normalized character scale to dummy reference (scale=%.3f, current_h=%.1f, target_h=%.1f).",
+            "MainWindow: Normalized character scale to Letter height (scale=%.3f, current_h=%.1f, target_h=%.1f).",
             scale_factor,
             current_height,
             target_height,
@@ -1762,7 +1704,7 @@ class AutomataDesigner(QMainWindow):
             logging.info(
                 f"MainWindow: Project data loaded successfully from {project_directory_path}"
             )
-            apply_dummy_scale = bool(self._auto_scale_character_to_dummy_next_load)
+            is_dummy_replacement_load = bool(self._auto_scale_character_to_dummy_next_load)
             self._auto_scale_character_to_dummy_next_load = False
             force_skeleton_align = bool(
                 self.__dict__.get("_force_skeleton_parts_alignment_next_load", False)
@@ -1778,12 +1720,11 @@ class AutomataDesigner(QMainWindow):
             )  # This is List[Dict]
 
             scale_factor_applied = 1.0
-            if apply_dummy_scale:
-                parts_info, current_skeleton_data_raw, scale_factor_applied = (
-                    self._normalize_character_scale_to_dummy(parts_info, current_skeleton_data_raw)
-                )
+            parts_info, current_skeleton_data_raw, scale_factor_applied = (
+                self._normalize_character_scale_to_letter(parts_info, current_skeleton_data_raw)
+            )
 
-            apply_alignment_reconcile = bool(apply_dummy_scale or force_skeleton_align)
+            apply_alignment_reconcile = bool(is_dummy_replacement_load or force_skeleton_align)
             parts_upscaled_to_skeleton = False
             if apply_alignment_reconcile and (
                 isinstance(current_skeleton_data_raw, list)
@@ -1860,7 +1801,7 @@ class AutomataDesigner(QMainWindow):
                             and isinstance(fallback_payload.get("skeleton"), list)
                             and fallback_payload.get("skeleton")
                         ):
-                            if apply_dummy_scale and scale_factor_applied != 1.0:
+                            if scale_factor_applied != 1.0:
                                 skeleton_list = fallback_payload.get("skeleton")
                                 fallback_bbox = _calculate_skeleton_bbox(skeleton_list)
                                 if fallback_bbox:
@@ -1897,9 +1838,9 @@ class AutomataDesigner(QMainWindow):
             self.image_proc_tab.on_parts_loaded_in_editor(True)
 
             status_bar = self.statusBar()
-            if status_bar is not None and apply_dummy_scale and scale_factor_applied != 1.0:
+            if status_bar is not None and scale_factor_applied != 1.0:
                 status_bar.showMessage(
-                    f"Project loaded: {project_directory_path} (scaled {scale_factor_applied:.2f}x to dummy baseline)."
+                    f"Project loaded: {project_directory_path} (scaled {scale_factor_applied:.2f}x to Letter height)."
                 )
             elif status_bar is not None:
                 status_bar.showMessage(f"Project loaded: {project_directory_path}")

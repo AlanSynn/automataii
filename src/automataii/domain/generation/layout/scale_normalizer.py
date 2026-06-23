@@ -12,6 +12,8 @@ import math
 import re
 from typing import TYPE_CHECKING, SupportsFloat, SupportsIndex, cast
 
+from automataii.shared.physical_kit import LETTER_PAGE_HEIGHT_MM
+
 if TYPE_CHECKING:
     from automataii.domain.generation.contour import ManufacturingContour
 
@@ -41,18 +43,22 @@ def _safe_int(value: object) -> int:
 
 class ScaleNormalizer:
     """
-    Normalizes character parts to standard 30cm height.
+    Normalizes character parts to Letter-page physical height.
     Pure domain logic for scale calculations.
     """
 
-    def __init__(self, target_character_height_mm: float = 300.0):
+    def __init__(self, target_character_height_mm: float = LETTER_PAGE_HEIGHT_MM):
         """
         Initialize scale normalizer.
 
         Args:
-            target_character_height_mm: Target character height in millimeters (default: 30cm)
+            target_character_height_mm: Target character height in millimeters
+                (default: Letter page height)
         """
-        self.target_height_mm = _positive_finite_float(target_character_height_mm, 300.0)
+        self.target_height_mm = _positive_finite_float(
+            target_character_height_mm,
+            LETTER_PAGE_HEIGHT_MM,
+        )
         self.logger = logging.getLogger(__name__)
 
     def calculate_scale_factor(self, original_height_pixels: float) -> float:

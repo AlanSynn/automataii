@@ -32,7 +32,11 @@ from automataii.infrastructure.generation.svg.generators import (
     GearSVGGenerator,
     LinkageSVGGenerator,
 )
-from automataii.shared.physical_kit import finite_float, normalize_mechanism_type
+from automataii.shared.physical_kit import (
+    LETTER_PAGE_HEIGHT_MM,
+    finite_float,
+    normalize_mechanism_type,
+)
 
 # Note: ScaleNormalizer and SmartLayoutManager have been moved to
 # automataii.domain.generation.layout and are imported above.
@@ -1204,7 +1208,7 @@ class BlueprintLayoutOptimizer:
     Combines scale normalization, smart layout, and mechanism processing
     """
 
-    def __init__(self, target_character_height_mm: float = 300.0):
+    def __init__(self, target_character_height_mm: float = LETTER_PAGE_HEIGHT_MM):
         self.target_character_height_mm = target_character_height_mm
         self.scale_normalizer = ScaleNormalizer(target_character_height_mm)
         self.layout_manager = SmartLayoutManager()
@@ -1283,7 +1287,7 @@ class BlueprintLayoutOptimizer:
         # First pass: collect all contours and calculate total character bounds
         # in assembled-character coordinates.  Contour bounds are local to each
         # cropped part PNG; using them directly made every body piece look like
-        # it occupied almost the full 30cm character.  The PartInfo ROI anchors
+        # it occupied almost the full page-height character.  The PartInfo ROI anchors
         # each cropped PNG back into the character canvas.
         for item in part_items:
             try:

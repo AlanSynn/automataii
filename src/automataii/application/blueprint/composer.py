@@ -10,7 +10,11 @@ from typing import Any
 from automataii.infrastructure.generation.svg.blueprint import generate_single_large_blueprint
 from automataii.infrastructure.generation.svg.optimizer import BlueprintLayoutOptimizer
 from automataii.infrastructure.telemetry import telemetry_span
-from automataii.shared.physical_kit import DEFAULT_DISPLAY_UNIT_SYSTEM, normalize_unit_system
+from automataii.shared.physical_kit import (
+    DEFAULT_DISPLAY_UNIT_SYSTEM,
+    LETTER_PAGE_HEIGHT_MM,
+    normalize_unit_system,
+)
 
 
 @dataclass(frozen=True)
@@ -38,7 +42,9 @@ class BlueprintComposer:
         svg_generator: Callable[..., str] = generate_single_large_blueprint,
     ) -> None:
         self.logger = logging.getLogger(__name__)
-        self._optimizer = optimizer or BlueprintLayoutOptimizer(target_character_height_mm=300.0)
+        self._optimizer = optimizer or BlueprintLayoutOptimizer(
+            target_character_height_mm=LETTER_PAGE_HEIGHT_MM
+        )
         self._svg_generator = svg_generator
 
     @staticmethod
