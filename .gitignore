@@ -517,6 +517,9 @@ tmp/
 # Local OMX runtime state
 .omx/
 
+# Root Bun proxy package for frontend-only web app
+!package.json
+
 # Automataii frontend-only static migration runtime/test files
 !web/
 !web/**/

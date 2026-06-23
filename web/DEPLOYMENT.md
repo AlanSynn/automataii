@@ -5,6 +5,9 @@ The web app is static. Build once and publish `web/dist/` to any static host.
 ## Fast path with Bun
 
 ```bash
+bun run check
+
+# or from web/ directly
 cd web
 bun install --frozen-lockfile
 bun run check:bun
@@ -23,6 +26,9 @@ npm run check
 ## Local preview
 
 ```bash
+bun run dev
+
+# or from web/ directly
 cd web
 bun run dev:bun   # or npm run dev
 ```
@@ -33,7 +39,12 @@ Open <http://127.0.0.1:5173>.
 
 Use:
 
+- build command from repo root: `bun run build`
+- publish directory: `web/dist`
+
+If the host base directory is `web`, use:
+
 - build command: `bun install --frozen-lockfile && bun run build`
-- publish directory: `web/dist` from repo root, or `dist` when the host base directory is `web`
+- publish directory: `dist`
 
 No backend, database, private key, or server runtime is required after build.

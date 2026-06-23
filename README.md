@@ -40,10 +40,14 @@ src/automataii/
 A static browser migration lives in `web/` and runs without a backend. Install once to fetch ONNX Runtime Web for optional browser-side model inference.
 
 ```bash
+bun run check                  # installs web deps, tests, smoke-tests, builds
+bun run dev                    # installs web deps and serves http://localhost:5173
+
+# direct web package path
 cd web
-bun install --frozen-lockfile   # fastest path, installs ONNX Runtime Web
-bun run check:bun               # lint + tests + smoke + browser smoke + build
-bun run dev:bun                 # serve at http://localhost:5173
+bun install --frozen-lockfile
+bun run check:bun
+bun run dev:bun
 
 # npm fallback
 npm ci
