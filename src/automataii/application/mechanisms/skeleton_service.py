@@ -14,6 +14,8 @@ import math
 from collections.abc import Callable, Mapping
 from typing import Any
 
+from automataii.domain.animation.part_definitions import BODY_PARTS
+
 
 class SkeletonService:
     """Service for handling skeleton business logic."""
@@ -66,6 +68,15 @@ class SkeletonService:
                 return x_coord, y_coord
         return None
 
+    @staticmethod
+    def _anchor_joint_id(part_name: str, part_item: Any, part_info: Any) -> object:
+        return (
+            getattr(part_info, "anchor_joint_id", None)
+            or getattr(part_item, "anchor_joint_id", None)
+            or BODY_PARTS.get(part_name, {}).get("anchor_joint")
+            or ""
+        )
+
     def position_parts_at_anchor_joints(
         self,
         current_editor_items: dict,
@@ -104,9 +115,7 @@ class SkeletonService:
             if not part_info:
                 continue
             joint_data = self._resolve_joint_data(
-                getattr(part_info, "anchor_joint_id", ""),
-                joints_dict,
-                joint_map,
+                self._anchor_joint_id(part_name, part_item, part_info), joints_dict, joint_map
             )
             if joint_data is None:
                 continue

@@ -4,6 +4,7 @@ import sys
 from unittest.mock import MagicMock
 
 import pytest
+from PyQt6.QtCore import QPointF
 from PyQt6.QtWidgets import QApplication, QGraphicsScene
 
 from automataii.presentation.qt.tabs.mechanism_design.components.skeleton_visualization_handler import (
@@ -16,6 +17,29 @@ class _DummyView:
         self.set_joint_map = MagicMock()
         self.visualize_skeleton = MagicMock()
         self.skeleton_graphics_item = MagicMock()
+
+
+class _FakePart:
+    anchor_joint_id = None
+
+    def __init__(self, name: str) -> None:
+        self._name = name
+        self.positions: list[QPointF] = []
+        self.rotations: list[float] = []
+
+    def name(self) -> str:
+        return self._name
+
+    def set_scene_position_from_anchor(
+        self, pos: QPointF, bypass_validation: bool = False
+    ) -> None:
+        self.positions.append(pos)
+
+    def setRotation(self, rotation: float) -> None:
+        self.rotations.append(rotation)
+
+    def rotation(self) -> float:
+        return self.rotations[-1] if self.rotations else 0.0
 
 
 @pytest.fixture(scope="module")
@@ -77,3 +101,28 @@ def test_on_skeleton_manager_updated_none_clears_visualization(qapp: QApplicatio
 
     view.set_joint_map.assert_called_with(None)
     view.visualize_skeleton.assert_called_with([], {})
+
+
+def test_update_parts_from_skeleton_uses_body_part_anchor_fallback(
+    qapp: QApplication,
+) -> None:
+    handler, _view = _handler()
+    part = _FakePart("left_arm_upper")
+    handler.configure_callbacks(
+        get_main_window=lambda: None,
+        get_current_editor_items=lambda: {"left_arm_upper": part},  # type: ignore[dict-item]
+        get_parts_data=lambda: {"left_arm_upper": object()},  # type: ignore[return-value]
+        is_animation_running=lambda: False,
+        position_parts_at_anchor_joints=lambda: None,
+    )
+
+    handler._update_parts_from_skeleton(
+        {
+            "joints": {
+                "left_shoulder_7": {"position": [50.0, 60.0]},
+                "left_elbow_8": {"position": [70.0, 60.0]},
+            }
+        }
+    )
+
+    assert [(p.x(), p.y()) for p in part.positions] == [(50.0, 60.0)]

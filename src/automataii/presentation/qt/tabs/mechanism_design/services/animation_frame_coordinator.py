@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING, Any, Protocol
 from PyQt6.QtCore import QElapsedTimer, QPointF
 from PyQt6.QtWidgets import QGraphicsScene
 
+from automataii.domain.animation.part_definitions import BODY_PARTS
+
 if TYPE_CHECKING:
     from automataii.presentation.qt.tabs.mechanism_design.path_trace_manager import PathTraceManager
 
@@ -375,13 +377,16 @@ class AnimationFrameCoordinator:
 
             # Get target joint for IK
             part_info = parts_data.get(part_name)
-            if not part_info or not getattr(part_info, "anchor_joint_id", None):
+            anchor_joint_id = getattr(part_info, "anchor_joint_id", None) or BODY_PARTS.get(
+                part_name, {}
+            ).get("anchor_joint")
+            if not part_info or not anchor_joint_id:
                 return None
 
             if not self._get_target_joint_fn or not self._get_standardized_joint_fn:
                 return None
 
-            target_joint_id = self._get_target_joint_fn(part_name, part_info.anchor_joint_id)
+            target_joint_id = self._get_target_joint_fn(part_name, anchor_joint_id)
             std_joint_id = self._get_standardized_joint_id(
                 target_joint_id,
                 initial_skeleton_cache,

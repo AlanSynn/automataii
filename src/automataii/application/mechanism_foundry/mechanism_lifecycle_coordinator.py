@@ -16,6 +16,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 
+from automataii.domain.animation.part_definitions import BODY_PARTS
+
 if TYPE_CHECKING:
     pass
 
@@ -123,7 +125,9 @@ class MechanismLifecycleCoordinator:
                     part_name = layer_data.get("part_name")
                     if part_name and part_name in context.parts_data:
                         part_info = context.parts_data[part_name]
-                        anchor_joint = getattr(part_info, "anchor_joint_id", None)
+                        anchor_joint = getattr(
+                            part_info, "anchor_joint_id", None
+                        ) or BODY_PARTS.get(part_name, {}).get("anchor_joint")
                         if anchor_joint:
                             register_controller_fn(mech_id, layer_data, anchor_joint)
 

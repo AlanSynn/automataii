@@ -48,6 +48,7 @@ from automataii.application.project.adapters import (
     ImageProcessingTabAdapter,
     MechanismDesignTabAdapter,
 )
+from automataii.domain.animation.part_definitions import BODY_PARTS
 from automataii.presentation.qt.actions.action_manager import ActionManager
 from automataii.presentation.qt.animation import AcceleratedAnimationScheduler
 from automataii.presentation.qt.graphics_items.part_item import CharacterPartItem
@@ -2055,11 +2056,15 @@ class AutomataDesigner(QMainWindow):
                 if isinstance(local_pivot_raw, list | tuple) and len(local_pivot_raw) >= 2:
                     local_pivot = (float(local_pivot_raw[0]), float(local_pivot_raw[1]))
 
+                anchor_joint = getattr(part_info, "anchor_joint_id", None) or BODY_PARTS.get(
+                    str(part_name), {}
+                ).get("anchor_joint")
+
                 parts[str(part_name)] = PartData(
                     name=str(part_name),
                     texture_path=image_path,
                     mask_path=image_path,
-                    anchor_joint=str(getattr(part_info, "anchor_joint_id", "") or "root"),
+                    anchor_joint=str(anchor_joint or "root"),
                     transform=Transform(x=roi[0], y=roi[1], rotation=0.0, scale=1.0),
                     z_index=int(float(getattr(part_info, "z_value", 0.0) or 0.0)),
                     roi=roi,
