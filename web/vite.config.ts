@@ -1,15 +1,10 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-import { viteStaticCopy } from 'vite-plugin-static-copy'
+import react from '@vitejs/plugin-react';
+import { defineConfig } from 'vite';
 
-const onnxWasmFiles = 'node_modules/onnxruntime-web/dist/*.wasm'
-
-// https://vite.dev/config/
 export default defineConfig({
-  plugins: [
-    react(),
-    viteStaticCopy({
-      targets: [{ src: onnxWasmFiles, dest: '' }],
-    }),
-  ],
-})
+  plugins: [react()],
+  test: {
+    environment: 'node',
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx']
+  }
+});
