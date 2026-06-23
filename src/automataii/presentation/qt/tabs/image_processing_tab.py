@@ -35,6 +35,7 @@ from automataii.domain.animation.image_to_annotations import (
     AnnotationResults,
     image_to_annotations,
 )
+from automataii.domain.animation.part_definitions import BODY_PARTS
 from automataii.infrastructure.telemetry import telemetry_span
 from automataii.presentation.qt.dialogs.camera_dialog import CameraDialog
 from automataii.presentation.qt.image_view import ImageProcessingView
@@ -61,6 +62,7 @@ class ImageProcessingTab(QWidget):
         self.current_temp_char_dir: str | None = None
         self.current_annotation_results: AnnotationResults | None = None
         self.skeleton_data: dict | None = None
+        self._manual_part_metadata: dict | None = None
         self.active_camera_dialogs: list = []
         self._input_source: str | None = None
         self.auto_assign_on_input: bool = False
@@ -510,6 +512,7 @@ class ImageProcessingTab(QWidget):
         self.current_annotation_results = None
         self.current_temp_char_dir = None
         self.skeleton_data = None
+        self._manual_part_metadata = None
         if not self._output_dir_user_selected:
             self.output_dir = None
             self._update_output_location_label()
@@ -578,6 +581,11 @@ class ImageProcessingTab(QWidget):
 
             # Show dialog and handle result
             if editor_dialog.exec() == QDialog.DialogCode.Accepted:
+                self.skeleton_data = editor_dialog.get_skeleton_data()
+                self._manual_part_metadata = editor_dialog.get_part_metadata()
+                if self.image_proc_view and self.skeleton_data:
+                    self.image_proc_view.load_skeleton(self.skeleton_data)
+
                 # Get the edited segmentation results
                 edited_results = editor_dialog.get_segmentation_results()
 
@@ -652,7 +660,7 @@ class ImageProcessingTab(QWidget):
                 "height": 0,
                 "parts": {},
                 "skeleton": self.skeleton_data.get("skeleton", []) if self.skeleton_data else [],
-                "joint_map": {},
+                "joint_map": self.skeleton_data.get("joint_map", {}) if self.skeleton_data else {},
             }
 
             # Load original image to get dimensions
@@ -813,16 +821,29 @@ class ImageProcessingTab(QWidget):
                     part_image_path = os.path.join(parts_dir, f"{part_name}.png")
                     cv2.imwrite(part_image_path, part_rgba)
 
+            manual_metadata = self._manual_part_metadata or {}
+            anchor_by_part = manual_metadata.get("part_anchor_joints", {})
+            joint_positions = manual_metadata.get("joint_positions", {})
+            anchor_joint_id = anchor_by_part.get(part_name) or BODY_PARTS.get(part_name, {}).get(
+                "anchor_joint"
+            )
+            local_pivot_offset = [float(roi_width / 2), float(roi_height / 2)]
+            if anchor_joint_id in joint_positions:
+                anchor_x, anchor_y = joint_positions[anchor_joint_id]
+                local_pivot_offset = [float(anchor_x - x_min), float(anchor_y - y_min)]
+
             # Create part info structure
             part_info = {
                 "name": part_name,
                 "roi": [float(x_min), float(y_min), float(roi_width), float(roi_height)],
                 "image_path": f"manual_parts/{part_name}.png",
-                "local_pivot_offset": [float(roi_width / 2), float(roi_height / 2)],
+                "local_pivot_offset": local_pivot_offset,
                 "z_value": 0.0,
                 "fixed": False,
                 "fill_color": "rgba(128,128,128,0.5)",
             }
+            if anchor_joint_id:
+                part_info["anchor_joint_id"] = anchor_joint_id
 
             return part_info
 

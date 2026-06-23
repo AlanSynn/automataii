@@ -23,6 +23,21 @@ def test_interactive_segmentation_editor_preview_uses_image_dimensions() -> None
     assert preview["torso"].shape == (80, 120)
 
 
+def test_interactive_segmentation_editor_preview_uses_custom_part_layers() -> None:
+    editor = SimpleNamespace(
+        image_width=30,
+        image_height=20,
+        part_names=["tail_tip"],
+        boundary_points={"tail_tip": [(1, 1), (20, 1), (10, 15)]},
+    )
+
+    preview = InteractiveSegmentationEditor._generate_segmentation_preview(editor)
+
+    assert set(preview) == {"tail_tip"}
+    assert preview["tail_tip"] is not None
+    assert preview["tail_tip"].shape == (20, 30)
+
+
 def test_interactive_segmentation_editor_default_joints_use_image_dimensions() -> None:
     editor = SimpleNamespace(image_width=120, image_height=80)
 
@@ -102,3 +117,52 @@ def test_interactive_segmentation_editor_can_redefine_part_as_joint_box() -> Non
     points = InteractiveSegmentationEditor._current_joint_box_points(editor, padding=10)
 
     assert points == [(10.0, 20.0), (90.0, 20.0), (90.0, 50.0), (10.0, 50.0)]
+
+
+def test_interactive_segmentation_editor_can_add_and_remove_part_layers() -> None:
+    editor = SimpleNamespace(
+        part_names=[],
+        boundary_points={},
+        part_anchor_joints={},
+        current_part="",
+        _normalize_layer_name=InteractiveSegmentationEditor._normalize_layer_name,
+        _rebuild_part_buttons=lambda: None,
+    )
+
+    added = InteractiveSegmentationEditor._add_part_layer_name(editor, "Tail Tip")
+    removed = InteractiveSegmentationEditor._remove_part_layer_name(editor, "tail_tip")
+
+    assert added == "tail_tip"
+    assert removed is True
+    assert "tail_tip" not in editor.boundary_points
+
+
+def test_interactive_segmentation_editor_can_add_remove_joints_and_clear_anchors() -> None:
+    editor = SimpleNamespace(
+        joint_positions={},
+        selected_joints=set(),
+        part_anchor_joints={"tail": "tail_base"},
+        _normalize_layer_name=InteractiveSegmentationEditor._normalize_layer_name,
+    )
+
+    added = InteractiveSegmentationEditor._add_joint_at_position(editor, "tail_base", 4, 7)
+    removed = InteractiveSegmentationEditor._remove_joints(editor, {"tail_base"})
+
+    assert added is True
+    assert removed == 1
+    assert "tail_base" not in editor.joint_positions
+    assert editor.part_anchor_joints["tail"] is None
+
+
+def test_interactive_segmentation_editor_exports_edited_skeleton_data() -> None:
+    editor = SimpleNamespace(
+        skeleton_data={},
+        joint_positions={"tail_base": (4, 7)},
+    )
+
+    skeleton_data = InteractiveSegmentationEditor.get_skeleton_data(editor)
+
+    assert skeleton_data["skeleton"] == [
+        {"name": "tail_base", "loc": [4.0, 7.0], "position": [4.0, 7.0], "parent": None}
+    ]
+    assert skeleton_data["joint_map"] == {"tail_base": [4.0, 7.0]}

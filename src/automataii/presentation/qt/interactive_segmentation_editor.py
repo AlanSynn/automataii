@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,7 @@ from PyQt6.QtWidgets import (
     QGraphicsView,
     QGroupBox,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QMessageBox,
     QProgressBar,
@@ -47,6 +49,7 @@ class ClickableGraphicsView(QGraphicsView):
         self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.joint_items = {}  # joint_name -> QGraphicsEllipseItem
+        self.joint_label_items = {}  # joint_name -> QGraphicsTextItem
         self.current_boundary_points = []  # List of QPointF
         self.boundary_point_markers = []  # Track visual markers for cleanup
         self.boundary_polygon_item = None
@@ -80,6 +83,7 @@ class ClickableGraphicsView(QGraphicsView):
 
     def add_joint(self, joint_name: str, x: float, y: float, selected: bool = False):
         """Add a joint marker to the view"""
+        self.remove_joint(joint_name)
         radius = 8
         color = QColor(255, 100, 100) if selected else QColor(100, 100, 255)
 
@@ -94,6 +98,26 @@ class ClickableGraphicsView(QGraphicsView):
         label_item = self.scene().addText(joint_name, QFont("Arial", 8))
         label_item.setPos(x + radius + 2, y - radius)
         label_item.setDefaultTextColor(QColor(255, 255, 255))
+        self.joint_label_items[joint_name] = label_item
+
+    def remove_joint(self, joint_name: str) -> None:
+        """Remove a joint marker and its label from the view."""
+        scene = self.scene()
+        if scene is None:
+            self.joint_items.pop(joint_name, None)
+            self.joint_label_items.pop(joint_name, None)
+            return
+        joint_item = self.joint_items.pop(joint_name, None)
+        if joint_item is not None:
+            scene.removeItem(joint_item)
+        label_item = self.joint_label_items.pop(joint_name, None)
+        if label_item is not None:
+            scene.removeItem(label_item)
+
+    def clear_joints(self) -> None:
+        """Remove all joint markers and labels."""
+        for joint_name in list(self.joint_items):
+            self.remove_joint(joint_name)
 
     def update_joint_selection(self, joint_name: str, selected: bool):
         """Update joint visual to show selection state"""
@@ -164,10 +188,16 @@ class InteractiveSegmentationEditor(QDialog):
         self.image_path = Path(image_path)
         self.skeleton_data = skeleton_data or {}
         self.current_part = "torso"
+        self.part_names = list(BODY_PARTS.keys())
+        self.part_anchor_joints = {
+            part_name: BODY_PARTS.get(part_name, {}).get("anchor_joint")
+            for part_name in self.part_names
+        }
         self.boundary_points = {}  # part_name -> list of (x, y) tuples
         self.selected_joints = set()  # Currently selected joints
         self.joint_positions = {}  # joint_name -> (x, y)
         self.segmentation_results = {}  # Final results
+        self._pending_joint_name: str | None = None
 
         # Load and process image
         logger.info("Attempting to load image from: %s", image_path)
@@ -235,7 +265,7 @@ class InteractiveSegmentationEditor(QDialog):
         logger.debug("Final image dimensions: %sx%s", self.image_width, self.image_height)
 
         # Initialize boundary points for all parts
-        for part_name in BODY_PARTS.keys():
+        for part_name in self.part_names:
             self.boundary_points[part_name] = []
 
         # Extract joint positions
@@ -338,19 +368,10 @@ class InteractiveSegmentationEditor(QDialog):
         layout.addWidget(instructions)
 
         # Part selection
-        parts_group = QGroupBox("Select Body Part")
-        parts_layout = QVBoxLayout(parts_group)
-
-        self.part_buttons = QButtonGroup()
-        for i, part_name in enumerate(BODY_PARTS.keys()):
-            radio_btn = QRadioButton(part_name.replace("_", " ").title())
-            radio_btn.setObjectName(part_name)
-            if i == 0:  # Select first part by default
-                radio_btn.setChecked(True)
-            self.part_buttons.addButton(radio_btn, i)
-            parts_layout.addWidget(radio_btn)
-
-        self.part_buttons.buttonClicked.connect(self._on_part_selected)
+        parts_group = QGroupBox("Part Layers")
+        self.parts_layout = QVBoxLayout(parts_group)
+        self.part_buttons = QButtonGroup(self)
+        self._rebuild_part_buttons()
         layout.addWidget(parts_group)
 
         # Action buttons
@@ -367,6 +388,28 @@ class InteractiveSegmentationEditor(QDialog):
         )
         self.box_btn.clicked.connect(self._use_selected_joint_box)
         actions_layout.addWidget(self.box_btn)
+
+        self.anchor_btn = QPushButton("Set Anchor From Selected Joint")
+        self.anchor_btn.setToolTip("Use the selected joint as the current part's pivot/anchor.")
+        self.anchor_btn.clicked.connect(self._set_current_part_anchor_from_selection)
+        actions_layout.addWidget(self.anchor_btn)
+
+        self.add_joint_btn = QPushButton("Add Skeleton Point")
+        self.add_joint_btn.setToolTip("Name a new joint, then click the image to place it.")
+        self.add_joint_btn.clicked.connect(self._start_add_joint)
+        actions_layout.addWidget(self.add_joint_btn)
+
+        self.remove_joint_btn = QPushButton("Remove Selected Joint(s)")
+        self.remove_joint_btn.clicked.connect(self._remove_selected_joints)
+        actions_layout.addWidget(self.remove_joint_btn)
+
+        self.add_layer_btn = QPushButton("Add Part Layer")
+        self.add_layer_btn.clicked.connect(self._prompt_add_part_layer)
+        actions_layout.addWidget(self.add_layer_btn)
+
+        self.remove_layer_btn = QPushButton("Remove Current Layer")
+        self.remove_layer_btn.clicked.connect(self._remove_current_part_layer)
+        actions_layout.addWidget(self.remove_layer_btn)
 
         self.preview_btn = QPushButton("Preview Segmentation")
         self.preview_btn.setStyleSheet("""
@@ -503,8 +546,41 @@ class InteractiveSegmentationEditor(QDialog):
 
     def _draw_skeleton(self):
         """Draw skeleton joints on the image"""
+        if hasattr(self.view, "clear_joints"):
+            self.view.clear_joints()
         for joint_name, (x, y) in self.joint_positions.items():
             self.view.add_joint(joint_name, x, y, joint_name in self.selected_joints)
+
+    def _rebuild_part_buttons(self) -> None:
+        """Refresh the part/layer radio buttons from ``self.part_names``."""
+        if not hasattr(self, "parts_layout"):
+            return
+
+        while self.parts_layout.count():
+            item = self.parts_layout.takeAt(0)
+            if item is None:
+                continue
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+        self.part_buttons = QButtonGroup(self)
+        for index, part_name in enumerate(self.part_names):
+            radio_btn = QRadioButton(part_name.replace("_", " ").title())
+            radio_btn.setObjectName(part_name)
+            radio_btn.setChecked(
+                part_name == self.current_part or index == 0 and not self.current_part
+            )
+            self.part_buttons.addButton(radio_btn, index)
+            self.parts_layout.addWidget(radio_btn)
+
+        if self.current_part not in self.part_names and self.part_names:
+            self.current_part = self.part_names[0]
+            button = self.part_buttons.button(0)
+            if button is not None:
+                button.setChecked(True)
+
+        self.part_buttons.buttonClicked.connect(self._on_part_selected)
 
     def _on_part_selected(self, button):
         """Handle part selection"""
@@ -518,6 +594,15 @@ class InteractiveSegmentationEditor(QDialog):
 
     def _on_point_clicked(self, x: float, y: float):
         """Handle point click on image"""
+        if self._pending_joint_name:
+            joint_name = self._pending_joint_name
+            self._pending_joint_name = None
+            if self._add_joint_at_position(joint_name, x, y):
+                self.status_label.setText(
+                    f"Added skeleton point {joint_name} at ({x:.1f}, {y:.1f})"
+                )
+            return
+
         self.view.add_boundary_point(x, y)
 
         # Update stored boundary points
@@ -526,6 +611,136 @@ class InteractiveSegmentationEditor(QDialog):
         self.boundary_points[self.current_part].append((x, y))
 
         self.status_label.setText(f"Added boundary point ({x:.1f}, {y:.1f}) to {self.current_part}")
+
+    @staticmethod
+    def _normalize_layer_name(raw_name: str) -> str:
+        """Return a safe snake_case name for custom parts and joints."""
+        return re.sub(r"_+", "_", re.sub(r"[^0-9A-Za-z]+", "_", raw_name.strip())).strip("_")
+
+    def _add_part_layer_name(self, raw_name: str) -> str | None:
+        """Add a manually editable body-part layer and select it."""
+        part_name = self._normalize_layer_name(raw_name).lower()
+        if not part_name or part_name in self.boundary_points:
+            return None
+
+        if not hasattr(self, "part_names"):
+            self.part_names = list(self.boundary_points)
+        self.part_names.append(part_name)
+        self.boundary_points[part_name] = []
+        self.part_anchor_joints[part_name] = None
+        self.current_part = part_name
+        self._rebuild_part_buttons()
+        if hasattr(self, "view"):
+            self.view.clear_boundary_points()
+        if hasattr(self, "status_label"):
+            self.status_label.setText(f"Added part layer: {part_name}")
+        return part_name
+
+    def _remove_part_layer_name(self, part_name: str) -> bool:
+        """Remove a body-part layer and its boundary."""
+        if part_name not in self.boundary_points:
+            return False
+
+        self.boundary_points.pop(part_name, None)
+        self.part_anchor_joints.pop(part_name, None)
+        if hasattr(self, "part_names"):
+            self.part_names = [name for name in self.part_names if name != part_name]
+        self.current_part = self.part_names[0] if getattr(self, "part_names", []) else ""
+        self._rebuild_part_buttons()
+        if hasattr(self, "view"):
+            self.view.set_boundary_points(self.boundary_points.get(self.current_part, []))
+        if hasattr(self, "status_label"):
+            self.status_label.setText(f"Removed part layer: {part_name}")
+        return True
+
+    def _add_joint_at_position(self, raw_name: str, x: float, y: float) -> bool:
+        """Add a skeleton point to the editable skeleton."""
+        joint_name = self._normalize_layer_name(raw_name)
+        if not joint_name or joint_name in self.joint_positions:
+            return False
+
+        self.joint_positions[joint_name] = (float(x), float(y))
+        if hasattr(self, "view"):
+            self.view.add_joint(joint_name, x, y, joint_name in self.selected_joints)
+        return True
+
+    def _remove_joints(self, joint_names: set[str]) -> int:
+        """Remove skeleton points and clear part anchors that referenced them."""
+        removed = 0
+        for joint_name in list(joint_names):
+            if joint_name not in self.joint_positions:
+                continue
+            self.joint_positions.pop(joint_name, None)
+            self.selected_joints.discard(joint_name)
+            if hasattr(self, "view"):
+                self.view.remove_joint(joint_name)
+            removed += 1
+
+        for part_name, anchor_joint in list(self.part_anchor_joints.items()):
+            if anchor_joint in joint_names:
+                self.part_anchor_joints[part_name] = None
+
+        return removed
+
+    def _start_add_joint(self) -> None:
+        """Ask for a joint name, then use the next image click as its position."""
+        joint_name, accepted = QInputDialog.getText(self, "Add Skeleton Point", "Joint name:")
+        if not accepted:
+            return
+        joint_name = self._normalize_layer_name(joint_name)
+        if not joint_name:
+            QMessageBox.warning(self, "Invalid Name", "Enter a non-empty joint name.")
+            return
+        if joint_name in self.joint_positions:
+            QMessageBox.warning(self, "Duplicate Joint", f"{joint_name} already exists.")
+            return
+        self._pending_joint_name = joint_name
+        self.status_label.setText(f"Click the image to place skeleton point: {joint_name}")
+
+    def _remove_selected_joints(self) -> None:
+        """Remove currently selected skeleton points."""
+        removed = self._remove_joints(set(self.selected_joints))
+        if not removed:
+            QMessageBox.information(self, "Select Joints", "Select one or more joints to remove.")
+            return
+        self.status_label.setText(f"Removed {removed} skeleton point(s)")
+
+    def _prompt_add_part_layer(self) -> None:
+        """Ask for and add a custom body-part layer."""
+        part_name, accepted = QInputDialog.getText(self, "Add Part Layer", "Part/layer name:")
+        if not accepted:
+            return
+        added = self._add_part_layer_name(part_name)
+        if added is None:
+            QMessageBox.warning(self, "Invalid Name", "Use a unique non-empty part/layer name.")
+
+    def _remove_current_part_layer(self) -> None:
+        """Remove the selected part layer after confirmation."""
+        if not self.current_part:
+            return
+        if len(getattr(self, "part_names", [])) <= 1:
+            QMessageBox.information(self, "Keep One Layer", "At least one part layer is required.")
+            return
+        reply = QMessageBox.question(
+            self,
+            "Remove Part Layer",
+            f"Remove '{self.current_part}' and its traced boundary?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self._remove_part_layer_name(self.current_part)
+
+    def _set_current_part_anchor_from_selection(self) -> None:
+        """Use the selected joint as the current part's anchor."""
+        selected_existing = sorted(
+            joint_name for joint_name in self.selected_joints if joint_name in self.joint_positions
+        )
+        if not selected_existing:
+            QMessageBox.information(self, "Select Joint", "Select one joint to use as the anchor.")
+            return
+        self.part_anchor_joints[self.current_part] = selected_existing[0]
+        self.status_label.setText(f"{self.current_part} anchored to {selected_existing[0]}")
 
     def _on_joint_clicked(self, joint_name: str):
         """Handle joint click"""
@@ -621,7 +836,11 @@ class InteractiveSegmentationEditor(QDialog):
         """Generate segmentation masks from current boundary definitions"""
         results = {}
 
-        for part_name in BODY_PARTS.keys():
+        part_names = getattr(self, "part_names", None) or list(self.boundary_points)
+        if not part_names:
+            part_names = list(BODY_PARTS.keys())
+
+        for part_name in part_names:
             boundary_points = self.boundary_points.get(part_name, [])
 
             if len(boundary_points) >= 3:
@@ -641,8 +860,10 @@ class InteractiveSegmentationEditor(QDialog):
 
         save_data = {
             "image_path": str(self.image_path),
+            "part_names": self.part_names,
             "boundary_points": self.boundary_points,
             "joint_positions": self.joint_positions,
+            "part_anchor_joints": self.part_anchor_joints,
             "selected_joints": list(self.selected_joints),
         }
 
@@ -666,8 +887,27 @@ class InteractiveSegmentationEditor(QDialog):
                 load_data = json.load(f)
 
             self.boundary_points = load_data.get("boundary_points", {})
+            self.part_names = load_data.get("part_names") or list(self.boundary_points)
+            if not self.part_names:
+                self.part_names = list(BODY_PARTS.keys())
+            for part_name in self.part_names:
+                self.boundary_points.setdefault(part_name, [])
+            self.part_anchor_joints = {
+                part_name: (load_data.get("part_anchor_joints", {}) or {}).get(
+                    part_name, BODY_PARTS.get(part_name, {}).get("anchor_joint")
+                )
+                for part_name in self.part_names
+            }
+            if "joint_positions" in load_data:
+                self.joint_positions = {
+                    name: (float(pos[0]), float(pos[1]))
+                    for name, pos in load_data["joint_positions"].items()
+                    if isinstance(pos, list | tuple) and len(pos) >= 2
+                }
             if "selected_joints" in load_data:
                 self.selected_joints = set(load_data["selected_joints"])
+            self._rebuild_part_buttons()
+            self._draw_skeleton()
 
             # Update current view
             if self.current_part in self.boundary_points:
@@ -689,7 +929,10 @@ class InteractiveSegmentationEditor(QDialog):
             auto_save_path = self.image_path.parent / "auto_save_boundaries.json"
             save_data = {
                 "timestamp": str(QTimer().remainingTime()),
+                "part_names": self.part_names,
                 "boundary_points": self.boundary_points,
+                "joint_positions": self.joint_positions,
+                "part_anchor_joints": self.part_anchor_joints,
                 "selected_joints": list(self.selected_joints),
             }
             with open(auto_save_path, "w", encoding="utf-8") as f:
@@ -702,6 +945,64 @@ class InteractiveSegmentationEditor(QDialog):
         if not hasattr(self, "_final_results"):
             self._final_results = self._generate_segmentation_preview()
         return self._final_results
+
+    def get_part_metadata(self) -> dict[str, Any]:
+        """Return edited body-part/layer metadata for downstream part generation."""
+        return {
+            "part_names": list(getattr(self, "part_names", [])),
+            "part_anchor_joints": dict(getattr(self, "part_anchor_joints", {})),
+            "joint_positions": dict(getattr(self, "joint_positions", {})),
+        }
+
+    def get_skeleton_data(self) -> dict[str, Any]:
+        """Return skeleton data with edited joint positions."""
+        parent_by_name: dict[str, str | None] = {}
+        skeleton_payload = (
+            self.skeleton_data.get("skeleton") if isinstance(self.skeleton_data, dict) else None
+        )
+        if isinstance(skeleton_payload, list):
+            for joint_data in skeleton_payload:
+                if isinstance(joint_data, dict) and joint_data.get("name"):
+                    parent_by_name[str(joint_data["name"])] = joint_data.get("parent")
+
+        skeleton = []
+        joints: dict[str, dict[str, Any]] = {}
+        joint_map: dict[str, list[float]] = {}
+        for joint_name, (x, y) in self.joint_positions.items():
+            loc = [float(x), float(y)]
+            parent = parent_by_name.get(joint_name)
+            joint_entry = {"name": joint_name, "loc": loc, "position": loc, "parent": parent}
+            skeleton.append(joint_entry)
+            joints[joint_name] = dict(joint_entry)
+            joint_map[joint_name] = loc
+
+        data = dict(self.skeleton_data) if isinstance(self.skeleton_data, dict) else {}
+        data["skeleton"] = skeleton
+        data["joints"] = joints
+        data["joint_map"] = joint_map
+
+        hierarchy = data.get("hierarchy")
+        if isinstance(hierarchy, dict):
+            data["hierarchy"] = {
+                parent: [child for child in children if child in self.joint_positions]
+                for parent, children in hierarchy.items()
+                if parent in self.joint_positions and isinstance(children, list)
+            }
+        if isinstance(data.get("root_joint_ids"), list):
+            data["root_joint_ids"] = [
+                joint_name
+                for joint_name in data["root_joint_ids"]
+                if joint_name in self.joint_positions
+            ]
+        return data
+
+    def _update_info_labels(self) -> None:
+        """Refresh lightweight status text after loading saved edit data."""
+        if hasattr(self, "status_label"):
+            defined = sum(1 for points in self.boundary_points.values() if len(points) >= 3)
+            self.status_label.setText(
+                f"Loaded {len(self.joint_positions)} skeleton points, {defined} defined part layer(s)"
+            )
 
     def accept(self):
         """Handle accept button - generate final results"""
