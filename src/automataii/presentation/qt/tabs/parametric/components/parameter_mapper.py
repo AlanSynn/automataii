@@ -20,10 +20,9 @@ import numpy as np
 from automataii.shared.physical_kit import (
     DEFAULT_PHYSICAL_KIT_PROFILE,
     PhysicalKitProfile,
+    freeform_gear_teeth_for_radius,
     gear_center_distance,
-    grid_enabled_from_params,
     physical_profile_from_params,
-    snap_gear_params,
 )
 
 if TYPE_CHECKING:
@@ -214,6 +213,9 @@ class ParameterMapper:
         to_scene: Callable | None = None,
     ) -> None:
         """Setup parameters for 4-bar linkage mechanism."""
+        if self._extract_4bar_positions_from_explicit_params(layer_data, params):
+            return
+
         full_sim_data = _dict_or_empty(layer_data.get("full_simulation_data", {}))
 
         if "joint_positions" in full_sim_data:
@@ -228,6 +230,75 @@ class ParameterMapper:
             return
 
         self._set_default_4bar_parameters(params)
+
+    def _extract_4bar_positions_from_explicit_params(
+        self,
+        layer_data: dict[str, Any],
+        params: dict[str, Any],
+    ) -> bool:
+        """Keep existing scene-space 4-bar editor coordinates authoritative."""
+        required_keys = (
+            "anchor1_x",
+            "anchor1_y",
+            "anchor2_x",
+            "anchor2_y",
+            "crank_x",
+            "crank_y",
+            "rocker_x",
+            "rocker_y",
+        )
+        values = {key: _finite_float(params.get(key), math.nan) for key in required_keys}
+        if not all(math.isfinite(value) for value in values.values()):
+            return False
+
+        params.update(values)
+        params["crank_angle"] = math.degrees(
+            math.atan2(
+                values["crank_y"] - values["anchor1_y"], values["crank_x"] - values["anchor1_x"]
+            )
+        )
+        params["rocker_angle"] = math.degrees(
+            math.atan2(
+                values["rocker_y"] - values["anchor2_y"],
+                values["rocker_x"] - values["anchor2_x"],
+            )
+        )
+        self._sync_4bar_lengths_from_scene_points(params, values)
+
+        has_explicit_coupler = math.isfinite(
+            _finite_float(params.get("coupler_x"), math.nan)
+        ) and math.isfinite(_finite_float(params.get("coupler_y"), math.nan))
+        if not has_explicit_coupler:
+            self._calculate_coupler_position(
+                layer_data,
+                params,
+                values["crank_x"],
+                values["crank_y"],
+                values["rocker_x"],
+                values["rocker_y"],
+            )
+        return True
+
+    @staticmethod
+    def _sync_4bar_lengths_from_scene_points(
+        params: dict[str, Any],
+        values: dict[str, float],
+    ) -> None:
+        """Sync numeric 4-bar length aliases from visible scene coordinates."""
+        p1 = np.array([values["anchor1_x"], values["anchor1_y"]], dtype=float)
+        p2 = np.array([values["anchor2_x"], values["anchor2_y"]], dtype=float)
+        p3 = np.array([values["crank_x"], values["crank_y"]], dtype=float)
+        p4 = np.array([values["rocker_x"], values["rocker_y"]], dtype=float)
+        lengths = {
+            "l1": float(np.linalg.norm(p2 - p1)),
+            "l2": float(np.linalg.norm(p3 - p1)),
+            "l3": float(np.linalg.norm(p4 - p3)),
+            "l4": float(np.linalg.norm(p4 - p2)),
+        }
+        for lower, length in lengths.items():
+            params[lower] = length
+            params[lower.upper()] = length
+        params["input_angle"] = params["crank_angle"]
 
     def _extract_4bar_positions_from_key_points(
         self,
@@ -368,10 +439,31 @@ class ParameterMapper:
             params["anchor1_y"] = float(p1[1])
             params["anchor2_x"] = float(p2[0])
             params["anchor2_y"] = float(p2[1])
-            params["crank_angle"] = 0
-            params["rocker_angle"] = 45
-            params["coupler_x"] = 350
-            params["coupler_y"] = 250
+            if p3 is not None:
+                p3_x = float(p3[0])
+                p3_y = float(p3[1])
+                params["crank_x"] = p3_x
+                params["crank_y"] = p3_y
+                params["crank_angle"] = math.degrees(
+                    math.atan2(p3_y - params["anchor1_y"], p3_x - params["anchor1_x"])
+                )
+            else:
+                params.setdefault("crank_angle", 0)
+
+            if p4 is not None:
+                p4_x = float(p4[0])
+                p4_y = float(p4[1])
+                params["rocker_x"] = p4_x
+                params["rocker_y"] = p4_y
+                params["rocker_angle"] = math.degrees(
+                    math.atan2(p4_y - params["anchor2_y"], p4_x - params["anchor2_x"])
+                )
+                if p3 is not None:
+                    self._calculate_coupler_position(layer_data, params, p3_x, p3_y, p4_x, p4_y)
+            else:
+                params.setdefault("rocker_angle", 45)
+                params.setdefault("coupler_x", 350)
+                params.setdefault("coupler_y", 250)
 
     def extract_coordinates(self, point: Any) -> tuple[float, float]:
         """Extract x,y coordinates from point object."""
@@ -506,11 +598,12 @@ class ParameterMapper:
         params["gear2_radius"] = radius_2
         params["r1"] = radius_1
         params["r2"] = radius_2
-        if grid_enabled_from_params(params):
-            params.update(snap_gear_params(params, profile=profile))
+        params.setdefault("gear1_teeth", freeform_gear_teeth_for_radius(radius_1, profile=profile))
+        params.setdefault("gear2_teeth", freeform_gear_teeth_for_radius(radius_2, profile=profile))
 
         if isinstance(full_sim_data.get("gear_data"), dict) and to_scene:
             self._extract_gear_positions_from_simulation(params, full_sim_data, to_scene)
+        self._extract_gear_positions_from_key_points(layer_data, params, to_scene)
         self._set_default_gear_positions(params)
 
     def _mech_radius_to_scene(
@@ -560,6 +653,40 @@ class ParameterMapper:
             g2_scene = self._to_scene_point(g2_center, to_scene)
             if g2_scene is not None:
                 params["gear2_x"], params["gear2_y"] = g2_scene
+
+    def _extract_gear_positions_from_key_points(
+        self,
+        layer_data: dict[str, Any],
+        params: dict[str, Any],
+        to_scene: Callable | None = None,
+    ) -> None:
+        """Extract simple gear center positions from key_points when available."""
+        key_points = _dict_or_empty(layer_data.get("key_points", {}))
+        use_scene_points_directly = layer_data.get("generated_path") is None or to_scene is None
+
+        def map_point(raw: object) -> tuple[float, float] | None:
+            point = _finite_point_array(raw)
+            if point is None:
+                return None
+            if use_scene_points_directly:
+                return float(point[0]), float(point[1])
+            return self._to_scene_point(point, to_scene)
+
+        def needs_position(x_key: str, y_key: str) -> bool:
+            return not (
+                math.isfinite(_finite_float(params.get(x_key), math.nan))
+                and math.isfinite(_finite_float(params.get(y_key), math.nan))
+            )
+
+        if needs_position("gear1_x", "gear1_y"):
+            gear1 = map_point(key_points.get("gear1_center"))
+            if gear1 is not None:
+                params["gear1_x"], params["gear1_y"] = gear1
+
+        if needs_position("gear2_x", "gear2_y"):
+            gear2 = map_point(key_points.get("gear2_center"))
+            if gear2 is not None:
+                params["gear2_x"], params["gear2_y"] = gear2
 
     def _set_default_gear_positions(self, params: dict[str, Any]) -> None:
         """Set default positions for gear mechanism."""

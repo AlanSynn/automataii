@@ -150,6 +150,39 @@ class TestMechanismInstantiationService:
         assert "gear1_center" in layer_data["key_points"]
         assert "gear2_center" in layer_data["key_points"]
 
+    def test_create_layer_data_from_foundry_preserves_fabrication_board_metadata(self):
+        """Board coordinates captured in Foundry must reach blueprint/assembly export."""
+        from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
+            MechanismInstantiationService,
+        )
+
+        service = MechanismInstantiationService()
+
+        layer_data = service.create_layer_data_from_foundry(
+            mechanism_type="gear_train",
+            parameters={"gear1_teeth": 24, "gear2_teeth": 24},
+            pivot_point=(0.0, 0.0),
+            part_name="left_arm_lower",
+            scene_position=(420.0, 310.0),
+            foundry_snapshot={
+                "positions": {
+                    "gear1_center": [380.0, 300.0],
+                    "gear2_center": [440.0, 300.0],
+                },
+                "fabrication": {
+                    "board_origin": "H8",
+                    "board_coords": {"gear1_center": "H6", "gear2_center": "H9"},
+                },
+            },
+        )
+
+        assert layer_data["fabrication"] == {
+            "board_origin": "H8",
+            "board_coords": {"gear1_center": "H6", "gear2_center": "H9"},
+        }
+        assert layer_data["part_name"] == "left_arm_lower"
+        assert layer_data["scene_anchor"] == [420.0, 310.0]
+
     def test_create_layer_data_from_foundry_gear_linkage_keeps_linkage_contract(self):
         """Gear+linkage exports should remain recognizable in Design as a gear linkage."""
         from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (

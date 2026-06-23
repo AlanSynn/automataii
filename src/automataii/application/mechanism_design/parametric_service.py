@@ -1,19 +1,18 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
 from automataii.shared.physical_kit import (
     DEFAULT_PHYSICAL_KIT_PROFILE,
     PhysicalKitProfile,
+    freeform_gear_teeth_for_radius,
     gear_center_distance,
-    grid_enabled_from_params,
     physical_profile_from_params,
-    snap_gear_params,
 )
 
 ToSceneFn = Callable[[np.ndarray], Any] | None
@@ -25,7 +24,7 @@ class ParametricContext:
     params: dict[str, Any]
     full_simulation_data: Mapping[str, Any]
     transform_params: Mapping[str, Any]
-    cam_position: Mapping[str, float] | None = None
+    cam_position: Sequence[float] | None = None
     to_scene: ToSceneFn = None
     physical_profile: PhysicalKitProfile = DEFAULT_PHYSICAL_KIT_PROFILE
 
@@ -58,6 +57,10 @@ class ParametricParameterService:
     # --- 4-bar ---------------------------------------------------------------
     def _setup_4bar_parameters(self, context: ParametricContext) -> None:
         params = context.params
+        if self._has_explicit_4bar_scene_positions(params):
+            self._sync_explicit_4bar_angles(context)
+            return
+
         sim_data = context.full_simulation_data
         if "joint_positions" not in sim_data:
             self._set_default_4bar_parameters(params)
@@ -69,6 +72,64 @@ class ParametricParameterService:
             return
 
         self._extract_4bar_positions(context, joint_positions)
+
+    @staticmethod
+    def _has_explicit_4bar_scene_positions(params: Mapping[str, Any]) -> bool:
+        keys = (
+            "anchor1_x",
+            "anchor1_y",
+            "anchor2_x",
+            "anchor2_y",
+            "crank_x",
+            "crank_y",
+            "rocker_x",
+            "rocker_y",
+        )
+        try:
+            return all(math.isfinite(float(params[key])) for key in keys)
+        except (KeyError, TypeError, ValueError):
+            return False
+
+    def _sync_explicit_4bar_angles(self, context: ParametricContext) -> None:
+        params = context.params
+        params["crank_angle"] = math.degrees(
+            math.atan2(
+                float(params["crank_y"]) - float(params["anchor1_y"]),
+                float(params["crank_x"]) - float(params["anchor1_x"]),
+            )
+        )
+        params["rocker_angle"] = math.degrees(
+            math.atan2(
+                float(params["rocker_y"]) - float(params["anchor2_y"]),
+                float(params["rocker_x"]) - float(params["anchor2_x"]),
+            )
+        )
+        self._sync_4bar_lengths_from_scene_points(params)
+        if "coupler_x" not in params or "coupler_y" not in params:
+            self._calculate_coupler_position(
+                context,
+                float(params["crank_x"]),
+                float(params["crank_y"]),
+                float(params["rocker_x"]),
+                float(params["rocker_y"]),
+            )
+
+    @staticmethod
+    def _sync_4bar_lengths_from_scene_points(params: dict[str, Any]) -> None:
+        p1 = np.array([float(params["anchor1_x"]), float(params["anchor1_y"])], dtype=float)
+        p2 = np.array([float(params["anchor2_x"]), float(params["anchor2_y"])], dtype=float)
+        p3 = np.array([float(params["crank_x"]), float(params["crank_y"])], dtype=float)
+        p4 = np.array([float(params["rocker_x"]), float(params["rocker_y"])], dtype=float)
+        lengths = {
+            "l1": float(np.linalg.norm(p2 - p1)),
+            "l2": float(np.linalg.norm(p3 - p1)),
+            "l3": float(np.linalg.norm(p4 - p3)),
+            "l4": float(np.linalg.norm(p4 - p2)),
+        }
+        for lower, length in lengths.items():
+            params[lower] = length
+            params[lower.upper()] = length
+        params["input_angle"] = params["crank_angle"]
 
     @staticmethod
     def _has_valid_joint_positions(joint_positions: Mapping[str, Any]) -> bool:
@@ -122,10 +183,36 @@ class ParametricParameterService:
         else:
             params["anchor1_x"], params["anchor1_y"] = p1[0], p1[1] if len(p1) > 1 else 0
             params["anchor2_x"], params["anchor2_y"] = p2[0], p2[1] if len(p2) > 1 else 0
-            params.setdefault("crank_angle", 0)
-            params.setdefault("rocker_angle", 45)
-            params.setdefault("coupler_x", 350)
-            params.setdefault("coupler_y", 250)
+            if p3 is not None:
+                params["crank_x"], params["crank_y"] = p3[0], p3[1] if len(p3) > 1 else 0
+                params["crank_angle"] = math.degrees(
+                    math.atan2(
+                        params["crank_y"] - params["anchor1_y"],
+                        params["crank_x"] - params["anchor1_x"],
+                    )
+                )
+            else:
+                params.setdefault("crank_angle", 0)
+            if p4 is not None:
+                params["rocker_x"], params["rocker_y"] = p4[0], p4[1] if len(p4) > 1 else 0
+                params["rocker_angle"] = math.degrees(
+                    math.atan2(
+                        params["rocker_y"] - params["anchor2_y"],
+                        params["rocker_x"] - params["anchor2_x"],
+                    )
+                )
+                if p3 is not None:
+                    self._calculate_coupler_position(
+                        context,
+                        params["crank_x"],
+                        params["crank_y"],
+                        params["rocker_x"],
+                        params["rocker_y"],
+                    )
+            else:
+                params.setdefault("rocker_angle", 45)
+                params.setdefault("coupler_x", 350)
+                params.setdefault("coupler_y", 250)
 
     @staticmethod
     def _extract_coordinates(point: Any) -> tuple[float, float]:
@@ -182,22 +269,49 @@ class ParametricParameterService:
     def _setup_gear_parameters(self, context: ParametricContext) -> None:
         params = context.params
         sim_data = context.full_simulation_data
-        params.setdefault("gear1_radius", params.get("r1"))
-        params.setdefault("gear2_radius", params.get("r2"))
         profile = (
             physical_profile_from_params(params)
             if "physical_profile_key" in params
             else context.physical_profile
         )
         params.setdefault("physical_profile_key", profile.key)
-        if grid_enabled_from_params(params):
-            params.update(snap_gear_params(params, profile=profile))
+        default_radius = self._default_gear_radius(profile)
+        r1 = self._first_positive_float(
+            default_radius, params.get("gear1_radius"), params.get("r1")
+        )
+        r2 = self._first_positive_float(
+            default_radius, params.get("gear2_radius"), params.get("r2")
+        )
+        params["gear1_radius"] = r1
+        params["gear2_radius"] = r2
+        params["r1"] = r1
+        params["r2"] = r2
+        params.setdefault("gear1_teeth", freeform_gear_teeth_for_radius(r1, profile=profile))
+        params.setdefault("gear2_teeth", freeform_gear_teeth_for_radius(r2, profile=profile))
 
         to_scene = context.to_scene
         if "gear_data" in sim_data and to_scene:
             self._extract_gear_positions(params, sim_data["gear_data"], to_scene)
         else:
             self._set_default_gear_positions(params)
+
+    @staticmethod
+    def _default_gear_radius(profile: PhysicalKitProfile) -> float:
+        if profile.gear_presets:
+            preset = profile.gear_presets[min(1, len(profile.gear_presets) - 1)]
+            return float(preset.teeth) * float(profile.gear_radius_per_tooth_mm)
+        return 30.0
+
+    @staticmethod
+    def _first_positive_float(default: float, *values: object) -> float:
+        for value in values:
+            try:
+                result = float(cast(Any, value))
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(result) and result > 0.0:
+                return result
+        return default
 
     def _extract_gear_positions(
         self,

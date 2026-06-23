@@ -22,10 +22,7 @@ from typing import TYPE_CHECKING, Any, cast
 import numpy as np
 from PyQt6.QtCore import QPointF, Qt, QTimer, pyqtSlot
 
-from automataii.presentation.qt.mechanism_parameter_utils import (
-    finite_float,
-    positive_finite_float,
-)
+from automataii.presentation.qt.mechanism_parameter_utils import finite_float
 from automataii.presentation.qt.tabs.cam_geometry import (
     build_pear_cam_profile_from_params,
     cam_contact_local_from_profile,
@@ -38,10 +35,9 @@ from automataii.presentation.qt.tabs.parametric.components import (
 from automataii.shared.physical_kit import (
     DEFAULT_PHYSICAL_KIT_PROFILE,
     PhysicalKitProfile,
+    freeform_gear_teeth_for_radius,
     gear_center_distance,
-    grid_enabled_from_params,
     physical_profile_from_params,
-    snap_gear_params,
 )
 
 if TYPE_CHECKING:
@@ -102,7 +98,7 @@ class ParametricEditingManager:
     def _profile_for_params(self, params: dict[str, Any]) -> PhysicalKitProfile:
         if "physical_profile_key" in params:
             return physical_profile_from_params(params)
-        return self._physical_profile
+        return getattr(self, "_physical_profile", DEFAULT_PHYSICAL_KIT_PROFILE)
 
     def _initialize_parametric_system(self) -> None:
         """Initialize the parametric editing system."""
@@ -273,6 +269,8 @@ class ParametricEditingManager:
             return
 
         try:
+            self.parent_tab.parametric_editor.remove_all_editors()
+
             for mechanism_id in self.parent_tab.mechanism_layers.keys():
                 self.parent_tab.mechanism_layers[mechanism_id]["parametric_mode"] = True
 
@@ -358,6 +356,7 @@ class ParametricEditingManager:
 
         try:
             self.parent_tab.parametric_editor.disable_editing()
+            self.parent_tab.parametric_editor.remove_all_editors()
             self._animation_coordinator._enable_animation_controls()
             self._enable_mechanism_visual_interaction()
 
@@ -489,7 +488,7 @@ class ParametricEditingManager:
         return False
 
     def _enforce_gear_meshing_and_snap(self, layer_data: dict[str, Any]) -> bool:
-        """Ensure gear centers are properly separated for meshing."""
+        """Report gear mesh mismatch without moving user-edited coordinates."""
         params = layer_data.get("params", {})
         try:
             g1x = float(params.get("gear1_x"))
@@ -524,59 +523,27 @@ class ParametricEditingManager:
         if abs(d - desired) <= 0.25:
             return False
 
-        if self.physics_snap_mode == "high":
-            self._logger.warning(
-                "[PHYSICS-SNAP] Gear mesh off by %.3f; alert-only (no snap)", d - desired
-            )
-            return False
-
-        dir_vec = (g2 - g1) / d
-        new_g2 = g1 + dir_vec * desired
-        params["gear2_x"] = float(new_g2[0])
-        params["gear2_y"] = float(new_g2[1])
-        self._logger.warning("[PHYSICS-SNAP] Adjusted gear2 to maintain mesh (Δ=%.3f)", desired - d)
-        return True
+        self._logger.warning(
+            "[PHYSICS-SNAP] Gear mesh off by %.3f; alert-only (no snap)", d - desired
+        )
+        return False
 
     def _enforce_cam_follower_snap(self, layer_data: dict[str, Any]) -> bool:
-        """Keep cam follower within simple physical bounds."""
+        """Report CAM bound issues without clamping user-edited values."""
         params = layer_data.get("params", {})
-        changed = False
 
-        if self.physics_snap_mode == "high":
-            rod_len = positive_finite_float(params.get("follower_rod_length"), 40.0)
-            if rod_len < 20.0:
-                self._logger.warning(
-                    "[PHYSICS-SNAP] CAM rod length too short (%.2f) — alert-only", rod_len
-                )
-            base_r = finite_float(params.get("base_radius"), 25.0)
-            if base_r < 0.0:
-                self._logger.warning(
-                    "[PHYSICS-SNAP] CAM base radius negative (%.2f) — alert-only", base_r
-                )
-            return False
+        rod_len = finite_float(params.get("follower_rod_length"), 40.0)
+        if rod_len < 15.0:
+            self._logger.warning(
+                "[PHYSICS-SNAP] CAM rod length short (%.2f); alert-only (no snap)", rod_len
+            )
 
-        try:
-            rod_len = finite_float(params.get("follower_rod_length"), 40.0)
-            min_len = 20.0 if self.physics_snap_mode == "fast" else 15.0
-            if rod_len < min_len:
-                params["follower_rod_length"] = float(min_len)
-                self._logger.warning(
-                    "[PHYSICS-SNAP] CAM: clamped follower_rod_length to %.1f", min_len
-                )
-                changed = True
-        except Exception:
-            logging.debug("Suppressed exception", exc_info=True)
-
-        try:
-            base_r = finite_float(params.get("base_radius"), 25.0)
-            if base_r < 1.0:
-                params["base_radius"] = 1.0
-                self._logger.warning("[PHYSICS-SNAP] CAM: clamped base_radius to 1.0")
-                changed = True
-        except Exception:
-            logging.debug("Suppressed exception", exc_info=True)
-
-        return changed
+        base_r = finite_float(params.get("base_radius"), 25.0)
+        if base_r < 1.0:
+            self._logger.warning(
+                "[PHYSICS-SNAP] CAM base radius small (%.2f); alert-only (no snap)", base_r
+            )
+        return False
 
     def set_physics_snap_mode(self, mode: str) -> None:
         """Set physics snapping mode."""
@@ -602,17 +569,24 @@ class ParametricEditingManager:
             "p4_positions": [],
         }
 
-        inverse_getter = getattr(self.parent_tab, "_get_inverse_scene_transform_function", None)
-        scene_getter = getattr(self.parent_tab, "_get_scene_transform_function", None)
+        parent_tab = getattr(self, "parent_tab", None)
+        inverse_getter = getattr(parent_tab, "_get_inverse_scene_transform_function", None)
+        scene_getter = getattr(parent_tab, "_get_scene_transform_function", None)
         to_mech = inverse_getter(layer_data) if callable(inverse_getter) else None
         to_scene = scene_getter(layer_data) if callable(scene_getter) else None
 
+        p1_from_scene = "anchor1_x" in params and "anchor1_y" in params
+        p2_from_scene = "anchor2_x" in params and "anchor2_y" in params
         if to_mech and ("anchor1_x" in params and "anchor1_y" in params):
             p1 = to_mech(QPointF(params["anchor1_x"], params["anchor1_y"]))
+        elif "anchor1_x" in params and "anchor1_y" in params:
+            p1 = np.array([params["anchor1_x"], params["anchor1_y"]])
         else:
             p1 = np.array(params.get("ground_pivot_1", [0.0, 0.0]))
         if to_mech and ("anchor2_x" in params and "anchor2_y" in params):
             p2 = to_mech(QPointF(params["anchor2_x"], params["anchor2_y"]))
+        elif "anchor2_x" in params and "anchor2_y" in params:
+            p2 = np.array([params["anchor2_x"], params["anchor2_y"]])
         else:
             p2 = np.array(params.get("ground_pivot_2", [100.0, 0.0]))
 
@@ -624,32 +598,41 @@ class ParametricEditingManager:
             scene_keys=("crank_x", "crank_y"),
             mech_keys=("m_crank_x", "m_crank_y"),
             to_mech=to_mech,
+            allow_scene_fallback=layer_data.get("generated_path") is None,
         )
         preferred_p4 = self._scene_or_mech_point_to_mech(
             params,
             scene_keys=("rocker_x", "rocker_y"),
             mech_keys=("m_rocker_x", "m_rocker_y"),
             to_mech=to_mech,
+            allow_scene_fallback=layer_data.get("generated_path") is None,
+        )
+        current_p3 = preferred_p3.copy() if preferred_p3 is not None else None
+        current_p4 = preferred_p4.copy() if preferred_p4 is not None else None
+        has_scene_crank = all(
+            math.isfinite(float(finite_float(params.get(key), math.nan)))
+            for key in ("crank_x", "crank_y")
+        )
+        has_scene_rocker = all(
+            math.isfinite(float(finite_float(params.get(key), math.nan)))
+            for key in ("rocker_x", "rocker_y")
         )
 
-        L2 = params.get("L2")
-        L3 = params.get("L3")
-        L4 = params.get("L4")
-        if L2 is None:
-            if preferred_p3 is not None:
-                L2 = float(np.linalg.norm(preferred_p3 - p1))
-            else:
-                L2 = float(params.get("l2", 40.0))
-        if L3 is None:
-            if preferred_p3 is not None and preferred_p4 is not None:
-                L3 = float(np.linalg.norm(preferred_p4 - preferred_p3))
-            else:
-                L3 = float(params.get("l3", 60.0))
-        if L4 is None:
-            if preferred_p4 is not None:
-                L4 = float(np.linalg.norm(preferred_p4 - p2))
-            else:
-                L4 = float(params.get("l4", 50.0))
+        L2 = (
+            float(np.linalg.norm(preferred_p3 - p1))
+            if preferred_p3 is not None
+            else float(params.get("L2", params.get("l2", 40.0)))
+        )
+        L3 = (
+            float(np.linalg.norm(preferred_p4 - preferred_p3))
+            if preferred_p3 is not None and preferred_p4 is not None
+            else float(params.get("L3", params.get("l3", 60.0)))
+        )
+        L4 = (
+            float(np.linalg.norm(preferred_p4 - p2))
+            if preferred_p4 is not None
+            else float(params.get("L4", params.get("l4", 50.0)))
+        )
         L2, L3, L4 = float(L2), float(L3), float(L4)
 
         crank_angle = math.radians(float(params.get("crank_angle", 0.0)))
@@ -724,24 +707,82 @@ class ParametricEditingManager:
         params["l4"] = L4
         params["input_angle"] = float(math.degrees(crank_angle))
 
-        if joint_positions["p3_positions"] and joint_positions["p4_positions"]:
-            first_p1 = np.array(joint_positions["p1_positions"][0], dtype=float)
-            first_p2 = np.array(joint_positions["p2_positions"][0], dtype=float)
-            first_p3 = np.array(joint_positions["p3_positions"][0], dtype=float)
-            first_p4 = np.array(joint_positions["p4_positions"][0], dtype=float)
-            key_points = layer_data.setdefault("key_points", {})
-            key_points["ground_pivot_1"] = first_p1.tolist()
-            key_points["ground_pivot_2"] = first_p2.tolist()
-            key_points["crank_end"] = first_p3.tolist()
-            key_points["rocker_end"] = first_p4.tolist()
+        first_p3 = (
+            np.array(joint_positions["p3_positions"][0], dtype=float)
+            if joint_positions["p3_positions"]
+            else None
+        )
+        first_p4 = (
+            np.array(joint_positions["p4_positions"][0], dtype=float)
+            if joint_positions["p4_positions"]
+            else None
+        )
+        display_p3 = current_p3 if current_p3 is not None else first_p3
+        display_p4 = current_p4 if current_p4 is not None else first_p4
 
-            if to_scene is not None:
-                p3_scene = to_scene(first_p3)
-                p4_scene = to_scene(first_p4)
+        key_points = layer_data.setdefault("key_points", {})
+        use_scene_space_without_inverse = (
+            layer_data.get("generated_path") is None and to_mech is None
+        )
+        key_points["ground_pivot_1"] = self._key_point_for_storage(
+            layer_data,
+            p1,
+            to_scene,
+            scene_point=self._finite_point([params.get("anchor1_x"), params.get("anchor1_y")])
+            if p1_from_scene
+            else None,
+            existing_point=key_points.get("ground_pivot_1"),
+            point_is_scene=use_scene_space_without_inverse,
+        )
+        key_points["ground_pivot_2"] = self._key_point_for_storage(
+            layer_data,
+            p2,
+            to_scene,
+            scene_point=self._finite_point([params.get("anchor2_x"), params.get("anchor2_y")])
+            if p2_from_scene
+            else None,
+            existing_point=key_points.get("ground_pivot_2"),
+            point_is_scene=use_scene_space_without_inverse,
+        )
+        if display_p3 is not None:
+            key_points["crank_end"] = self._key_point_for_storage(
+                layer_data,
+                display_p3,
+                to_scene,
+                scene_point=self._finite_point([params.get("crank_x"), params.get("crank_y")])
+                if has_scene_crank
+                else None,
+                existing_point=key_points.get("crank_end"),
+                point_is_scene=use_scene_space_without_inverse,
+            )
+        if display_p4 is not None:
+            key_points["rocker_end"] = self._key_point_for_storage(
+                layer_data,
+                display_p4,
+                to_scene,
+                scene_point=self._finite_point([params.get("rocker_x"), params.get("rocker_y")])
+                if has_scene_rocker
+                else None,
+                existing_point=key_points.get("rocker_end"),
+                point_is_scene=use_scene_space_without_inverse,
+            )
+
+        if to_scene is not None:
+            if display_p3 is not None and not has_scene_crank:
+                p3_scene = to_scene(display_p3)
                 params["crank_x"] = float(p3_scene.x())
                 params["crank_y"] = float(p3_scene.y())
+            if display_p4 is not None and not has_scene_rocker:
+                p4_scene = to_scene(display_p4)
                 params["rocker_x"] = float(p4_scene.x())
                 params["rocker_y"] = float(p4_scene.y())
+        else:
+            if display_p3 is not None and not has_scene_crank:
+                params["crank_x"] = float(display_p3[0])
+                params["crank_y"] = float(display_p3[1])
+            if display_p4 is not None and not has_scene_rocker:
+                params["rocker_x"] = float(display_p4[0])
+                params["rocker_y"] = float(display_p4[1])
 
     def _regenerate_5bar_simulation(
         self, layer_data: dict[str, Any], params: dict[str, Any]
@@ -869,8 +910,9 @@ class ParametricEditingManager:
         scaled_rod_length = rod_length * rod_length_multiplier
 
         key_points = layer_data.setdefault("key_points", {})
-        inverse_getter = getattr(self.parent_tab, "_get_inverse_scene_transform_function", None)
-        scene_getter = getattr(self.parent_tab, "_get_scene_transform_function", None)
+        parent_tab = getattr(self, "parent_tab", None)
+        inverse_getter = getattr(parent_tab, "_get_inverse_scene_transform_function", None)
+        scene_getter = getattr(parent_tab, "_get_scene_transform_function", None)
         to_mech = inverse_getter(layer_data) if callable(inverse_getter) else None
         to_scene = scene_getter(layer_data) if callable(scene_getter) else None
 
@@ -1041,8 +1083,6 @@ class ParametricEditingManager:
         num_frames = 100
         has_explicit_radii = "gear1_radius" in params or "gear2_radius" in params
 
-        if grid_enabled_from_params(params):
-            params.update(snap_gear_params(params, profile=self._profile_for_params(params)))
         r1 = float(params.get("gear1_radius", params.get("r1", 30)))
         r2 = float(params.get("gear2_radius", params.get("r2", 50)))
         if r1 <= 0:
@@ -1070,6 +1110,10 @@ class ParametricEditingManager:
             params["gear1_radius"] = float(r1)
             params["gear2_radius"] = float(r2)
 
+        profile = self._profile_for_params(params)
+        params.setdefault("gear1_teeth", freeform_gear_teeth_for_radius(r1, profile=profile))
+        params.setdefault("gear2_teeth", freeform_gear_teeth_for_radius(r2, profile=profile))
+
         gear_data: dict[str, list[float]] = {"gear1_angles": [], "gear2_angles": []}
 
         for i in range(num_frames):
@@ -1079,7 +1123,60 @@ class ParametricEditingManager:
             gear_data["gear1_angles"].append(theta1)
             gear_data["gear2_angles"].append(theta2)
 
+        parent_tab = getattr(self, "parent_tab", None)
+        inverse_getter = getattr(parent_tab, "_get_inverse_scene_transform_function", None)
+        scene_getter = getattr(parent_tab, "_get_scene_transform_function", None)
+        to_mech = inverse_getter(layer_data) if callable(inverse_getter) else None
+        to_scene = scene_getter(layer_data) if callable(scene_getter) else None
+        self._sync_gear_key_points(layer_data, params, to_mech=to_mech, to_scene=to_scene)
         layer_data["full_simulation_data"] = {"gear_data": gear_data}
+
+    @classmethod
+    def _sync_gear_key_points(
+        cls,
+        layer_data: dict[str, Any],
+        params: dict[str, Any],
+        *,
+        to_mech: Any = None,
+        to_scene: Any = None,
+    ) -> None:
+        """Keep simple gear key_points in the coordinate space the reload path expects."""
+        key_points = layer_data.setdefault("key_points", {})
+        generated_path_missing = layer_data.get("generated_path") is None
+
+        def sync_center(name: str, x_key: str, y_key: str) -> None:
+            scene_point = cls._finite_point([params.get(x_key), params.get(y_key)])
+            if scene_point is not None:
+                if generated_path_missing:
+                    key_points[name] = [float(scene_point[0]), float(scene_point[1])]
+                    return
+
+                mech_point = cls._scene_point_to_mech_array(scene_point, to_mech)
+                if mech_point is not None:
+                    key_points[name] = [float(mech_point[0]), float(mech_point[1])]
+                    return
+
+                if cls._finite_point(key_points.get(name)) is None:
+                    logging.warning(
+                        "Unable to map %s into mechanism space; skipping key-point sync",
+                        name,
+                    )
+                return
+
+            existing = cls._finite_point(key_points.get(name))
+            if existing is None:
+                return
+            if generated_path_missing or to_scene is None:
+                params.setdefault(x_key, float(existing[0]))
+                params.setdefault(y_key, float(existing[1]))
+                return
+            mapped = cls._point_to_scene_array(existing, to_scene)
+            if mapped is not None:
+                params.setdefault(x_key, float(mapped[0]))
+                params.setdefault(y_key, float(mapped[1]))
+
+        sync_center("gear1_center", "gear1_x", "gear1_y")
+        sync_center("gear2_center", "gear2_x", "gear2_y")
 
     def _regenerate_planetary_gear_simulation(
         self, layer_data: dict[str, Any], params: dict[str, Any]
@@ -1105,9 +1202,12 @@ class ParametricEditingManager:
 
         to_mech = self.parent_tab._get_inverse_scene_transform_function(layer_data)
         to_scene = self.parent_tab._get_scene_transform_function(layer_data)
+        generated_path_missing = layer_data.get("generated_path") is None
 
         sun_scene = None
         sun_center_base = None
+        sun_center_is_scene = False
+        sun_scene_for_storage: np.ndarray | None = None
         if "m_sun_x" in params and "m_sun_y" in params:
             sun_center_base = np.array(
                 [float(params.get("m_sun_x", 0.0)), float(params.get("m_sun_y", 0.0))],
@@ -1126,6 +1226,8 @@ class ParametricEditingManager:
                 float(params.get("gear1_x", 0.0)),
                 float(params.get("gear1_y", 0.0)),
             )
+        if sun_scene is not None:
+            sun_scene_for_storage = np.array([float(sun_scene.x()), float(sun_scene.y())])
 
         key_points = layer_data.setdefault("key_points", {})
         if sun_center_base is not None:
@@ -1135,9 +1237,16 @@ class ParametricEditingManager:
             sun_center_base = np.array([float(sun_center_conv[0]), float(sun_center_conv[1])])
         elif sun_scene is not None:
             sun_center_base = np.array([float(sun_scene.x()), float(sun_scene.y())])
+            sun_center_is_scene = True
         elif "sun_center" in key_points:
             sun_center_base = np.array(key_points["sun_center"], dtype=float)
-            if to_scene is not None:
+            if generated_path_missing:
+                sun_center_is_scene = True
+                sun_scene = QPointF(float(sun_center_base[0]), float(sun_center_base[1]))
+                sun_scene_for_storage = np.array(
+                    [float(sun_center_base[0]), float(sun_center_base[1])]
+                )
+            elif to_scene is not None:
                 try:
                     sun_scene_conv = to_scene(np.array(sun_center_base, dtype=float))
                     sun_scene = QPointF(float(sun_scene_conv.x()), float(sun_scene_conv.y()))
@@ -1145,7 +1254,11 @@ class ParametricEditingManager:
                     logging.debug("Suppressed exception", exc_info=True)
         else:
             sun_center_base = np.array([0.0, 0.0], dtype=float)
-            if to_scene is not None:
+            if generated_path_missing and to_mech is None:
+                sun_center_is_scene = True
+                sun_scene = QPointF(0.0, 0.0)
+                sun_scene_for_storage = np.array([0.0, 0.0])
+            elif to_scene is not None:
                 try:
                     sun_scene_conv = to_scene(np.array([0.0, 0.0], dtype=float))
                     sun_scene = QPointF(float(sun_scene_conv.x()), float(sun_scene_conv.y()))
@@ -1184,11 +1297,35 @@ class ParametricEditingManager:
 
         first_planet = np.array(gear_positions["planet_centers"][0], dtype=float)
         first_tracking = np.array(gear_positions["tracking_points"][0], dtype=float)
-        key_points["sun_center"] = [float(sun_center_base[0]), float(sun_center_base[1])]
-        key_points["planet_center"] = [float(first_planet[0]), float(first_planet[1])]
-        key_points["tracking_point"] = [float(first_tracking[0]), float(first_tracking[1])]
+        generated_scene_without_inverse = generated_path_missing and to_mech is None
+        planet_points_are_scene = sun_center_is_scene or generated_scene_without_inverse
+        key_points["sun_center"] = self._key_point_for_storage(
+            layer_data,
+            sun_center_base,
+            to_scene,
+            scene_point=sun_scene_for_storage,
+            existing_point=key_points.get("sun_center"),
+            point_is_scene=sun_center_is_scene,
+        )
+        key_points["planet_center"] = self._key_point_for_storage(
+            layer_data,
+            first_planet,
+            to_scene,
+            existing_point=key_points.get("planet_center"),
+            point_is_scene=planet_points_are_scene,
+        )
+        key_points["tracking_point"] = self._key_point_for_storage(
+            layer_data,
+            first_tracking,
+            to_scene,
+            existing_point=key_points.get("tracking_point"),
+            point_is_scene=planet_points_are_scene,
+        )
 
-        if to_scene is not None:
+        if planet_points_are_scene:
+            params["planet_x"] = float(first_planet[0])
+            params["planet_y"] = float(first_planet[1])
+        elif to_scene is not None:
             try:
                 planet_scene = to_scene(first_planet)
                 params["planet_x"] = float(planet_scene.x())
@@ -1205,14 +1342,72 @@ class ParametricEditingManager:
         layer_data["full_simulation_data"] = {"gear_positions": gear_positions}
 
     @staticmethod
+    def _key_point_for_storage(
+        layer_data: dict[str, Any],
+        mech_point: np.ndarray,
+        to_scene: Any,
+        *,
+        scene_point: object | None = None,
+        existing_point: object | None = None,
+        point_is_scene: bool = False,
+    ) -> list[float]:
+        """Persist key_points in the same coordinate space the reload path expects."""
+        point = np.array(mech_point, dtype=float)
+        if layer_data.get("generated_path") is None:
+            scene = ParametricEditingManager._finite_point(scene_point)
+            if scene is not None:
+                return [float(scene[0]), float(scene[1])]
+            if point_is_scene:
+                return [float(point[0]), float(point[1])]
+            if to_scene is not None:
+                try:
+                    scene_point_mapped = to_scene(point)
+                    if hasattr(scene_point_mapped, "x"):
+                        return [float(scene_point_mapped.x()), float(scene_point_mapped.y())]
+                    return [float(scene_point_mapped[0]), float(scene_point_mapped[1])]
+                except Exception:
+                    logging.debug("Suppressed exception", exc_info=True)
+            return [float(point[0]), float(point[1])]
+
+        if point_is_scene:
+            existing = ParametricEditingManager._finite_point(existing_point)
+            if existing is not None:
+                return [float(existing[0]), float(existing[1])]
+            logging.warning(
+                "Unable to map scene-space edit into mechanism key_points; preserving raw point"
+            )
+            return [float(point[0]), float(point[1])]
+
+        return [float(point[0]), float(point[1])]
+
+    @staticmethod
     def _scene_or_mech_point_to_mech(
         params: dict[str, Any],
         *,
         scene_keys: tuple[str, str],
         mech_keys: tuple[str, str],
         to_mech: Any,
+        allow_scene_fallback: bool = False,
     ) -> np.ndarray | None:
         """Return an edited point in mechanism coordinates when available."""
+        if scene_keys[0] in params and scene_keys[1] in params:
+            try:
+                if to_mech is None:
+                    if not allow_scene_fallback:
+                        return None
+                    point = np.array(
+                        [float(params[scene_keys[0]]), float(params[scene_keys[1]])],
+                        dtype=float,
+                    )
+                    return point if bool(np.isfinite(point).all()) else None
+
+                scene_point_qt = QPointF(float(params[scene_keys[0]]), float(params[scene_keys[1]]))
+                mapped = to_mech(scene_point_qt)
+                point = np.array([float(mapped[0]), float(mapped[1])], dtype=float)
+                return point if bool(np.isfinite(point).all()) else None
+            except Exception:
+                logging.debug("Suppressed exception", exc_info=True)
+
         try:
             if mech_keys[0] in params and mech_keys[1] in params:
                 point = np.array(
@@ -1222,18 +1417,7 @@ class ParametricEditingManager:
                 return point if bool(np.isfinite(point).all()) else None
         except Exception:
             logging.debug("Suppressed exception", exc_info=True)
-
-        if to_mech is None or scene_keys[0] not in params or scene_keys[1] not in params:
-            return None
-
-        try:
-            scene_point = QPointF(float(params[scene_keys[0]]), float(params[scene_keys[1]]))
-            mapped = to_mech(scene_point)
-            point = np.array([float(mapped[0]), float(mapped[1])], dtype=float)
-            return point if bool(np.isfinite(point).all()) else None
-        except Exception:
-            logging.debug("Suppressed exception", exc_info=True)
-            return None
+        return None
 
     def _solve_circle_intersection_near(
         self,

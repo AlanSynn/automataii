@@ -1256,6 +1256,123 @@ def test_active_part_ids_helper_contract_and_physical_contract_echo(tmp_path: Pa
     assert points["H9"]["centered_mm"] == [20.0, 0.0]
 
 
+def test_physical_contract_records_app_character_and_board_placement(tmp_path: Path) -> None:
+    write_fabrication_templates(tmp_path)
+    exporter = FabricationAssemblyGuideExporter(tmp_path)
+
+    contract = exporter.build_app_physical_contract(
+        {
+            "gear": {
+                "type": "gear_train",
+                "part_name": "left_arm_lower",
+                "scene_anchor": [420.0, 310.0],
+                "fabrication": {
+                    "board_origin": "H8",
+                    "board_coords": {"gear1_center": "H6", "gear2_center": "H9"},
+                },
+                "params": {
+                    "grid_system_enabled": True,
+                    "grid_cell_cm": 2.0,
+                    "gear1_teeth": 24,
+                    "gear2_teeth": 24,
+                },
+            }
+        },
+        recipe_keys={"gear-train-basic"},
+    )
+
+    layers = cast(list[dict[str, Any]], contract["layers"])
+    assert layers[0]["character_part_name"] == "left_arm_lower"
+    assert layers[0]["app_scene_anchor"] == [420.0, 310.0]
+    assert layers[0]["app_board_origin"] == "H8"
+    assert layers[0]["app_board_placements"] == [
+        {"point": "gear1_center", "coord": "H6"},
+        {"point": "gear2_center", "coord": "H9"},
+    ]
+
+    contract_svg = exporter._physical_contract_svg(contract)
+    assert "left_arm_lower" in contract_svg
+    assert "gear1_center:H6" in contract_svg
+    assert "scene=(420, 310)" in contract_svg
+    placement_svg = exporter._app_board_placements_svg(contract)
+    assert placement_svg is not None
+    assert 'id="app-board-placements"' in placement_svg
+    assert 'data-board-coord="H6"' in placement_svg
+
+
+def test_physical_contract_infers_app_scene_anchor_from_key_points(tmp_path: Path) -> None:
+    write_fabrication_templates(tmp_path)
+    exporter = FabricationAssemblyGuideExporter(tmp_path)
+
+    contract = exporter.build_app_physical_contract(
+        {
+            "gear": {
+                "type": "gear_train",
+                "key_points": {
+                    "gear1_center": [400.0, 300.0],
+                    "gear2_center": [440.0, 320.0],
+                },
+                "params": {
+                    "grid_system_enabled": True,
+                    "grid_cell_cm": 2.0,
+                    "gear1_teeth": 24,
+                    "gear2_teeth": 24,
+                },
+            }
+        },
+        recipe_keys={"gear-train-basic"},
+    )
+
+    layers = cast(list[dict[str, Any]], contract["layers"])
+    assert layers[0]["app_scene_anchor"] == [420.0, 310.0]
+
+
+def test_export_guides_multiplies_kit_parts_for_duplicate_recipe_instances(
+    tmp_path: Path,
+) -> None:
+    write_fabrication_templates(tmp_path)
+    exporter = FabricationAssemblyGuideExporter(tmp_path)
+    contract = exporter.build_app_physical_contract(
+        {
+            "gear-a": {
+                "type": "gear_train",
+                "params": {
+                    "grid_system_enabled": True,
+                    "grid_cell_cm": 2.0,
+                    "gear1_teeth": 24,
+                    "gear2_teeth": 24,
+                },
+            },
+            "gear-b": {
+                "type": "gear_train",
+                "params": {
+                    "grid_system_enabled": True,
+                    "grid_cell_cm": 2.0,
+                    "gear1_teeth": 24,
+                    "gear2_teeth": 24,
+                },
+            },
+        },
+        recipe_keys={"gear-train-basic"},
+    )
+
+    assert contract["recipe_instance_counts"] == {"gear-train-basic": 2}
+
+    result = exporter.export_guides(
+        tmp_path / "exported-guides",
+        recipe_keys={"gear-train-basic"},
+        app_contract=contract,
+    )
+    package = _load_json(result.package_dir / "recipes.json")
+    recipes = cast(list[dict[str, Any]], package["recipes"])
+    assert recipes[0]["instance_count"] == 2
+
+    single_package = exporter._selected_package(included_keys={"gear-train-basic"})
+    single_counts = exporter._package_part_counts(single_package)
+    doubled_counts = exporter._package_part_counts(package)
+    assert doubled_counts == {part_id: count * 2 for part_id, count in single_counts.items()}
+
+
 def test_foundry_default_mechanisms_match_physical_recipe_parts(tmp_path: Path) -> None:
     write_fabrication_templates(tmp_path)
     exporter = FabricationAssemblyGuideExporter(tmp_path)

@@ -18,14 +18,11 @@ from PyQt6.QtGui import QColor
 from automataii.shared.physical_kit import (
     DEFAULT_PHYSICAL_KIT_PROFILE,
     PhysicalKitProfile,
+    freeform_gear_teeth_for_radius,
     gear_center_distance,
     gear_clearance_from_params,
-    gear_teeth_for_radius,
     grid_enabled_from_params,
-    nearest_gear_radius_mm,
     physical_profile_from_params,
-    snap_gear_params,
-    snap_planetary_gear_params,
 )
 
 from .base_editor import HandleStyle, MechanismEditor, ParametricHandle
@@ -93,29 +90,23 @@ class GearEditor(MechanismEditor):
         )
         params["gear_clearance"] = clearance
         params["mesh_clearance"] = clearance
-        if self._physical_grid_enabled():
-            params.update(snap_gear_params(params, profile=profile))
+        params.setdefault(
+            "gear1_teeth", freeform_gear_teeth_for_radius(params["gear1_radius"], profile=profile)
+        )
+        params.setdefault(
+            "gear2_teeth", freeform_gear_teeth_for_radius(params["gear2_radius"], profile=profile)
+        )
 
         if "gear1_x" not in params or "gear1_y" not in params:
-            g1 = key_points.get("gear1_center")
-            if isinstance(g1, list | tuple) and len(g1) >= 2:
-                scene = self._to_scene((float(g1[0]), float(g1[1])))
-                if scene is not None:
-                    params["gear1_x"] = float(scene.x())
-                    params["gear1_y"] = float(scene.y())
-                else:
-                    params["gear1_x"] = float(g1[0])
-                    params["gear1_y"] = float(g1[1])
+            gear1 = self._key_point_to_scene_point(key_points.get("gear1_center"))
+            if gear1 is not None:
+                params["gear1_x"] = float(gear1.x())
+                params["gear1_y"] = float(gear1.y())
         if "gear2_x" not in params or "gear2_y" not in params:
-            g2 = key_points.get("gear2_center")
-            if isinstance(g2, list | tuple) and len(g2) >= 2:
-                scene = self._to_scene((float(g2[0]), float(g2[1])))
-                if scene is not None:
-                    params["gear2_x"] = float(scene.x())
-                    params["gear2_y"] = float(scene.y())
-                else:
-                    params["gear2_x"] = float(g2[0])
-                    params["gear2_y"] = float(g2[1])
+            gear2 = self._key_point_to_scene_point(key_points.get("gear2_center"))
+            if gear2 is not None:
+                params["gear2_x"] = float(gear2.x())
+                params["gear2_y"] = float(gear2.y())
 
         params.setdefault("gear1_x", 0.0)
         params.setdefault("gear1_y", 0.0)
@@ -149,6 +140,19 @@ class GearEditor(MechanismEditor):
 
         self._create_mesh_handle()
         self._sync_gear_handle_positions()
+
+    def _key_point_to_scene_point(self, key_point: object) -> QPointF | None:
+        """Resolve stored key_points using the same coordinate-space contract as reload."""
+        if not isinstance(key_point, list | tuple) or len(key_point) < 2:
+            return None
+        try:
+            x = float(key_point[0])
+            y = float(key_point[1])
+        except (TypeError, ValueError):
+            return None
+        if self.mechanism_data.get("generated_path") is None:
+            return QPointF(x, y)
+        return self._to_scene((x, y)) or QPointF(x, y)
 
     def _physical_grid_enabled(self) -> bool:
         params = self.mechanism_data.get("params", {}) if hasattr(self, "mechanism_data") else {}
@@ -223,7 +227,7 @@ class GearEditor(MechanismEditor):
         self.mechanism_data["params"][f"{gear_id}_x"] = new_pos.x()
         self.mechanism_data["params"][f"{gear_id}_y"] = new_pos.y()
         self._update_gear_key_point(gear_id, new_pos)
-        self._auto_adjust_gear_mesh()
+        self._auto_adjust_gear_mesh(adjust_positions=False)
         self._sync_gear_handle_positions()
         self._trigger_gear_update()
 
@@ -251,17 +255,9 @@ class GearEditor(MechanismEditor):
 
         # Match handle constraints for direct callback invocations as well as GUI drags.
         new_radius = max(20.0, min(150.0, new_radius))
-        profile = _profile_for_params(self.mechanism_data["params"])
-        if self._physical_grid_enabled():
-            new_radius = nearest_gear_radius_mm(new_radius, profile=profile)
-            self.mechanism_data["params"][f"{gear_id}_teeth"] = gear_teeth_for_radius(
-                new_radius,
-                profile=profile,
-            )
-
         self.mechanism_data["params"][f"{gear_id}_radius"] = new_radius
         self.mechanism_data["params"]["r1" if gear_id == "gear1" else "r2"] = new_radius
-        self._auto_adjust_gear_mesh()
+        self._auto_adjust_gear_mesh(adjust_positions=False)
         self._sync_gear_handle_positions()
         self._trigger_gear_update()
 
@@ -301,7 +297,7 @@ class GearEditor(MechanismEditor):
         params["gear_clearance"] = clearance
         params["mesh_clearance"] = clearance
 
-        self._auto_adjust_gear_mesh()
+        self._auto_adjust_gear_mesh(adjust_positions=True)
         self._sync_gear_handle_positions()
         self._trigger_gear_update()
 
@@ -324,18 +320,17 @@ class GearEditor(MechanismEditor):
         handle.setPos(midpoint)
 
     def _update_gear_key_point(self, gear_id: str, center_scene: QPointF) -> None:
-        """Persist center point with mechanism-space preference when available."""
+        """Persist gear centers in the coordinate space downstream reload expects."""
+        key_points = self.mechanism_data.setdefault("key_points", {})
+        if self.mechanism_data.get("generated_path") is None:
+            key_points[f"{gear_id}_center"] = [float(center_scene.x()), float(center_scene.y())]
+            return
+
         mech = self._to_mech(center_scene)
         if mech is not None:
-            self.mechanism_data.setdefault("key_points", {})[f"{gear_id}_center"] = [
-                float(mech[0]),
-                float(mech[1]),
-            ]
+            key_points[f"{gear_id}_center"] = [float(mech[0]), float(mech[1])]
         else:
-            self.mechanism_data.setdefault("key_points", {})[f"{gear_id}_center"] = [
-                float(center_scene.x()),
-                float(center_scene.y()),
-            ]
+            key_points[f"{gear_id}_center"] = [float(center_scene.x()), float(center_scene.y())]
 
     def _sync_gear_handle_positions(self) -> None:
         """Keep all center/radius/mesh handles aligned with current params."""
@@ -357,12 +352,10 @@ class GearEditor(MechanismEditor):
 
         self._update_mesh_handle()
 
-    def _auto_adjust_gear_mesh(self) -> None:
-        """Automatically adjust gear positions for proper meshing."""
+    def _auto_adjust_gear_mesh(self, *, adjust_positions: bool = False) -> None:
+        """Normalize aliases; move gear 2 only when the mesh handle is edited."""
         params = self.mechanism_data["params"]
         profile = _profile_for_params(params)
-        if self._physical_grid_enabled():
-            params.update(snap_gear_params(params, profile=profile))
 
         center1 = np.array([params["gear1_x"], params["gear1_y"]])
         center2 = np.array([params["gear2_x"], params["gear2_y"]])
@@ -385,7 +378,7 @@ class GearEditor(MechanismEditor):
         current_distance = np.linalg.norm(center2 - center1)
         ideal_distance = gear_center_distance(r1, r2, clearance, profile=profile)
 
-        if abs(current_distance - ideal_distance) > 0.1:
+        if adjust_positions and abs(current_distance - ideal_distance) > 0.1:
             direction = (
                 (center2 - center1) / current_distance if current_distance > 0 else np.array([1, 0])
             )
@@ -405,9 +398,6 @@ class GearEditor(MechanismEditor):
     def _simulate_gear_motion(self) -> dict[str, Any]:
         """Simulate gear motion."""
         params = self.mechanism_data["params"]
-        profile = _profile_for_params(params)
-        if self._physical_grid_enabled():
-            params.update(snap_gear_params(params, profile=profile))
 
         r1 = _positive_finite_float(params.get("gear1_radius", params.get("r1")), 40.0)
         r2 = _positive_finite_float(params.get("gear2_radius", params.get("r2")), 60.0)
@@ -462,7 +452,7 @@ class PlanetaryGearEditor(MechanismEditor):
         )
         params["gear1_radius"] = float(params["r_sun"])
         params["gear2_radius"] = float(params["r_planet"])
-        self._snap_planetary_params_if_needed()
+        self._sync_planetary_teeth_aliases()
 
         # Sun center handle
         sun_center = ParametricHandle(
@@ -508,24 +498,43 @@ class PlanetaryGearEditor(MechanismEditor):
         self._sync_planetary_key_points_and_aliases()
         self._sync_handle_positions()
 
+    def _key_point_to_scene_point(self, key_point: object) -> QPointF | None:
+        """Resolve stored key_points using the same coordinate-space contract as reload."""
+        if not isinstance(key_point, list | tuple) or len(key_point) < 2:
+            return None
+        try:
+            x = float(key_point[0])
+            y = float(key_point[1])
+        except (TypeError, ValueError):
+            return None
+        if self.mechanism_data.get("generated_path") is None:
+            return QPointF(x, y)
+        return self._to_scene((x, y)) or QPointF(x, y)
+
     def _physical_grid_enabled(self) -> bool:
         params = self.mechanism_data.get("params", {}) if hasattr(self, "mechanism_data") else {}
         if not isinstance(params, dict):
             return True
         return bool(grid_enabled_from_params(params))
 
-    def _snap_planetary_params_if_needed(self) -> None:
+    def _sync_planetary_teeth_aliases(self) -> None:
+        """Derive teeth aliases without mutating user-edited planetary geometry."""
         params = self.mechanism_data.get("params", {}) if hasattr(self, "mechanism_data") else {}
-        if not isinstance(params, dict) or not self._physical_grid_enabled():
+        if not isinstance(params, dict):
             return
         profile = _profile_for_params(params)
-        params.update(
-            snap_planetary_gear_params(
-                params,
-                params.get("grid_cell_cm", 2.0),
-                profile=profile,
-            )
+        r_sun = _positive_finite_float(
+            params.get("r_sun", params.get("gear1_radius")),
+            20.0,
+            minimum=1.0,
         )
+        r_planet = _positive_finite_float(
+            params.get("r_planet", params.get("gear2_radius")),
+            30.0,
+            minimum=1.0,
+        )
+        params.setdefault("sun_teeth", freeform_gear_teeth_for_radius(r_sun, profile=profile))
+        params.setdefault("planet_teeth", freeform_gear_teeth_for_radius(r_planet, profile=profile))
 
     def _extract_initial_sun_center(
         self,
@@ -539,11 +548,9 @@ class PlanetaryGearEditor(MechanismEditor):
             return QPointF(float(params.get("gear1_x", 0.0)), float(params.get("gear1_y", 0.0)))
 
         kp = key_points.get("sun_center")
-        if isinstance(kp, list | tuple) and len(kp) >= 2:
-            scene = self._to_scene((float(kp[0]), float(kp[1])))
-            if scene is not None:
-                return scene
-            return QPointF(float(kp[0]), float(kp[1]))
+        scene = self._key_point_to_scene_point(kp)
+        if scene is not None:
+            return scene
 
         return QPointF(0.0, 0.0)
 
@@ -571,7 +578,7 @@ class PlanetaryGearEditor(MechanismEditor):
         """Keep compatibility aliases and key points synchronized with params."""
         params = self.mechanism_data.setdefault("params", {})
         key_points = self.mechanism_data.setdefault("key_points", {})
-        self._snap_planetary_params_if_needed()
+        self._sync_planetary_teeth_aliases()
 
         center_scene = QPointF(
             float(params.get("sun_x", 0.0)),
@@ -601,9 +608,22 @@ class PlanetaryGearEditor(MechanismEditor):
 
         planet_mech = np.array([center_mech[0] + r_sun + r_planet, center_mech[1]], dtype=float)
         tracking_mech = np.array([planet_mech[0] + arm_length, planet_mech[1]], dtype=float)
-        key_points["sun_center"] = [float(center_mech[0]), float(center_mech[1])]
-        key_points["planet_center"] = [float(planet_mech[0]), float(planet_mech[1])]
-        key_points["tracking_point"] = [float(tracking_mech[0]), float(tracking_mech[1])]
+        scene_space_without_inverse = self.mechanism_data.get("generated_path") is None and (
+            self._to_mech(center_scene) is None
+        )
+        key_points["sun_center"] = self._key_point_for_storage(
+            center_mech,
+            scene_point=center_scene,
+            point_is_scene=scene_space_without_inverse,
+        )
+        key_points["planet_center"] = self._key_point_for_storage(
+            planet_mech,
+            point_is_scene=scene_space_without_inverse,
+        )
+        key_points["tracking_point"] = self._key_point_for_storage(
+            tracking_mech,
+            point_is_scene=scene_space_without_inverse,
+        )
 
         planet_scene = self._to_scene((float(planet_mech[0]), float(planet_mech[1])))
         if planet_scene is None:
@@ -612,6 +632,25 @@ class PlanetaryGearEditor(MechanismEditor):
         params["planet_y"] = float(planet_scene.y())
         params["gear2_x"] = float(planet_scene.x())
         params["gear2_y"] = float(planet_scene.y())
+
+    def _key_point_for_storage(
+        self,
+        mech_point: tuple[float, float] | np.ndarray,
+        *,
+        scene_point: QPointF | None = None,
+        point_is_scene: bool = False,
+    ) -> list[float]:
+        """Persist key_points in the coordinate space ParameterMapper will reload."""
+        point = np.array(mech_point, dtype=float)
+        if self.mechanism_data.get("generated_path") is None:
+            if scene_point is not None:
+                return [float(scene_point.x()), float(scene_point.y())]
+            if point_is_scene:
+                return [float(point[0]), float(point[1])]
+            scene_point = self._to_scene((float(point[0]), float(point[1])))
+            if scene_point is not None:
+                return [float(scene_point.x()), float(scene_point.y())]
+        return [float(point[0]), float(point[1])]
 
     def _sync_handle_positions(self) -> None:
         """Update planetary handle positions/constraints from current parameters."""

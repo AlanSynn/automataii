@@ -105,6 +105,84 @@ def test_export_all_writes_real_package_for_each_supported_family(
     assert recipe_key in messages[-1][1]
 
 
+def test_export_all_counts_duplicate_recipe_instances_in_fabrication_package(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from PyQt6 import QtWidgets
+
+    output_dir = tmp_path / "duplicate-gears"
+    messages: list[tuple[str, str]] = []
+    configs = build_mechanism_configs()
+    params = configs["gear_train"].initial_parameters()
+    params.update(
+        {
+            "grid_system_enabled": True,
+            "grid_cell_cm": 2.0,
+            "gear1_teeth": 24,
+            "gear2_teeth": 24,
+        }
+    )
+    layers = {
+        "gear-a": {
+            "type": "gear_train",
+            "params": dict(params),
+            "key_points": {"gear1_center": [100.0, 100.0], "gear2_center": [140.0, 100.0]},
+        },
+        "gear-b": {
+            "type": "gear_train",
+            "params": dict(params),
+            "key_points": {"gear1_center": [300.0, 200.0], "gear2_center": [340.0, 200.0]},
+        },
+    }
+
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog,
+        "getExistingDirectory",
+        lambda *_args, **_kwargs: str(output_dir),
+    )
+    monkeypatch.setattr(
+        QtWidgets.QMessageBox,
+        "information",
+        lambda _parent, title, text: messages.append((str(title), str(text))),
+    )
+    monkeypatch.setattr(
+        QtWidgets.QMessageBox,
+        "warning",
+        lambda _parent, title, text: messages.append((str(title), str(text))),
+    )
+
+    exporter = BlueprintExporter(
+        parent=None,
+        mechanism_view=None,
+        get_mechanism_layers=lambda: layers,
+        get_current_editor_items=lambda: {},
+        get_scene_transform_function=lambda _layer: None,
+    )
+    monkeypatch.setattr(
+        exporter,
+        "calculate_screen_to_blueprint_scale",
+        lambda: {"mechanism_scale_factors": {}, "mm_per_pixel": 1.0},
+    )
+    monkeypatch.setattr(exporter, "enhance_mechanism_layers_with_scale_info", lambda _info: layers)
+
+    exporter.export_all()
+
+    assembly_dir = output_dir / "assembly"
+    recipes = json.loads((assembly_dir / "recipes.json").read_text(encoding="utf-8"))
+    assert [recipe["key"] for recipe in recipes["recipes"]] == ["gear-train-basic"]
+    assert recipes["recipes"][0]["instance_count"] == 2
+
+    contract = json.loads((assembly_dir / "physical-contract.json").read_text(encoding="utf-8"))
+    assert contract["recipe_instance_counts"] == {"gear-train-basic": 2}
+    assert [layer["app_scene_anchor"] for layer in contract["layers"]] == [
+        [120.0, 100.0],
+        [320.0, 200.0],
+    ]
+    assert messages
+    assert "gear-train-basic" in messages[-1][1]
+
+
 def test_export_all_writes_integrated_pdf_manuals_for_multiple_supported_mechanisms(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -1086,10 +1086,12 @@ class MechanismInstantiationService:
             part_name.strip() if isinstance(part_name, str) and part_name.strip() else None
         )
         snapshot_positions = {}
+        snapshot_fabrication = {}
         if isinstance(foundry_snapshot, dict):
             raw_positions = foundry_snapshot.get("positions")
             if isinstance(raw_positions, dict):
                 snapshot_positions = raw_positions
+            snapshot_fabrication = self._snapshot_fabrication(foundry_snapshot)
 
         # Default scene position if not provided
         pos = _finite_point(scene_position, (400.0, 300.0))
@@ -1117,6 +1119,8 @@ class MechanismInstantiationService:
             "source": "foundry",
             "source_type": canonical_foundry_type,
         }
+        if snapshot_fabrication:
+            layer_data["fabrication"] = snapshot_fabrication
         mark_scene_space(layer_data, pos)
         if canonical_foundry_type == "slider_crank":
             layer_data["approximated_as"] = internal_type
@@ -1312,6 +1316,29 @@ class MechanismInstantiationService:
             params.setdefault("gear2_y", float(layer_data["key_points"]["gear2_center"][1]))
 
         return layer_data
+
+    @staticmethod
+    def _snapshot_fabrication(snapshot: dict[str, Any]) -> dict[str, object]:
+        raw_fabrication = snapshot.get("fabrication")
+        if not isinstance(raw_fabrication, dict):
+            return {}
+
+        fabrication: dict[str, object] = {}
+        raw_origin = raw_fabrication.get("board_origin")
+        if isinstance(raw_origin, str) and raw_origin.strip():
+            fabrication["board_origin"] = raw_origin.strip().upper()
+
+        raw_coords = raw_fabrication.get("board_coords")
+        if isinstance(raw_coords, dict):
+            board_coords = {
+                str(key): str(value).strip().upper()
+                for key, value in raw_coords.items()
+                if str(key).strip() and str(value).strip()
+            }
+            if board_coords:
+                fabrication["board_coords"] = board_coords
+
+        return fabrication
 
     @staticmethod
     def _snapshot_point(

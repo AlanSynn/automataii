@@ -324,17 +324,29 @@ class FabricationAssemblyGuideExporter:
         self,
         *,
         included_keys: set[str],
+        recipe_counts: Mapping[str, object] | None = None,
     ) -> Mapping[str, object]:
         package = dict(self.load_package())
         raw_recipes = package.get("recipes", ())
         if not isinstance(raw_recipes, Sequence) or isinstance(raw_recipes, str):
             package["recipes"] = []
             return package
-        package["recipes"] = [
-            recipe
-            for recipe in raw_recipes
-            if isinstance(recipe, Mapping) and str(recipe.get("key", "")) in included_keys
-        ]
+        selected_recipes: list[Mapping[str, object]] = []
+        for recipe in raw_recipes:
+            if not isinstance(recipe, Mapping):
+                continue
+            recipe_key = str(recipe.get("key", ""))
+            if recipe_key not in included_keys:
+                continue
+            selected_recipe = dict(recipe)
+            instance_count = self._positive_count(
+                recipe_counts.get(recipe_key) if recipe_counts is not None else None,
+                default=1,
+            )
+            if instance_count > 1:
+                selected_recipe["instance_count"] = instance_count
+            selected_recipes.append(selected_recipe)
+        package["recipes"] = selected_recipes
         return package
 
     @staticmethod
@@ -389,6 +401,9 @@ class FabricationAssemblyGuideExporter:
                     counts[str(raw_part["part"])] = cls._positive_count(raw_part.get("count"))
         for part_id in cls._recipe_part_ids(raw_recipe):
             counts.setdefault(part_id, 1)
+        instance_count = cls._positive_count(raw_recipe.get("instance_count"), default=1)
+        if instance_count > 1:
+            counts = {part_id: count * instance_count for part_id, count in counts.items()}
         return counts
 
     @classmethod
@@ -1145,6 +1160,111 @@ class FabricationAssemblyGuideExporter:
             )
         return tuple(placements)
 
+    @staticmethod
+    def _app_board_placements(layer_data: Mapping[str, object]) -> tuple[dict[str, str], ...]:
+        raw_fabrication = layer_data.get("fabrication")
+        if not isinstance(raw_fabrication, Mapping):
+            return ()
+        raw_coords = raw_fabrication.get("board_coords")
+        if not isinstance(raw_coords, Mapping):
+            return ()
+
+        placements: list[dict[str, str]] = []
+        for raw_point, raw_coord in raw_coords.items():
+            point = str(raw_point).strip()
+            coord_text = str(raw_coord).strip().upper()
+            if not point or not coord_text:
+                continue
+            try:
+                coord = BoardCoord.from_label(coord_text)
+            except AssemblyValidationError:
+                continue
+            placements.append({"point": point, "coord": str(coord.label)})
+        return tuple(placements)
+
+    @staticmethod
+    def _app_board_origin(layer_data: Mapping[str, object]) -> str | None:
+        raw_fabrication = layer_data.get("fabrication")
+        if not isinstance(raw_fabrication, Mapping):
+            return None
+        origin = str(raw_fabrication.get("board_origin", "")).strip().upper()
+        if not origin:
+            return None
+        try:
+            return str(BoardCoord.from_label(origin).label)
+        except AssemblyValidationError:
+            return origin
+
+    @staticmethod
+    def _finite_scene_point(raw_point: object) -> list[float] | None:
+        if not isinstance(raw_point, Sequence) or isinstance(raw_point, str) or len(raw_point) < 2:
+            return None
+        x = finite_float(raw_point[0], math.nan)
+        y = finite_float(raw_point[1], math.nan)
+        if not math.isfinite(x) or not math.isfinite(y):
+            return None
+        return [round(x, 3), round(y, 3)]
+
+    @classmethod
+    def _app_scene_anchor(cls, layer_data: Mapping[str, object]) -> list[float] | None:
+        """Return the app-space placement anchor that best represents a mechanism layer."""
+        explicit_anchor = cls._finite_scene_point(layer_data.get("scene_anchor"))
+        if explicit_anchor is not None:
+            return explicit_anchor
+
+        key_points = layer_data.get("key_points")
+        if isinstance(key_points, Mapping):
+            for first_key, second_key in (
+                ("ground_pivot_1", "ground_pivot_2"),
+                ("gear1_center", "gear2_center"),
+            ):
+                first = cls._finite_scene_point(key_points.get(first_key))
+                second = cls._finite_scene_point(key_points.get(second_key))
+                if first is not None and second is not None:
+                    return [
+                        round((first[0] + second[0]) * 0.5, 3),
+                        round((first[1] + second[1]) * 0.5, 3),
+                    ]
+            for key in (
+                "coupler_point",
+                "cam_center",
+                "cam_position",
+                "gear1_center",
+                "ground_pivot_1",
+            ):
+                point = cls._finite_scene_point(key_points.get(key))
+                if point is not None:
+                    return point
+            for raw_point in key_points.values():
+                point = cls._finite_scene_point(raw_point)
+                if point is not None:
+                    return point
+
+        transform_params = layer_data.get("transform_params")
+        if isinstance(transform_params, Mapping):
+            point = cls._finite_scene_point(transform_params.get("center"))
+            if point is not None:
+                return point
+
+        return cls._finite_scene_point(layer_data.get("cam_position"))
+
+    @classmethod
+    def _recipe_instance_counts_from_contract(
+        cls,
+        contract: Mapping[str, object] | None,
+    ) -> dict[str, int]:
+        if contract is None:
+            return {}
+        raw_counts = contract.get("recipe_instance_counts")
+        if not isinstance(raw_counts, Mapping):
+            return {}
+        counts: dict[str, int] = {}
+        for raw_key, raw_count in raw_counts.items():
+            key = str(raw_key)
+            if key:
+                counts[key] = cls._positive_count(raw_count, default=1)
+        return counts
+
     def build_app_physical_contract(
         self,
         mechanism_layers: Mapping[str, object],
@@ -1198,6 +1318,15 @@ class FabricationAssemblyGuideExporter:
             recipe_counts = self._recipe_part_counts(recipe) if recipe is not None else {}
             recipe_parts = tuple(recipe_counts)
             recipe_board_placements = self._recipe_board_placements(recipe, manifest_pitch)
+            app_board_placements = self._app_board_placements(raw_layer)
+            app_board_origin = self._app_board_origin(raw_layer)
+            app_scene_anchor = self._app_scene_anchor(raw_layer)
+            raw_part_name = raw_layer.get("part_name")
+            character_part_name = (
+                raw_part_name.strip()
+                if isinstance(raw_part_name, str) and raw_part_name.strip()
+                else None
+            )
             snapped_adjustments = list(self._snapped_parameter_adjustments(mechanism_type, params))
             layer_warnings = list(self._snapped_parameter_warnings(params))
             grid_cell_cm = grid_cell_cm_from_params(params, DEFAULT_GRID_CELL_CM)
@@ -1259,6 +1388,10 @@ class FabricationAssemblyGuideExporter:
                     "recipe_title": summary.title if summary is not None else None,
                     "active_part_ids_from_app": list(selection.active_part_ids),
                     "active_part_ids_source": selection.active_part_ids_source,
+                    "character_part_name": character_part_name,
+                    "app_scene_anchor": app_scene_anchor,
+                    "app_board_origin": app_board_origin,
+                    "app_board_placements": list(app_board_placements),
                     "expected_part_ids_from_app": list(expected_parts),
                     "recipe_part_ids": list(recipe_parts),
                     "recipe_board_placements": list(recipe_board_placements),
@@ -1268,6 +1401,12 @@ class FabricationAssemblyGuideExporter:
                     "warnings": layer_warnings,
                 }
             )
+
+        recipe_instance_counts: dict[str, int] = {}
+        for layer_report in layer_reports:
+            recipe_key = layer_report.get("recipe_key")
+            if isinstance(recipe_key, str) and recipe_key:
+                recipe_instance_counts[recipe_key] = recipe_instance_counts.get(recipe_key, 0) + 1
 
         return {
             "schema_version": "automataii.fabrication.physical_contract.v1",
@@ -1283,6 +1422,7 @@ class FabricationAssemblyGuideExporter:
             },
             "layers": layer_reports,
             "selected_recipe_keys": sorted(selected_keys),
+            "recipe_instance_counts": recipe_instance_counts,
             "contract": (
                 "Simulation parameters, app visualization metadata, assembly guide recipes, "
                 "and fabricated part templates must refer to the same physical kit parts."
@@ -1304,8 +1444,9 @@ class FabricationAssemblyGuideExporter:
             else 0
         )
         shown = warnings[:8]
+        placement_lines = self._physical_contract_placement_lines(raw_layers)[:6]
         row_count = max(1, len(shown))
-        height = max(150, 88 + row_count * 12)
+        height = max(150, 96 + row_count * 12 + len(placement_lines) * 8)
         width = ASSEMBLY_PAGE_SIZE_MM[0]
         status_color = "#16a34a" if status == "matched" else "#dc2626"
         rows: list[str] = []
@@ -1322,6 +1463,21 @@ class FabricationAssemblyGuideExporter:
             rows.append(
                 '<text x="24" y="76" class="body">All exported mechanism layers match the selected physical kit recipes.</text>'
             )
+        if placement_lines:
+            start_y = 76 + row_count * 12 + 8
+            rows.append(
+                f'<text x="24" y="{start_y}" class="body">App placements captured from Design/Foundry:</text>'
+            )
+            for index, line in enumerate(placement_lines, start=1):
+                y = start_y + index * 8
+                placement_text = html_escape(
+                    _compact_svg_text(
+                        line,
+                        max_chars=118,
+                        suffix="… see physical-contract.json",
+                    )
+                )
+                rows.append(f'<text x="28" y="{y}" class="placement">{placement_text}</text>')
         more = ""
         if len(warnings) > len(shown):
             more = f'<text x="24" y="{height - 18}" class="body">See physical-contract.json for {len(warnings) - len(shown)} more warning(s).</text>'
@@ -1336,6 +1492,7 @@ class FabricationAssemblyGuideExporter:
       .body {{ font-family: Arial, Helvetica, sans-serif; font-size: 4px; fill: #374151; }}
       .status {{ font-family: Arial, Helvetica, sans-serif; font-size: 5px; font-weight: bold; fill: {status_color}; }}
       .warning {{ font-family: Arial, Helvetica, sans-serif; font-size: 3.4px; fill: #7f1d1d; }}
+      .placement {{ font-family: Arial, Helvetica, sans-serif; font-size: 3.2px; fill: #1f2937; }}
     </style>
   </defs>
   <rect x="8" y="8" width="{width - 16}" height="{height - 16}" rx="6" fill="#ffffff" stroke="{status_color}" stroke-width="0.9"/>
@@ -1347,6 +1504,43 @@ class FabricationAssemblyGuideExporter:
   {more}
 </svg>
 '''
+
+    @staticmethod
+    def _physical_contract_placement_lines(raw_layers: object) -> tuple[str, ...]:
+        if not isinstance(raw_layers, Sequence) or isinstance(raw_layers, str):
+            return ()
+        lines: list[str] = []
+        for raw_layer in raw_layers:
+            if not isinstance(raw_layer, Mapping):
+                continue
+            layer_id = str(raw_layer.get("layer_id", "layer")).strip() or "layer"
+            part_name = str(raw_layer.get("character_part_name") or "unassigned")
+            raw_scene = raw_layer.get("app_scene_anchor")
+            scene_text = "scene=n/a"
+            if (
+                isinstance(raw_scene, Sequence)
+                and not isinstance(raw_scene, str)
+                and len(raw_scene) >= 2
+            ):
+                x = finite_float(raw_scene[0], math.nan)
+                y = finite_float(raw_scene[1], math.nan)
+                if math.isfinite(x) and math.isfinite(y):
+                    scene_text = f"scene=({x:g}, {y:g})"
+            raw_board_placements = raw_layer.get("app_board_placements")
+            board_items: list[str] = []
+            if isinstance(raw_board_placements, Sequence) and not isinstance(
+                raw_board_placements, str
+            ):
+                for raw_item in raw_board_placements:
+                    if not isinstance(raw_item, Mapping):
+                        continue
+                    point = str(raw_item.get("point", "")).strip()
+                    coord = str(raw_item.get("coord", "")).strip()
+                    if point and coord:
+                        board_items.append(f"{point}:{coord}")
+            board_text = ", ".join(board_items[:4]) if board_items else "recipe board only"
+            lines.append(f"{layer_id}: part={part_name}; board={board_text}; {scene_text}")
+        return tuple(lines)
 
     @staticmethod
     def _wrapped_lines(text: object, *, max_chars: int, max_lines: int = 3) -> tuple[str, ...]:
@@ -1819,6 +2013,48 @@ class FabricationAssemblyGuideExporter:
 </svg>
 '''
 
+    def _app_board_placements_svg(self, contract: Mapping[str, object]) -> str | None:
+        raw_layers = contract.get("layers", ())
+        if not isinstance(raw_layers, Sequence) or isinstance(raw_layers, str):
+            return None
+
+        coords: list[str] = []
+        for raw_layer in raw_layers:
+            if not isinstance(raw_layer, Mapping):
+                continue
+            raw_placements = raw_layer.get("app_board_placements")
+            if not isinstance(raw_placements, Sequence) or isinstance(raw_placements, str):
+                continue
+            for raw_item in raw_placements:
+                if not isinstance(raw_item, Mapping):
+                    continue
+                coord = str(raw_item.get("coord", "")).strip().upper()
+                if coord and coord not in coords:
+                    coords.append(coord)
+        if not coords:
+            return None
+
+        width, height = ASSEMBLY_PAGE_SIZE_MM
+        board_size = 156.0
+        board_x = 18.0
+        board_y = 36.0
+        placement_lines = tuple(
+            _compact_svg_text(line, max_chars=88, suffix="… see physical-contract.json")
+            for line in self._physical_contract_placement_lines(raw_layers)[:12]
+        )
+        return f'''<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="{width}mm" height="{height}mm" viewBox="0 0 {width} {height}">
+  <title>MotionSmith app board placements</title>
+  <defs>{self._assembly_page_style()}</defs>
+  <rect x="8" y="8" width="{width - 16}" height="{height - 16}" rx="5" class="page-border"/>
+  <text x="18" y="23" class="page-title">App board placements</text>
+  <text x="190" y="43" class="body-strong">Highlighted holes came from the Design/Foundry layer data.</text>
+  <text x="190" y="57" class="body">Use this page to verify the exported guide is not just the generic recipe layout.</text>
+  {self._text_lines(x=190, y=76, lines=placement_lines, class_name="body", line_height=6.1)}
+  <g id="app-board-placements">{self._board_grid_svg(x=board_x, y=board_y, size=board_size, active=coords)}</g>
+</svg>
+'''
+
     @staticmethod
     def _assembly_page_style() -> str:
         return """<style>
@@ -2190,13 +2426,17 @@ This folder is a self-contained `assembly/` package exported from Automataii.
         copied: list[Path] = []
         pdf_files: list[Path] = []
         fallback_files: list[Path] = []
-        package = self._selected_package(included_keys={summary.key for summary in summaries})
+        contract = app_contract
+        recipe_counts = self._recipe_instance_counts_from_contract(contract)
+        package = self._selected_package(
+            included_keys={summary.key for summary in summaries},
+            recipe_counts=recipe_counts,
+        )
         recipes_target = package_dir / "recipes.json"
         recipes_target.write_text(
             json.dumps(package, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
         copied.append(recipes_target)
-        contract = app_contract
         contract_warnings: tuple[str, ...] = ()
         if contract is not None:
             contract_target = package_dir / "physical-contract.json"
@@ -2217,6 +2457,9 @@ This folder is a self-contained `assembly/` package exported from Automataii.
         ]
         if contract is not None:
             guide_sources.insert(1, self._physical_contract_svg(contract))
+            placement_svg = self._app_board_placements_svg(contract)
+            if placement_svg is not None:
+                guide_sources.insert(2, placement_svg)
         guide_sources.extend(
             self._assembly_step_page_svgs(package, front_matter_pages=len(guide_sources))
         )
