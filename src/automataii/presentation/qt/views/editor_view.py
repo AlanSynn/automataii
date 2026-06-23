@@ -6,6 +6,7 @@ Responsibilities delegated to extracted components:
 """
 
 import logging
+import math
 from typing import Any
 
 from PyQt6.QtCore import (
@@ -43,7 +44,7 @@ from automataii.presentation.qt.views.components.path_vertex_editor import (
 from automataii.presentation.qt.views.motion_path_manager import (
     MotionPathDrawer,
 )
-from automataii.shared.physical_kit import DEFAULT_GRID_CELL_CM
+from automataii.shared.physical_kit import DEFAULT_GRID_CELL_CM, MM_PER_INCH, grid_step_mm
 
 
 class EditorView(QGraphicsView):
@@ -308,6 +309,16 @@ class EditorView(QGraphicsView):
         self._grid_minor_path = None
         self._grid_major_path = None
 
+    def _grid_spacing_scene_units(self) -> tuple[float, int]:
+        """Return grid spacing in scene units; character scenes use millimeters."""
+        if self.display_unit == "cm":
+            return grid_step_mm(self.grid_cell_size_cm), max(
+                1, int(round(10.0 / self.grid_cell_size_cm))
+            )
+        if self.display_unit == "inch":
+            return MM_PER_INCH, 1
+        return 20.0, 5
+
     def set_joint_map(self, joint_map: dict[str, str] | None):
         """Sets the joint map (original name to standardized ID)."""
         if joint_map:
@@ -327,29 +338,19 @@ class EditorView(QGraphicsView):
         if not self.grid_enabled:
             return
 
-        # Calculate grid_size_pixels based on display_unit and DPI
-        if self.display_unit == "cm":
-            cm_to_inch = 1 / 2.54
-            grid_size_pixels = int(self.dpi * cm_to_inch * self.grid_cell_size_cm)
-            major_interval = max(1, int(round(10.0 / self.grid_cell_size_cm)))
-        elif self.display_unit == "inch":
-            grid_size_pixels = int(self.dpi)
-            major_interval = 1
-        else:
-            grid_size_pixels = 20
-            major_interval = 5
+        grid_size_pixels, major_interval = self._grid_spacing_scene_units()
 
         if grid_size_pixels <= 0:
-            grid_size_pixels = 20
+            grid_size_pixels = 20.0
 
         # Get visible rectangle in scene coordinates
         visible_rect = self.mapToScene(self.viewport().rect()).boundingRect()
 
         # Quantize bounds to grid
-        left = int(visible_rect.left() / grid_size_pixels) * grid_size_pixels
-        top = int(visible_rect.top() / grid_size_pixels) * grid_size_pixels
-        right = int(visible_rect.right() / grid_size_pixels + 1) * grid_size_pixels
-        bottom = int(visible_rect.bottom() / grid_size_pixels + 1) * grid_size_pixels
+        left = math.floor(visible_rect.left() / grid_size_pixels) * grid_size_pixels
+        top = math.floor(visible_rect.top() / grid_size_pixels) * grid_size_pixels
+        right = math.ceil(visible_rect.right() / grid_size_pixels) * grid_size_pixels
+        bottom = math.ceil(visible_rect.bottom() / grid_size_pixels) * grid_size_pixels
 
         # Cache key: grid params + quantized bounds
         cache_key = (grid_size_pixels, major_interval, left, top, right, bottom)

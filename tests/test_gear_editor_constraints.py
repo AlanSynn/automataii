@@ -47,6 +47,65 @@ def _create_gear_editor() -> GearEditor:
     return editor
 
 
+def test_gear_editor_create_handles_preserves_user_values_when_grid_enabled(qapp):
+    scene = QGraphicsScene()
+    editor = GearEditor("gear_freeform_test", scene)
+    mechanism_data = {
+        "type": "gear",
+        "params": {
+            "grid_system_enabled": True,
+            "gear1_x": 0.0,
+            "gear1_y": 0.0,
+            "gear2_x": 90.0,
+            "gear2_y": 0.0,
+            "gear1_radius": 33.0,
+            "gear2_radius": 47.0,
+            "gear1_teeth": 13,
+            "gear2_teeth": 17,
+        },
+        "key_points": {},
+    }
+
+    editor.create_handles(mechanism_data)
+
+    params = editor.mechanism_data["params"]
+    assert params["gear1_radius"] == pytest.approx(33.0)
+    assert params["gear2_radius"] == pytest.approx(47.0)
+    assert params["r1"] == pytest.approx(33.0)
+    assert params["r2"] == pytest.approx(47.0)
+    assert params["gear1_teeth"] == 13
+    assert params["gear2_teeth"] == 17
+    assert editor.handles["gear1_radius"].scenePos().x() == pytest.approx(33.0)
+    assert editor.handles["gear2_radius"].scenePos().x() == pytest.approx(137.0)
+
+
+def test_gear_editor_key_point_fallback_uses_scene_points_for_foundry_style_layer(qapp):
+    scene = QGraphicsScene()
+    editor = GearEditor("gear_keypoint_test", scene)
+    editor.to_scene_coords = lambda arr: QPointF(float(arr[0]) * 2.0, float(arr[1]) * 2.0)
+    editor.to_mech_coords = lambda arr: np.array([float(arr[0]) / 2.0, float(arr[1]) / 2.0])
+    mechanism_data = {
+        "type": "gear",
+        "generated_path": None,
+        "params": {
+            "gear1_radius": 33.0,
+            "gear2_radius": 47.0,
+        },
+        "key_points": {
+            "gear1_center": [100.0, 40.0],
+            "gear2_center": [190.0, 40.0],
+        },
+    }
+
+    editor.create_handles(mechanism_data)
+
+    params = editor.mechanism_data["params"]
+    assert params["gear1_x"] == pytest.approx(100.0)
+    assert params["gear1_y"] == pytest.approx(40.0)
+    assert params["gear2_x"] == pytest.approx(190.0)
+    assert params["gear2_y"] == pytest.approx(40.0)
+
+
 def test_gear_mesh_handle_updates_clearance_and_center_distance(qapp):
     editor = _create_gear_editor()
 
@@ -57,8 +116,8 @@ def test_gear_mesh_handle_updates_clearance_and_center_distance(qapp):
     center2 = np.array([params["gear2_x"], params["gear2_y"]], dtype=float)
     center_distance = float(np.linalg.norm(center2 - center1))
 
-    assert params["gear_clearance"] == pytest.approx(20.0)
-    assert params["mesh_clearance"] == pytest.approx(20.0)
+    assert params["gear_clearance"] == pytest.approx(40.0)
+    assert params["mesh_clearance"] == pytest.approx(40.0)
     assert center_distance == pytest.approx(
         params["gear1_radius"] + params["gear2_radius"] + params["gear_clearance"]
     )
@@ -87,6 +146,48 @@ def test_gear_center_drag_rejects_non_finite_position(qapp):
     assert np.isfinite([params["gear1_x"], params["gear1_y"]]).all()
 
 
+def test_gear_center_drag_does_not_auto_move_other_gear(qapp):
+    editor = _create_gear_editor()
+    params = editor.mechanism_data["params"]
+    original_gear2 = QPointF(params["gear2_x"], params["gear2_y"])
+
+    editor._on_gear_center_moved("gear1", QPointF(20.0, 10.0))
+
+    assert params["gear1_x"] == pytest.approx(20.0)
+    assert params["gear1_y"] == pytest.approx(10.0)
+    assert params["gear2_x"] == pytest.approx(original_gear2.x())
+    assert params["gear2_y"] == pytest.approx(original_gear2.y())
+    assert editor.handles["gear2_center"].scenePos().x() == pytest.approx(original_gear2.x())
+    assert editor.handles["gear2_center"].scenePos().y() == pytest.approx(original_gear2.y())
+
+
+def test_gear_center_drag_persists_scene_key_points_for_foundry_style_layer(qapp):
+    scene = QGraphicsScene()
+    editor = GearEditor("gear_transform_test", scene)
+    editor.to_scene_coords = lambda arr: QPointF(float(arr[0]) * 2.0, float(arr[1]) * 2.0)
+    editor.to_mech_coords = lambda arr: np.array([float(arr[0]) / 2.0, float(arr[1]) / 2.0])
+    mechanism_data = {
+        "type": "gear",
+        "generated_path": None,
+        "params": {
+            "gear1_x": 0.0,
+            "gear1_y": 0.0,
+            "gear2_x": 100.0,
+            "gear2_y": 0.0,
+            "gear1_radius": 40.0,
+            "gear2_radius": 60.0,
+        },
+        "key_points": {},
+    }
+    editor.create_handles(mechanism_data)
+
+    editor._on_gear_center_moved("gear1", QPointF(100.0, 40.0))
+
+    assert editor.mechanism_data["params"]["gear1_x"] == pytest.approx(100.0)
+    assert editor.mechanism_data["params"]["gear1_y"] == pytest.approx(40.0)
+    assert editor.mechanism_data["key_points"]["gear1_center"] == pytest.approx([100.0, 40.0])
+
+
 def test_gear_radius_drag_updates_radius_aliases_and_handle_constraints(qapp):
     editor = _create_gear_editor()
 
@@ -95,9 +196,9 @@ def test_gear_radius_drag_updates_radius_aliases_and_handle_constraints(qapp):
     editor._on_gear_radius_changed("gear2", QPointF(gear2_center.x() + 102.0, gear2_center.y()))
 
     params = editor.mechanism_data["params"]
-    assert params["gear2_radius"] == pytest.approx(70.0)
-    assert params["gear2_teeth"] == 56
-    assert params["r2"] == pytest.approx(70.0)
+    assert params["gear2_radius"] == pytest.approx(102.0)
+    assert params["gear2_teeth"] == 48
+    assert params["r2"] == pytest.approx(102.0)
 
     center = QPointF(params["gear2_x"], params["gear2_y"])
     radius_handle = editor.handles["gear2_radius"]
@@ -106,11 +207,8 @@ def test_gear_radius_drag_updates_radius_aliases_and_handle_constraints(qapp):
     assert radius_handle.constraints["center"].x() == pytest.approx(center.x())
     assert radius_handle.constraints["center"].y() == pytest.approx(center.y())
 
-    center1 = np.array([params["gear1_x"], params["gear1_y"]], dtype=float)
-    center2 = np.array([params["gear2_x"], params["gear2_y"]], dtype=float)
-    assert np.linalg.norm(center2 - center1) == pytest.approx(
-        params["gear1_radius"] + params["gear2_radius"] + params["gear_clearance"]
-    )
+    assert params["gear2_x"] == pytest.approx(140.0)
+    assert params["gear2_y"] == pytest.approx(0.0)
 
 
 def test_gear_editor_uses_profile_default_clearance(monkeypatch, qapp):

@@ -810,9 +810,9 @@ class EditorTab(QWidget):
 
         self.populate_parts_list(list(self.current_parts_info.keys()))
         self._update_button_states()
-        self.editor_view.reset_view()  # Set view to 100% zoom and center
+        self.editor_view.zoom_to_fit()
         logging.info(
-            f"EditorTab: Added {len(self.current_editor_items)} items to the scene and reset view to 100%."
+            f"EditorTab: Added {len(self.current_editor_items)} items to the scene and zoomed to fit."
         )
 
         self.parts_loaded.emit(True)
@@ -984,6 +984,8 @@ class EditorTab(QWidget):
 
         if hasattr(self, "_skeleton_ik_handler"):
             self._skeleton_ik_handler.cache_initial_skeleton(skeleton_data_dict)
+            if self.current_editor_items and self.editor_view:
+                self.editor_view.zoom_to_fit()
         else:
             logging.warning("SkeletonIKHandler not initialized, cannot cache skeleton")
 

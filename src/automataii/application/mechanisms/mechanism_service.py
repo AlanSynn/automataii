@@ -15,6 +15,8 @@ from typing import Any
 
 import numpy as np
 
+from automataii.domain.animation.part_definitions import BODY_PARTS
+
 
 class MechanismService:
     """Service for handling mechanism business logic."""
@@ -49,7 +51,9 @@ class MechanismService:
             return False
 
         part_info = parts_data[part_name]
-        anchor_joint_id = part_info.anchor_joint_id
+        anchor_joint_id = part_info.anchor_joint_id or BODY_PARTS.get(part_name, {}).get(
+            "anchor_joint"
+        )
 
         # Get the target joint position from cached skeleton data
         if initial_skeleton_data_cache and anchor_joint_id in initial_skeleton_data_cache.get(
@@ -112,7 +116,9 @@ class MechanismService:
             return False
 
         part_info = parts_data[part_name]
-        anchor_joint_id = part_info.anchor_joint_id
+        anchor_joint_id = part_info.anchor_joint_id or BODY_PARTS.get(part_name, {}).get(
+            "anchor_joint"
+        )
 
         # Get the target joint position from cached skeleton data
         if initial_skeleton_data_cache and anchor_joint_id in initial_skeleton_data_cache.get(

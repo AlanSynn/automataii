@@ -165,6 +165,20 @@ class ParametricEditor(QObject):
             if self.active_editor == editor:
                 self.active_editor = None
 
+    def remove_all_editors(self) -> None:
+        """Remove every editor and handle from the scene."""
+        if self._pending_updates:
+            if self._update_timer.isActive():
+                self._update_timer.stop()
+            self._process_updates()
+
+        for mechanism_id in list(self.editors):
+            self.remove_editor(mechanism_id)
+        self.active_editor = None
+        self._pending_updates.clear()
+        if self._update_timer.isActive():
+            self._update_timer.stop()
+
     def set_active_editor(self, mechanism_id: str | None) -> None:
         """Set the active editor for the selected mechanism."""
         logging.info(f"[PARAMETRIC-EDITOR] Setting active editor to: {mechanism_id}")

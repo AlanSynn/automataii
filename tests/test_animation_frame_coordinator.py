@@ -77,6 +77,37 @@ def test_update_frame_allows_origin_output_points() -> None:
     path_trace_manager.update_trace.assert_called_once()
 
 
+def test_update_frame_uses_body_part_anchor_fallback_for_ik_target() -> None:
+    coordinator = AnimationFrameCoordinator()
+    seen_anchor: list[str] = []
+    coordinator.configure_callbacks(
+        calculate_output=lambda _t, _p, _time, _layer: QPointF(5.0, 6.0),
+        get_target_joint=lambda _part, anchor: seen_anchor.append(anchor) or "left_elbow",
+        get_standardized_joint=lambda joint_id: joint_id,
+        update_visuals=lambda _id, _time, _layer: None,
+        stop_timer=lambda: None,
+    )
+    ik_manager = MagicMock()
+
+    coordinator.update_frame(
+        tab_active=True,
+        mechanism_layers={
+            "mech_1": {"part_name": "left_arm_upper", "type": "4_bar_linkage", "params": {}}
+        },
+        part_enabled_state={"left_arm_upper": True},
+        parts_data={"left_arm_upper": SimpleNamespace(anchor_joint_id=None)},
+        ik_manager=ik_manager,
+        path_trace_manager=MagicMock(),
+        scene=MagicMock(),
+        initial_skeleton_cache=None,
+    )
+
+    assert seen_anchor == ["left_shoulder"]
+    ik_manager.set_mechanism_position_target.assert_called_once_with(
+        "left_elbow", QPointF(5.0, 6.0)
+    )
+
+
 def test_mechanism_id_cache_refreshes_same_dict_same_length_key_replacement() -> None:
     coordinator = AnimationFrameCoordinator()
     mechanism_layers = {"old": {"type": "4_bar_linkage"}}

@@ -8,7 +8,7 @@ from automataii.presentation.qt.tabs.mechanism_design.services.character_rebind_
 
 
 def _part(
-    anchor_joint_id: str,
+    anchor_joint_id: str | None,
     x: float = 0.0,
     y: float = 0.0,
     roi_extent: float | None = None,
@@ -124,6 +124,37 @@ def test_rebind_falls_back_to_torso_when_no_name_match() -> None:
     assert result.failed_ids == []
     assert result.changed_ids == ["random_mechanism"]
     assert mechanism_layers["random_mechanism"]["part_name"] == "torso"
+
+
+def test_rebind_uses_body_part_anchor_fallback() -> None:
+    service = MechanismCharacterRebindService(scene_to_mech=lambda _layer, pos: pos)
+    mechanism_layers = {
+        "left_arm_upper_linkage": {
+            "type": "4_bar_linkage",
+            "part_name": "left_arm_upper",
+            "params": {
+                "l1": 100.0,
+                "l2": 40.0,
+                "l3": 120.0,
+                "l4": 130.0,
+                "ground_pivot_1": [0.0, 0.0],
+                "ground_pivot_2": [100.0, 0.0],
+            },
+            "key_points": {
+                "ground_pivot_1": [0.0, 0.0],
+                "ground_pivot_2": [100.0, 0.0],
+            },
+        }
+    }
+    parts_data = {"left_arm_upper": _part(None)}
+    skeleton_cache = {"joints": {"left_shoulder_7": {"position": [300.0, 200.0]}}}
+
+    result = service.rebind_all(mechanism_layers, parts_data, skeleton_cache)
+
+    assert result.failed_ids == []
+    params = mechanism_layers["left_arm_upper_linkage"]["params"]
+    assert (params["ground_pivot_1"][0] + params["ground_pivot_2"][0]) / 2.0 == 300.0
+    assert (params["ground_pivot_1"][1] + params["ground_pivot_2"][1]) / 2.0 == 200.0
 
 
 def test_rebind_linkage_rescales_when_target_part_extent_is_very_different() -> None:

@@ -25,6 +25,7 @@ from automataii.config.z_indices import (
 from automataii.config.z_indices import (
     Z_SELECTION_HIGHLIGHT as Z_ITEM_SELECTION_HIGHLIGHT,
 )
+from automataii.domain.animation.part_definitions import BODY_PARTS
 from automataii.presentation.qt.models import PartInfo
 
 # Constants for hover effects
@@ -68,7 +69,9 @@ class CharacterPartItem(QGraphicsPixmapItem):
         self.part_pixmap: QPixmap | None = None
         self._bounding_rect_local: QRectF = QRectF()
         self.anchor_offset: QPointF = QPointF()
-        self.anchor_joint_id: str | None = part_info.anchor_joint_id
+        self.anchor_joint_id: str | None = part_info.anchor_joint_id or BODY_PARTS.get(
+            part_info.name, {}
+        ).get("anchor_joint")
         self.end_effector_offset: QPointF | None = None  # IK end effector point
         self.parent_item_name: str | None = None  # Parent part name for IK chain
 
@@ -405,15 +408,16 @@ class CharacterPartItem(QGraphicsPixmapItem):
                 )
                 return  # Reject position change that would violate skeleton constraints
 
-        # Given that self.transformOriginPoint is self.anchor_offset,
-        # and item.setRotation() rotates around this transformOriginPoint.
-        # The vector from the item's origin (0,0) to its anchor_offset,
-        # when transformed by rotation and scale around the anchor_offset itself,
-        # effectively results in the anchor_offset (in its new orientation)
-        # being at self.anchor_offset relative to the item's origin, if the item's origin were (0,0).
-        # Thus, item.pos() + self.anchor_offset (in the scene's rotated sense) should be scene_anchor_pos.
-        # This simplifies to: item.pos() = scene_anchor_pos - self.anchor_offset
-        new_pos = scene_anchor_pos - self.anchor_offset
+        current_anchor_scene_pos = self.mapToScene(self.anchor_offset)
+        parent_item = self.parentItem()
+        if parent_item:
+            current_anchor_pos = self.mapToParent(self.anchor_offset)
+            target_anchor_pos = parent_item.mapFromScene(scene_anchor_pos)
+        else:
+            current_anchor_pos = current_anchor_scene_pos
+            target_anchor_pos = scene_anchor_pos
+
+        new_pos = self.pos() + (target_anchor_pos - current_anchor_pos)
         self.setPos(new_pos)
 
         # Update selection highlight position if it's visible

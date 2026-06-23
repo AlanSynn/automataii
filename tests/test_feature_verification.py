@@ -411,7 +411,9 @@ class TestProductionBranding:
             current_tab = window.tab_widget.currentWidget()
             assert current_tab is window.image_proc_tab
             assert current_tab.objectName() == "tab_character_selection"
-            assert window.tab_widget.tabText(window.tab_widget.currentIndex()) == "Character Selection"
+            assert (
+                window.tab_widget.tabText(window.tab_widget.currentIndex()) == "Character Selection"
+            )
         finally:
             window.close()
         assert app is not None
@@ -447,6 +449,9 @@ class TestProductionBranding:
             assert window._grid_pitch_choice == "2_5cm"
             assert window._grid_cell_size_cm == 2.5
             assert window.editor_tab.editor_view.grid_cell_size_cm == 2.5
+            assert window.image_proc_tab.image_proc_view.grid_cell_size_cm == 2.5
+            assert window.editor_tab.editor_view._grid_spacing_scene_units()[0] == 25.0
+            assert window.image_proc_tab.image_proc_view._grid_spacing_scene_units()[0] == 25.0
 
             dialog.close()
             app.processEvents()

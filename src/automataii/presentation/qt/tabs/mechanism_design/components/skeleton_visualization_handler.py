@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING, Any
 
 from PyQt6.QtCore import QObject, QPointF, pyqtSignal, pyqtSlot
 
+from automataii.domain.animation.part_definitions import BODY_PARTS
+
 if TYPE_CHECKING:
     from PyQt6.QtWidgets import QGraphicsScene
 
@@ -375,10 +377,17 @@ class SkeletonVisualizationHandler(QObject):
         parts_updated_count = 0
         for part_name, part_item in current_editor_items.items():
             part_info = parts_data.get(part_name)
-            if not part_info or not part_info.anchor_joint_id:
+            if not part_info:
                 continue
 
-            anchor_joint_id = part_info.anchor_joint_id
+            anchor_joint_id = (
+                getattr(part_info, "anchor_joint_id", None)
+                or getattr(part_item, "anchor_joint_id", None)
+                or BODY_PARTS.get(part_name, {}).get("anchor_joint")
+            )
+            if not anchor_joint_id:
+                continue
+
             # Use prefix matching to find the actual joint ID
             matched_joint_id = self._find_matching_joint_id(anchor_joint_id, joints_dict)
             if not matched_joint_id:

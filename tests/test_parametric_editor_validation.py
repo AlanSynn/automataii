@@ -90,6 +90,65 @@ def test_handle_callback_queues_update_even_when_mechanism_callback_raises(qapp)
     assert "mechanism_1" in editor._pending_updates
 
 
+def test_remove_all_editors_removes_parametric_handles_from_scene(qapp):
+    scene = QGraphicsScene()
+    editor = ParametricEditor(scene)
+    assert editor.create_editor(
+        "fourbar_1",
+        {
+            "type": "4_bar_linkage",
+            "params": {
+                "anchor1_x": 0.0,
+                "anchor1_y": 0.0,
+                "anchor2_x": 200.0,
+                "anchor2_y": 0.0,
+                "crank_x": 50.0,
+                "crank_y": 0.0,
+                "rocker_x": 150.0,
+                "rocker_y": 0.0,
+            },
+        },
+    )
+    assert scene.items()
+
+    editor.remove_all_editors()
+
+    assert editor.editors == {}
+    assert editor.active_editor is None
+    assert scene.items() == []
+
+
+def test_remove_all_editors_flushes_pending_update_before_teardown(qapp):
+    scene = QGraphicsScene()
+    editor = ParametricEditor(scene)
+    assert editor.create_editor(
+        "fourbar_1",
+        {
+            "type": "4_bar_linkage",
+            "params": {
+                "anchor1_x": 0.0,
+                "anchor1_y": 0.0,
+                "anchor2_x": 200.0,
+                "anchor2_y": 0.0,
+                "crank_x": 50.0,
+                "crank_y": 0.0,
+                "rocker_x": 150.0,
+                "rocker_y": 0.0,
+            },
+        },
+    )
+    emitted: list[tuple[str, dict]] = []
+    editor.mechanism_updated.connect(lambda mech_id, params: emitted.append((mech_id, params)))
+    editor._queue_update("fourbar_1")
+
+    editor.remove_all_editors()
+
+    assert emitted
+    assert emitted[0][0] == "fourbar_1"
+    assert emitted[0][1]["crank_x"] == pytest.approx(50.0)
+    assert editor.editors == {}
+
+
 def test_validation_ignores_malformed_fourbar_fallback_params_when_handles_missing(qapp):
     editor = ParametricEditor(QGraphicsScene())
     fourbar_editor = editor.create_editor(

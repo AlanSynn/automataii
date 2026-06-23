@@ -22,6 +22,8 @@ from typing import TYPE_CHECKING, Any
 
 from PyQt6.QtCore import QElapsedTimer, QObject, QPointF, QTimer, pyqtSignal
 
+from automataii.domain.animation.part_definitions import BODY_PARTS
+
 if TYPE_CHECKING:
     from PyQt6.QtWidgets import QGraphicsScene
 
@@ -691,13 +693,12 @@ class AnimationLifecycleController(QObject):
                         f"has anchor_joint_id={hasattr(part_info, 'anchor_joint_id') if part_info else False}, "
                         f"anchor_joint_id={getattr(part_info, 'anchor_joint_id', None) if part_info else None}"
                     )
-                    if (
-                        part_info
-                        and hasattr(part_info, "anchor_joint_id")
-                        and part_info.anchor_joint_id
-                    ):
+                    anchor_joint_id = getattr(part_info, "anchor_joint_id", None) or BODY_PARTS.get(
+                        part_name, {}
+                    ).get("anchor_joint")
+                    if part_info and anchor_joint_id:
                         target_joint_id = self._get_target_joint_for_mechanism_control(
-                            part_name, part_info.anchor_joint_id
+                            part_name, anchor_joint_id
                         )
                         logging.debug(f"[ANIM-IK] target_joint_id returned: '{target_joint_id}'")
 

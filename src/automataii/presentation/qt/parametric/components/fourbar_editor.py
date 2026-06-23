@@ -117,35 +117,12 @@ class FourBarEditor(MechanismEditor):
         if handle_id in ["anchor1", "anchor2"]:
             return {}
 
-        constraints: dict[str, Any] = {
+        return {
             "min_x": -2000,
             "max_x": 2000,
             "min_y": -2000,
             "max_y": 2000,
         }
-
-        if handle_id == "crank":
-            if "anchor1" in self.handles:
-                anchor_pos = self.handles["anchor1"].scenePos()
-                crank_pos = self._calculate_crank_position(
-                    anchor_pos, self.mechanism_data.get("params", {})
-                )
-                constraints["fixed_distance"] = {
-                    "anchor": anchor_pos,
-                    "distance": self._scene_distance(anchor_pos, crank_pos),
-                }
-        elif handle_id == "rocker":
-            if "anchor2" in self.handles:
-                anchor_pos = self.handles["anchor2"].scenePos()
-                rocker_pos = self._calculate_rocker_position(
-                    anchor_pos, self.mechanism_data.get("params", {})
-                )
-                constraints["fixed_distance"] = {
-                    "anchor": anchor_pos,
-                    "distance": self._scene_distance(anchor_pos, rocker_pos),
-                }
-
-        return constraints
 
     @staticmethod
     def _scene_distance(p1: QPointF, p2: QPointF) -> float:
@@ -158,22 +135,11 @@ class FourBarEditor(MechanismEditor):
         return math.isfinite(point.x()) and math.isfinite(point.y())
 
     def _sync_length_constraints(self) -> None:
-        """Keep crank/rocker fixed-distance constraints in sync with live handle positions."""
-        if "anchor1" in self.handles and "crank" in self.handles:
-            anchor1 = self.handles["anchor1"].scenePos()
-            crank = self.handles["crank"].scenePos()
-            self.handles["crank"].constraints["fixed_distance"] = {
-                "anchor": anchor1,
-                "distance": self._scene_distance(anchor1, crank),
-            }
-
-        if "anchor2" in self.handles and "rocker" in self.handles:
-            anchor2 = self.handles["anchor2"].scenePos()
-            rocker = self.handles["rocker"].scenePos()
-            self.handles["rocker"].constraints["fixed_distance"] = {
-                "anchor": anchor2,
-                "distance": self._scene_distance(anchor2, rocker),
-            }
+        """Drop legacy fixed-distance projections; drags are authoritative."""
+        for handle_id in ("crank", "rocker"):
+            handle = self.handles.get(handle_id)
+            if handle is not None:
+                handle.constraints.pop("fixed_distance", None)
 
     def _calculate_crank_position(self, anchor1: QPointF, params: dict[str, Any]) -> QPointF:
         """Calculate crank joint position in scene coordinates."""
@@ -353,6 +319,8 @@ class FourBarEditor(MechanismEditor):
     def _on_rocker_moved(self, handle_id: str, new_pos: QPointF) -> None:
         """Handle rocker joint movement."""
         anchor2 = self.handles["anchor2"].scenePos()
+        params = self.mechanism_data["params"]
+        last_valid_pos = self._calculate_rocker_position(anchor2, params)
         dx = new_pos.x() - anchor2.x()
         dy = new_pos.y() - anchor2.y()
 
@@ -367,16 +335,25 @@ class FourBarEditor(MechanismEditor):
             angle = math.degrees(math.atan2(dy_mech, dx_mech))
             length = math.hypot(dx_mech, dy_mech)
 
-        self.mechanism_data["params"]["rocker_angle"] = angle
-        self.mechanism_data["params"]["l4"] = length
-        self.mechanism_data["params"]["L4"] = length
-        self.mechanism_data["params"]["rocker_x"] = new_pos.x()
-        self.mechanism_data["params"]["rocker_y"] = new_pos.y()
+        if not self._is_finite_scene_point(new_pos) or not math.isfinite(length) or length <= 1e-9:
+            self.handles["rocker"].setPos(last_valid_pos)
+            self._sync_length_constraints()
+            logging.debug(
+                "Rejected degenerate 4-bar rocker drag for %s; restored last valid position",
+                self.mechanism_id,
+            )
+            return
+
+        params["rocker_angle"] = angle
+        params["l4"] = length
+        params["L4"] = length
+        params["rocker_x"] = new_pos.x()
+        params["rocker_y"] = new_pos.y()
 
         mech = self._to_mech(new_pos)
         if mech is not None:
-            self.mechanism_data["params"]["m_rocker_x"] = mech[0]
-            self.mechanism_data["params"]["m_rocker_y"] = mech[1]
+            params["m_rocker_x"] = mech[0]
+            params["m_rocker_y"] = mech[1]
             self._reproject_handle("rocker", mech)
         self._sync_length_constraints()
         self._clear_stale_angle_bounds()

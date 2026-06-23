@@ -12,6 +12,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from automataii.domain.animation.part_definitions import BODY_PARTS
+
 from .character_rebind_matcher import resolve_part_scene_fallback, resolve_target_part_name
 
 SceneToMechFn = Callable[[dict[str, Any], tuple[float, float]], tuple[float, float] | None]
@@ -105,7 +107,9 @@ class MechanismCharacterRebindService:
         target_part_name = resolve_target_part_name(mechanism_id, layer_data, parts_data)
 
         part_info = parts_data.get(target_part_name)
-        anchor_joint_id = getattr(part_info, "anchor_joint_id", None)
+        anchor_joint_id = getattr(part_info, "anchor_joint_id", None) or BODY_PARTS.get(
+            target_part_name, {}
+        ).get("anchor_joint")
 
         scene_pos = self._resolve_joint_scene_position(anchor_joint_id, skeleton_cache)
         if scene_pos is None:

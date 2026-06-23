@@ -48,15 +48,11 @@ def _create_editor_with_scaled_transform() -> FourBarEditor:
     return editor
 
 
-def test_fourbar_crank_constraint_uses_scene_distance(qapp):
+def test_fourbar_crank_drag_is_not_fixed_distance_projected(qapp):
     editor = _create_editor_with_scaled_transform()
-    anchor = editor.handles["anchor1"].scenePos()
-    crank = editor.handles["crank"].scenePos()
-    expected = math.hypot(crank.x() - anchor.x(), crank.y() - anchor.y())
 
-    constraint = editor.handles["crank"].constraints["fixed_distance"]["distance"]
-    assert constraint == pytest.approx(expected, rel=1e-6)
-    assert constraint == pytest.approx(80.0, rel=1e-6)
+    assert "fixed_distance" not in editor.handles["crank"].constraints
+    assert "fixed_distance" not in editor.handles["rocker"].constraints
 
 
 def test_fourbar_crank_move_updates_mechanism_length_under_transform(qapp):
@@ -71,9 +67,10 @@ def test_fourbar_crank_move_updates_mechanism_length_under_transform(qapp):
     assert params["L2"] == pytest.approx(60.0, rel=1e-6)
     assert params["crank_angle"] == pytest.approx(0.0, rel=1e-6)
     assert params["input_angle"] == pytest.approx(0.0, rel=1e-6)
-    assert editor.handles["crank"].constraints["fixed_distance"]["distance"] == pytest.approx(
-        120.0, rel=1e-6
-    )
+    assert params["crank_x"] == pytest.approx(new_scene_pos.x(), rel=1e-6)
+    assert params["crank_y"] == pytest.approx(new_scene_pos.y(), rel=1e-6)
+    assert editor.handles["crank"].scenePos().x() == pytest.approx(new_scene_pos.x(), rel=1e-6)
+    assert "fixed_distance" not in editor.handles["crank"].constraints
 
 
 def test_fourbar_degenerate_crank_drag_preserves_last_valid_state(qapp):
@@ -93,7 +90,6 @@ def test_fourbar_degenerate_crank_drag_preserves_last_valid_state(qapp):
         "m_crank_y": params.get("m_crank_y"),
     }
     original_pos = editor.handles["crank"].scenePos()
-    original_constraint = editor.handles["crank"].constraints["fixed_distance"]["distance"]
     anchor = editor.handles["anchor1"].scenePos()
 
     editor.handles["crank"].setPos(anchor)
@@ -107,21 +103,20 @@ def test_fourbar_degenerate_crank_drag_preserves_last_valid_state(qapp):
     assert params.get("m_crank_y") == pytest.approx(original["m_crank_y"], rel=1e-6)
     assert editor.handles["crank"].scenePos().x() == pytest.approx(original_pos.x(), rel=1e-6)
     assert editor.handles["crank"].scenePos().y() == pytest.approx(original_pos.y(), rel=1e-6)
-    assert editor.handles["crank"].constraints["fixed_distance"]["distance"] == pytest.approx(
-        original_constraint, rel=1e-6
-    )
+    assert "fixed_distance" not in editor.handles["crank"].constraints
 
 
-def test_fourbar_anchor_move_refreshes_constraint_anchor(qapp):
+def test_fourbar_anchor_move_keeps_drag_handles_free(qapp):
     editor = _create_editor_with_scaled_transform()
     new_anchor = QPointF(20.0, 10.0)
 
     editor.handles["anchor1"].setPos(new_anchor)
     editor._on_anchor1_moved("anchor1", new_anchor)
 
-    constraint_anchor = editor.handles["crank"].constraints["fixed_distance"]["anchor"]
-    assert constraint_anchor.x() == pytest.approx(new_anchor.x(), rel=1e-6)
-    assert constraint_anchor.y() == pytest.approx(new_anchor.y(), rel=1e-6)
+    params = editor.mechanism_data["params"]
+    assert params["anchor1_x"] == pytest.approx(new_anchor.x(), rel=1e-6)
+    assert params["anchor1_y"] == pytest.approx(new_anchor.y(), rel=1e-6)
+    assert "fixed_distance" not in editor.handles["crank"].constraints
 
 
 def test_fourbar_coupler_drag_without_transform_updates_coupler_offset(qapp):
@@ -241,6 +236,73 @@ def test_fourbar_regeneration_starts_at_dragged_crank_position(qapp):
     assert params["crank_angle"] == pytest.approx(math.degrees(math.atan2(30.0, 60.0)))
     assert params["crank_x"] == pytest.approx(120.0, rel=1e-6)
     assert params["crank_y"] == pytest.approx(60.0, rel=1e-6)
+
+
+def test_fourbar_regeneration_preserves_explicit_scene_handle_positions(qapp):
+    manager = _create_manager_with_scaled_transform()
+    params = {
+        "anchor1_x": 0.0,
+        "anchor1_y": 0.0,
+        "anchor2_x": 200.0,
+        "anchor2_y": 0.0,
+        "crank_x": 120.0,
+        "crank_y": 60.0,
+        "rocker_x": 140.0,
+        "rocker_y": -80.0,
+        "L2": math.hypot(60.0, 30.0),
+        "L3": math.hypot(10.0, -70.0),
+        "L4": math.hypot(-30.0, -40.0),
+        "l2": math.hypot(60.0, 30.0),
+        "l3": math.hypot(10.0, -70.0),
+        "l4": math.hypot(-30.0, -40.0),
+        "crank_angle": 0.0,
+    }
+    layer_data = {
+        "type": "4_bar_linkage",
+        "params": params,
+        "transform_params": {"scale": 2.0},
+    }
+
+    manager._regenerate_4bar_simulation(layer_data, params)
+
+    assert params["crank_x"] == pytest.approx(120.0, rel=1e-6)
+    assert params["crank_y"] == pytest.approx(60.0, rel=1e-6)
+    assert params["rocker_x"] == pytest.approx(140.0, rel=1e-6)
+    assert params["rocker_y"] == pytest.approx(-80.0, rel=1e-6)
+    assert layer_data["key_points"]["crank_end"] == pytest.approx([120.0, 60.0], rel=1e-6)
+    assert layer_data["key_points"]["rocker_end"] == pytest.approx([140.0, -80.0], rel=1e-6)
+
+
+def test_fourbar_regeneration_prefers_scene_handles_over_stale_mech_aliases(qapp):
+    manager = _create_manager_with_scaled_transform()
+    params = {
+        "anchor1_x": 0.0,
+        "anchor1_y": 0.0,
+        "anchor2_x": 200.0,
+        "anchor2_y": 0.0,
+        "crank_x": 120.0,
+        "crank_y": 60.0,
+        "rocker_x": 140.0,
+        "rocker_y": -80.0,
+        "m_crank_x": 999.0,
+        "m_crank_y": 999.0,
+        "m_rocker_x": 888.0,
+        "m_rocker_y": 888.0,
+        "crank_angle": 0.0,
+    }
+    layer_data = {
+        "type": "4_bar_linkage",
+        "params": params,
+        "transform_params": {"scale": 2.0},
+    }
+
+    manager._regenerate_4bar_simulation(layer_data, params)
+
+    assert layer_data["key_points"]["crank_end"] == pytest.approx([120.0, 60.0], rel=1e-6)
+    assert layer_data["key_points"]["rocker_end"] == pytest.approx([140.0, -80.0], rel=1e-6)
+    assert params["l2"] == pytest.approx(math.hypot(60.0, 30.0), rel=1e-6)
+    assert params["l3"] == pytest.approx(math.hypot(10.0, -70.0), rel=1e-6)
+    assert params["l4"] == pytest.approx(math.hypot(-30.0, -40.0), rel=1e-6)
 
 
 def test_fourbar_regeneration_prefers_dragged_rocker_branch(qapp):

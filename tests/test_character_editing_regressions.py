@@ -1,6 +1,7 @@
 import sys
 from types import SimpleNamespace
 
+import numpy as np
 from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QColor, QPixmap
 from PyQt6.QtWidgets import QApplication, QGraphicsScene
@@ -87,6 +88,25 @@ def test_character_recognition_manual_editor_is_visible_without_debug_mode() -> 
     assert tab.manual_segmentation_btn.isEnabled() is False
     assert tab.edit_skeleton_btn.text() == "Edit Skeleton Joints"
     assert tab.save_skeleton_btn.text() == "Save Skeleton"
+
+
+def test_manual_part_metadata_sets_anchor_pivot_for_custom_parts(tmp_path) -> None:
+    tab = SimpleNamespace(
+        character_dir=str(tmp_path),
+        _manual_part_metadata={
+            "part_anchor_joints": {"tail": "tail_base"},
+            "joint_positions": {"tail_base": (5.0, 6.0)},
+        },
+    )
+    mask = np.zeros((10, 10), dtype=np.uint8)
+    mask[2:8, 1:9] = 255
+    original_image = np.zeros((10, 10, 3), dtype=np.uint8)
+
+    part_info = ImageProcessingTab._extract_part_info_from_mask(tab, "tail", mask, original_image)
+
+    assert part_info["anchor_joint_id"] == "tail_base"
+    assert part_info["local_pivot_offset"] == [4.0, 4.0]
+    assert (tmp_path / "manual_parts" / "tail.png").exists()
 
 
 def test_image_processing_tab_clear_display_forgets_loaded_image(tmp_path) -> None:

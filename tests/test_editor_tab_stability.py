@@ -11,6 +11,7 @@ from PyQt6.QtGui import QMouseEvent, QPainterPath, QPixmap
 from PyQt6.QtWidgets import QApplication, QGraphicsScene
 
 from automataii.domain.project.models import PartInfoModel
+from automataii.presentation.qt.graphics_items.part_item import CharacterPartItem
 from automataii.presentation.qt.models import PartInfo
 from automataii.presentation.qt.tabs.editor.components.motion_path_manager import MotionPathManager
 from automataii.presentation.qt.tabs.editor.components.skeleton_ik_handler import SkeletonIKHandler
@@ -381,6 +382,31 @@ def test_character_parts_are_locked_against_direct_dragging(tmp_path: Path) -> N
     item = tab.current_editor_items["head"]
 
     assert not item.is_user_movable()
+
+
+def test_part_anchor_positioning_respects_current_rotation(tmp_path: Path) -> None:
+    _ = _get_app()
+    part = _make_part(tmp_path)
+    scene = QGraphicsScene()
+    item = CharacterPartItem(part, tmp_path)
+    scene.addItem(item)
+    target = QPointF(123.0, 45.0)
+
+    item.setRotation(90.0)
+    item.set_scene_position_from_anchor(target, bypass_validation=True)
+
+    actual = item.get_anchor_point_scene_pos()
+    assert abs(actual.x() - target.x()) < 1e-6
+    assert abs(actual.y() - target.y()) < 1e-6
+
+
+def test_character_part_item_falls_back_to_body_part_anchor(tmp_path: Path) -> None:
+    _ = _get_app()
+    part = _make_part(tmp_path, name="left_arm_upper")
+
+    item = CharacterPartItem(part, tmp_path)
+
+    assert item.anchor_joint_id == "left_shoulder"
 
 
 def test_right_click_cancels_motion_path_instead_of_starting_pan(tmp_path: Path) -> None:

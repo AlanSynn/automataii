@@ -104,6 +104,26 @@ def test_position_parts_uses_prefixed_joint_and_scene_position() -> None:
     assert position_calls == [(12.0, 24.0)]
 
 
+def test_position_parts_falls_back_to_body_part_anchor() -> None:
+    service = SkeletonService()
+    part_item = SimpleNamespace(anchor_joint_id=None)
+    part_info = SimpleNamespace(anchor_joint_id=None)
+    position_calls: list[tuple[float, float]] = []
+
+    positioned = service.position_parts_at_anchor_joints(
+        current_editor_items={"left_arm_upper": part_item},
+        parts_data={"left_arm_upper": part_info},
+        initial_skeleton_data_cache={
+            "joint_map": {"left_shoulder": "left_shoulder_7"},
+            "joints": {"left_shoulder_7": {"position": [50.0, 60.0]}},
+        },
+        position_setter=lambda _item, pos: position_calls.append(pos),
+    )
+
+    assert positioned == 1
+    assert position_calls == [(50.0, 60.0)]
+
+
 def test_position_parts_skips_invalid_joint_coordinates() -> None:
     service = SkeletonService()
     part_item = SimpleNamespace()

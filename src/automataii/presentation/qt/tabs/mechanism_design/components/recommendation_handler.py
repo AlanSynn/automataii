@@ -16,6 +16,8 @@ from typing import TYPE_CHECKING, Any
 from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QPainterPath
 
+from automataii.domain.animation.part_definitions import BODY_PARTS
+
 if TYPE_CHECKING:
     from PyQt6.QtWidgets import QWidget
 
@@ -161,7 +163,9 @@ class RecommendationHandler:
             anchor_joint_id = None
 
             if part_info:
-                anchor_joint_id = getattr(part_info, "anchor_joint_id", None)
+                anchor_joint_id = getattr(part_info, "anchor_joint_id", None) or BODY_PARTS.get(
+                    part_name, {}
+                ).get("anchor_joint")
                 anchor_pos = getattr(part_info, "anchor_position", None)
                 if anchor_pos:
                     if isinstance(anchor_pos, QPointF):
@@ -283,7 +287,9 @@ class RecommendationHandler:
 
             # Add anchor information
             if part_info:
-                anchor_joint_id = getattr(part_info, "anchor_joint_id", None)
+                anchor_joint_id = getattr(part_info, "anchor_joint_id", None) or BODY_PARTS.get(
+                    part_name, {}
+                ).get("anchor_joint")
                 anchor_pos = getattr(part_info, "anchor_position", None)
 
                 mechanism_data["anchor_joint_id"] = anchor_joint_id

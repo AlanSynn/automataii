@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
 
 from automataii.application.mechanisms import MechanismService, SkeletonService
 from automataii.config.z_indices import Z_PART_DEFAULT, Z_SKELETON_OVERLAY
+from automataii.domain.animation.part_definitions import BODY_PARTS
 
 # New Visualization System
 try:
@@ -652,6 +653,7 @@ class MechanismDesignTab(QWidget):
                 self.mechanism_scene.addItem(item)
                 self.current_editor_items[part_name] = item
             self._position_parts_at_anchor_joints()
+            self.center_on_character()
 
         self._update_mechanism_layers_list()
         self._attempt_pending_character_rebind()
@@ -743,6 +745,8 @@ class MechanismDesignTab(QWidget):
         self._skeleton_handler.cache_initial_skeleton(skeleton_data_dict)
         self._initial_skeleton_data_cache = self._skeleton_handler.initial_skeleton_data_cache
         self._skeleton_cache_generation += 1
+        if self.current_editor_items and not self._is_animation_running():
+            self.center_on_character()
         self._attempt_pending_character_rebind()
 
     def set_animation_scheduler(self, scheduler) -> None:
@@ -1000,9 +1004,13 @@ class MechanismDesignTab(QWidget):
         if not part_info:
             return None
 
-        anchor_joint_id = getattr(part_info, "anchor_joint_id", None)
+        anchor_joint_id = getattr(part_info, "anchor_joint_id", None) or BODY_PARTS.get(
+            part_name, {}
+        ).get("anchor_joint")
         if isinstance(anchor_joint_id, str) and anchor_joint_id:
-            skeleton_cache = getattr(self, "initial_skeleton_cache", None)
+            skeleton_cache = getattr(self, "_initial_skeleton_data_cache", None) or getattr(
+                self, "initial_skeleton_cache", None
+            )
             joints = skeleton_cache.get("joints", {}) if isinstance(skeleton_cache, dict) else {}
             if isinstance(joints, dict) and joints:
                 joint_data = joints.get(anchor_joint_id)
