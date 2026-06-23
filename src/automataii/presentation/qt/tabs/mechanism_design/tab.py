@@ -898,6 +898,15 @@ class MechanismDesignTab(QWidget):
         if self.parts_data:
             return True
 
+        editor_parts = getattr(
+            getattr(self.main_window, "editor_tab", None), "current_parts_info", {}
+        )
+        if isinstance(editor_parts, dict) and editor_parts:
+            logging.info("Using current editor character for Foundry mechanism import.")
+            self.set_parts_data(dict(editor_parts), clear_mechanisms=False)
+            if self.parts_data:
+                return True
+
         logging.info("No character parts found. Auto-loading dummy character.")
         dummy_dir = self._resolve_dummy_character_dir()
         if (
@@ -1343,6 +1352,47 @@ class MechanismDesignTab(QWidget):
     def _clear_mechanism_for_part(self, part_name: str):
         """Clear mechanism for a part. Delegates to Presenter."""
         self._mvp_presenter._clear_mechanism_for_part(part_name)
+
+    def delete_selected_item(self) -> bool:
+        """Delete selected mechanism layer(s) and restore the character rest pose."""
+        part_name = self.selected_part_name
+        if self.mechanism_layers_list:
+            items = self.mechanism_layers_list.selectedItems()
+            if items:
+                part_name = str(items[0].data(Qt.ItemDataRole.UserRole) or "")
+
+        if part_name:
+            mechanism_ids = [
+                mech_id
+                for mech_id, layer_data in self.mechanism_layers.items()
+                if layer_data.get("part_name") == part_name
+            ]
+        else:
+            mechanism_ids = []
+        if not mechanism_ids and len(self.mechanism_layers) == 1:
+            mechanism_ids = list(self.mechanism_layers)
+        if not mechanism_ids:
+            return False
+
+        state_manager = getattr(self.main_window, "project_state_manager", None)
+        for mech_id in mechanism_ids:
+            layer_data = self.mechanism_layers.get(mech_id, {})
+            linked_part = str(layer_data.get("part_name") or part_name or "")
+            if linked_part:
+                self._clear_mechanism_for_part(linked_part)
+            else:
+                self._mvp_presenter.remove_mechanism_layer(mech_id)
+
+            if state_manager and state_manager.state.get_mechanism(mech_id):
+                state_manager.remove_mechanism(mech_id)
+
+        self._reset_character_rotations_to_world_zero()
+        self._restore_character_parts_to_initial_skeleton()
+        self._update_mechanism_layers_list()
+        self._update_all_ui_states()
+        if self.mechanism_scene:
+            self.mechanism_scene.update()
+        return True
 
     def _clear_mechanism_trace(self, mechanism_id: str) -> None:
         """Clear the path trace for a specific mechanism."""
@@ -2132,6 +2182,7 @@ class MechanismDesignTab(QWidget):
         self._update_all_ui_states()
         self.play_btn.setEnabled(True)
         self.reset_btn.setEnabled(True)
+        self._emit_mechanism_params_changed(mechanism_id)
 
         # Switch to Design tab
         if hasattr(self, "parent") and self.parent():

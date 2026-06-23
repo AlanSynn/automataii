@@ -390,13 +390,10 @@ class SkeletonGraphicsItem(QGraphicsObject):
         # Track used arrows to hide unused ones later
         used_parent_ids = set()
 
-        # Create arrows only for elbow/knee joints that have children
+        # Create arrows for every joint that has children so users can see the
+        # bend side one level above elbows/knees too.
         for parent_id, child_ids in self._hierarchy_cache.items():
             if not child_ids or parent_id not in self._joint_items:
-                continue
-
-            # Only show bend arrows for elbow/knee joints
-            if "elbow" not in parent_id.lower() and "knee" not in parent_id.lower():
                 continue
 
             parent_item = self._joint_items[parent_id]

@@ -19,6 +19,7 @@ from PyQt6.QtCore import (
 )
 from PyQt6.QtGui import (
     QColor,
+    QKeyEvent,
     QMouseEvent,
     QPainter,
     QPainterPath,
@@ -742,8 +743,10 @@ class EditorView(QGraphicsView):
         #     zoom_percentage = current_scale * 100
         #     self.hover_controls.set_zoom_level(zoom_percentage)
 
-    def keyPressEvent(self, event: QEvent):
+    def keyPressEvent(self, event: QKeyEvent | None) -> None:
         """Handle keyboard shortcuts."""
+        if event is None:
+            return
         if event.key() == Qt.Key.Key_Escape:
             if self.current_mode == "define_joint":
                 self._reset_joint_definition()
@@ -758,6 +761,12 @@ class EditorView(QGraphicsView):
             else:
                 super().keyPressEvent(event)
             return
+
+        if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            delete_selected = getattr(self.parent_window, "delete_selected_item", None)
+            if callable(delete_selected) and delete_selected():
+                event.accept()
+                return
 
         # Ctrl+0 for reset view
         if event.key() == Qt.Key.Key_0 and event.modifiers() & Qt.KeyboardModifier.ControlModifier:

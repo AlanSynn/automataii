@@ -44,6 +44,47 @@ class CachedPath:
     points: tuple[tuple[float, float], ...]
     angles: tuple[float, ...]
     timestamp: float
+    valid_angle_ranges: tuple[tuple[float, float], ...] = ()
+    is_closed_cycle: bool = True
+
+
+def select_angle_bounds(
+    valid_angle_ranges: tuple[tuple[float, float], ...],
+    preferred_angle: float,
+    *,
+    is_closed_cycle: bool = False,
+) -> tuple[float, float] | None:
+    """Pick the usable non-wrapping angle interval nearest the current UI angle."""
+    if is_closed_cycle:
+        return (0.0, 360.0)
+
+    ranges = tuple(
+        (float(start), float(end))
+        for start, end in valid_angle_ranges
+        if np.isfinite(start) and np.isfinite(end) and end >= start
+    )
+    if not ranges:
+        return None
+
+    angle = float(preferred_angle) % 360.0
+    angle_variants = (angle, angle - 360.0, angle + 360.0)
+    for start, end in ranges:
+        if any(start <= variant <= end for variant in angle_variants):
+            return (start, end)
+
+    return min(
+        ranges, key=lambda item: (_circular_distance_to_range(angle, item), -(item[1] - item[0]))
+    )
+
+
+def _circular_distance_to_range(angle: float, bounds: tuple[float, float]) -> float:
+    start, end = bounds
+    distances: list[float] = []
+    for variant in (angle, angle - 360.0, angle + 360.0):
+        if start <= variant <= end:
+            return 0.0
+        distances.extend((abs(variant - start), abs(variant - end)))
+    return min(distances)
 
 
 class PathCache:
@@ -63,7 +104,7 @@ class PathCache:
         return None
 
     def put(self, key: PathCacheKey, path: CachedPath) -> None:
-        estimated_size = len(path.points) * 2 * 8 + len(path.angles) * 8 + 8
+        estimated_size = self._estimate_size(path)
         existing = self._cache.pop(key, None)
         if existing is not None:
             self._current_size_bytes -= self._estimate_size(existing)
@@ -101,24 +142,42 @@ class PathCache:
         if cached:
             return cached
 
-        angles = tuple(float(angle) for angle in np.linspace(0, 360, angle_samples, endpoint=False))
-        points = []
+        sample_angles = tuple(
+            float(angle) for angle in np.linspace(0, 360, angle_samples, endpoint=False)
+        )
+        points: list[tuple[float, float]] = []
+        valid_angles: list[float] = []
+        valid_mask: list[bool] = []
 
-        for angle in angles:
+        for angle in sample_angles:
+            point: tuple[float, float] | None = None
             try:
                 state = mechanism.compute_state(params, angle)
                 position = state.positions.get(point_name)
-                if position is None or len(position) < 2:
-                    points.append((0.0, 0.0))
-                else:
-                    points.append((float(position[0]), float(position[1])))
+                if position is not None and len(position) >= 2 and self._is_usable_state(state):
+                    x = float(position[0])
+                    y = float(position[1])
+                    if np.isfinite(x) and np.isfinite(y):
+                        point = (x, y)
             except Exception:
-                points.append((0.0, 0.0))
+                point = None
+
+            valid_mask.append(point is not None)
+            if point is not None:
+                points.append(point)
+                valid_angles.append(angle)
+
+        valid_angle_ranges = self._valid_angle_ranges(sample_angles, valid_mask)
+        is_closed_cycle = len(valid_angles) == len(sample_angles)
+        if is_closed_cycle:
+            valid_angle_ranges = ((0.0, 360.0),)
 
         cached_path = CachedPath(
             points=tuple(points),
-            angles=angles,
+            angles=tuple(valid_angles),
             timestamp=time.time(),
+            valid_angle_ranges=valid_angle_ranges,
+            is_closed_cycle=is_closed_cycle,
         )
 
         self.put(key, cached_path)
@@ -136,7 +195,48 @@ class PathCache:
 
     @staticmethod
     def _estimate_size(path: CachedPath) -> int:
-        return len(path.points) * 2 * 8 + len(path.angles) * 8 + 8
+        return (
+            len(path.points) * 2 * 8
+            + len(path.angles) * 8
+            + len(path.valid_angle_ranges) * 2 * 8
+            + 8
+        )
+
+    @staticmethod
+    def _is_usable_state(state: object) -> bool:
+        safety = getattr(state, "safety_status", None)
+        level = getattr(safety, "level", None)
+        level_name = str(getattr(level, "name", level)).upper()
+        return level_name != "DANGER"
+
+    @staticmethod
+    def _valid_angle_ranges(
+        angles: tuple[float, ...],
+        valid_mask: list[bool],
+    ) -> tuple[tuple[float, float], ...]:
+        ranges: list[tuple[float, float]] = []
+        start: float | None = None
+        last: float | None = None
+
+        for angle, valid in zip(angles, valid_mask, strict=True):
+            if valid:
+                if start is None:
+                    start = angle
+                last = angle
+            elif start is not None and last is not None:
+                ranges.append((start, last))
+                start = None
+                last = None
+
+        if start is not None and last is not None:
+            ranges.append((start, last))
+
+        if len(ranges) > 1 and valid_mask[0] and valid_mask[-1]:
+            _first_start, first_end = ranges[0]
+            last_start, _last_end = ranges[-1]
+            ranges = [(last_start - 360.0, first_end), *ranges[1:-1]]
+
+        return tuple(ranges)
 
     @property
     def hit_rate(self) -> float:

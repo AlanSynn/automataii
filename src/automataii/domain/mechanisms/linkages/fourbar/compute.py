@@ -388,21 +388,6 @@ class FourBarMechanism(Mechanism):
         safety_level = SafetyLevel.SAFE
         safety_message = details["mechanism_class"]
 
-        # Only check error conditions if we suspect issues
-        if not details["grashof_condition"]:
-            if details["grashof_ratio"] > 1.1:
-                return SafetyStatus(
-                    SafetyLevel.DANGER,
-                    f"No continuous rotation possible (Grashof ratio: {details['grashof_ratio']:.2f})",
-                    details,
-                )
-            else:
-                return SafetyStatus(
-                    SafetyLevel.WARNING,
-                    f"Limited motion, no continuous rotation (Grashof ratio: {details['grashof_ratio']:.2f})",
-                    details,
-                )
-
         if distance_AO4 > max_reach_AB:
             return SafetyStatus(
                 SafetyLevel.DANGER,
@@ -421,6 +406,13 @@ class FourBarMechanism(Mechanism):
             return SafetyStatus(
                 SafetyLevel.DANGER,
                 f"Critical transmission angle: {transmission_angle:.1f}° (force transmission very poor)",
+                details,
+            )
+
+        if not details["grashof_condition"]:
+            return SafetyStatus(
+                SafetyLevel.WARNING,
+                f"Limited motion, no continuous rotation (Grashof ratio: {details['grashof_ratio']:.2f})",
                 details,
             )
 

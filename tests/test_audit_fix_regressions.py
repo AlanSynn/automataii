@@ -361,6 +361,74 @@ def test_mechanism_design_adapter_creates_ssot_mechanism_from_layer_context():
     assert state_manager.can_undo
 
 
+def test_mechanism_design_adapter_allows_unassigned_top_down_mechanism():
+    from automataii.application.project import ProjectStateManager
+    from automataii.application.project.adapters.mechanism_design import MechanismDesignTabAdapter
+
+    state_manager = ProjectStateManager()
+    adapter = MechanismDesignTabAdapter(state_manager)
+    adapter._tab = SimpleNamespace(
+        mechanism_layers={
+            "mech-1": {
+                "type": "4_bar_linkage",
+                "params": {"l1": 10},
+            }
+        }
+    )
+
+    adapter._on_mechanism_params_changed("mech-1", {"l1": 20})
+
+    mechanism = state_manager.state.get_mechanism("mech-1")
+    assert mechanism is not None
+    assert mechanism.part_name == ""
+
+
+def test_new_project_emits_empty_granular_state():
+    from automataii.application.project import PartData, ProjectStateManager
+
+    state_manager = ProjectStateManager()
+    state_manager.load_parts(
+        {
+            "head": PartData(
+                name="head",
+                texture_path="head.png",
+                mask_path="head.png",
+                anchor_joint="neck",
+            )
+        }
+    )
+    emitted_parts = []
+    state_manager.parts_changed.connect(emitted_parts.append)
+
+    state_manager.new_project()
+
+    assert emitted_parts[-1] == {}
+    assert not state_manager.is_dirty
+
+
+def test_mechanism_delete_selected_item_removes_single_unassigned_layer():
+    from automataii.presentation.qt.tabs.mechanism_design.tab import MechanismDesignTab
+
+    presenter = MagicMock()
+    tab_like = SimpleNamespace(
+        selected_part_name=None,
+        mechanism_layers={"mech-1": {"params": {}}},
+        mechanism_layers_list=None,
+        main_window=SimpleNamespace(project_state_manager=None),
+        _mvp_presenter=presenter,
+        _reset_character_rotations_to_world_zero=MagicMock(),
+        _restore_character_parts_to_initial_skeleton=MagicMock(),
+        _update_mechanism_layers_list=MagicMock(),
+        _update_all_ui_states=MagicMock(),
+        mechanism_scene=None,
+    )
+
+    assert MechanismDesignTab.delete_selected_item(tab_like) is True
+
+    presenter.remove_mechanism_layer.assert_called_once_with("mech-1")
+    tab_like._restore_character_parts_to_initial_skeleton.assert_called_once_with()
+
+
 def test_foundry_view_exposes_public_zoom_methods():
     from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
 

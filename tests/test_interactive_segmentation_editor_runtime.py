@@ -89,3 +89,16 @@ def test_interactive_segmentation_editor_list_skeleton_uses_shared_position_pars
 
     assert editor.joint_positions["left_shoulder"] == (10.5, 20.25)
     assert editor.joint_positions["right_elbow"] == (30.75, 40.5)
+
+
+def test_interactive_segmentation_editor_can_redefine_part_as_joint_box() -> None:
+    editor = SimpleNamespace(
+        selected_joints={"left_shoulder", "right_shoulder"},
+        joint_positions={"left_shoulder": (20.0, 30.0), "right_shoulder": (80.0, 40.0)},
+        image_width=100,
+        image_height=80,
+    )
+
+    points = InteractiveSegmentationEditor._current_joint_box_points(editor, padding=10)
+
+    assert points == [(10.0, 20.0), (90.0, 20.0), (90.0, 50.0), (10.0, 50.0)]

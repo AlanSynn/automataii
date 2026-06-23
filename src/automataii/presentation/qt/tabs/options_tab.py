@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QScrollArea,
     QSizePolicy,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -21,6 +22,10 @@ from automataii.shared.physical_kit import (
     physical_context_from_settings,
     physical_kit_preset_summary,
 )
+
+DEFAULT_AUTOSAVE_INTERVAL_SECONDS = 60
+MIN_AUTOSAVE_INTERVAL_SECONDS = 10
+MAX_AUTOSAVE_INTERVAL_SECONDS = 3600
 
 
 class OptionsTab(QWidget):
@@ -44,6 +49,7 @@ class OptionsTab(QWidget):
     gridPitchChoiceChanged = pyqtSignal(str)
     physicalContextChanged = pyqtSignal(object)
     blueprintExportFormatChanged = pyqtSignal(str)
+    autosaveSettingsChanged = pyqtSignal(bool, int)
 
     def __init__(
         self,
@@ -221,6 +227,29 @@ class OptionsTab(QWidget):
             "Show or hide the detailed step-by-step processing controls in the Character Selection tab."
         )
         workflow_layout.addRow(self.adv_proc_toggle_check)
+
+        self.autosave_enabled_check = QCheckBox("Enable Autosave")
+        self.autosave_enabled_check.setChecked(True)
+        self.autosave_enabled_check.setToolTip(
+            "Keep a lightweight recovery snapshot when the project has changed."
+        )
+
+        self.autosave_interval_spin = QSpinBox()
+        self.autosave_interval_spin.setRange(
+            MIN_AUTOSAVE_INTERVAL_SECONDS,
+            MAX_AUTOSAVE_INTERVAL_SECONDS,
+        )
+        self.autosave_interval_spin.setSingleStep(10)
+        self.autosave_interval_spin.setSuffix(" s")
+        self.autosave_interval_spin.setValue(DEFAULT_AUTOSAVE_INTERVAL_SECONDS)
+        self.autosave_interval_spin.setToolTip(
+            "Minimum time between autosaves. Unchanged projects are skipped."
+        )
+
+        self.autosave_enabled_check.toggled.connect(self._on_autosave_settings_changed)
+        self.autosave_interval_spin.valueChanged.connect(self._on_autosave_settings_changed)
+        workflow_layout.addRow(self.autosave_enabled_check)
+        workflow_layout.addRow("Autosave Interval:", self.autosave_interval_spin)
 
         self._add_group(layout, workflow_group)
 
@@ -416,6 +445,41 @@ class OptionsTab(QWidget):
             fmt = "pdf"
         self.blueprintExportFormatChanged.emit(fmt)
         self.setting_changed.emit("blueprint_export_format", fmt)
+
+    def _on_autosave_settings_changed(self, *_args: object) -> None:
+        enabled = self.autosave_enabled_check.isChecked()
+        interval_seconds = int(self.autosave_interval_spin.value())
+        self.autosave_interval_spin.setEnabled(enabled)
+        self.autosaveSettingsChanged.emit(enabled, interval_seconds)
+        self.setting_changed.emit(
+            "autosave_settings",
+            {"enabled": enabled, "interval_seconds": interval_seconds},
+        )
+
+    def set_autosave_settings_input(self, enabled: bool, interval_seconds: object) -> None:
+        previous_check = self.autosave_enabled_check.blockSignals(True)
+        previous_spin = self.autosave_interval_spin.blockSignals(True)
+        try:
+            self.autosave_enabled_check.setChecked(bool(enabled))
+            if isinstance(interval_seconds, int | str) and not isinstance(
+                interval_seconds,
+                bool,
+            ):
+                try:
+                    interval = int(interval_seconds)
+                except ValueError:
+                    interval = DEFAULT_AUTOSAVE_INTERVAL_SECONDS
+            else:
+                interval = DEFAULT_AUTOSAVE_INTERVAL_SECONDS
+            interval = min(
+                MAX_AUTOSAVE_INTERVAL_SECONDS,
+                max(MIN_AUTOSAVE_INTERVAL_SECONDS, interval),
+            )
+            self.autosave_interval_spin.setValue(interval)
+            self.autosave_interval_spin.setEnabled(bool(enabled))
+        finally:
+            self.autosave_interval_spin.blockSignals(previous_spin)
+            self.autosave_enabled_check.blockSignals(previous_check)
 
     def set_blueprint_export_format_input(self, fmt: str) -> None:
         normalized = str(fmt).strip().lower()

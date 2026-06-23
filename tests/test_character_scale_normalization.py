@@ -151,6 +151,8 @@ def test_blueprint_character_parts_use_assembled_bbox_and_emit_pivot_drill_holes
 
     assert "pivot-drill-hole" in by_name["torso"].svg_content
     assert 'data-hole-diameter-mm="4"' in by_name["torso"].svg_content
+    assert by_name["head"].group == "head_neck"
+    assert 'data-group="head_neck"' in by_name["head"].svg_content
     # If the scale is computed from isolated torso bounds, torso becomes almost
     # 300mm tall.  The assembled character bbox keeps it proportional.
     assert by_name["torso"].bounds.height < 240.0

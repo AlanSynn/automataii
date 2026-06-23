@@ -160,7 +160,13 @@ class ProjectSerializer:
     # SAVE OPERATIONS
     # =========================================================================
 
-    def save(self, state: ProjectState, path: Path) -> SaveResult:
+    def save(
+        self,
+        state: ProjectState,
+        path: Path,
+        *,
+        portable_assets: bool = True,
+    ) -> SaveResult:
         """
         Save project state to file.
 
@@ -182,8 +188,13 @@ class ProjectSerializer:
             if path.exists():
                 self._create_backup(path)
 
-            # Prepare a portable snapshot first (bundle image assets near the project file).
-            prepared_state = self._prepare_state_for_save(state, path)
+            # Full saves bundle assets; autosaves keep the current paths to avoid
+            # duplicating large image folders every interval.
+            prepared_state = (
+                self._prepare_state_for_save(state, path)
+                if portable_assets
+                else state.with_project_dir(path.parent)
+            )
             data = prepared_state.to_dict()
 
             # Ensure version is current
@@ -543,6 +554,7 @@ class AutoSaveManager:
         self._interval = self._normalize_interval(interval_seconds)
         self._last_save: datetime | None = None
         self._autosave_dir: Path | None = None
+        self._last_state_signature: str | None = None
 
     @classmethod
     def _normalize_interval(cls, interval_seconds: object) -> int:
@@ -563,12 +575,25 @@ class AutoSaveManager:
         self._autosave_dir = project_dir / self.AUTOSAVE_DIR_NAME
         self._autosave_dir.mkdir(exist_ok=True)
 
-    def should_save(self) -> bool:
-        """Check if enough time has passed for autosave."""
+    def set_interval(self, interval_seconds: object) -> None:
+        """Update the autosave throttle interval."""
+        self._interval = self._normalize_interval(interval_seconds)
+
+    @property
+    def interval_seconds(self) -> int:
+        """Current normalized autosave throttle interval."""
+        return self._interval
+
+    def should_save(self, state: ProjectState | None = None) -> bool:
+        """Check if enough time has passed and content changed for autosave."""
         if self._last_save is None:
             return True
         elapsed = (datetime.now() - self._last_save).total_seconds()
-        return elapsed >= self._interval
+        if elapsed < self._interval:
+            return False
+        if state is not None and self._state_signature(state) == self._last_state_signature:
+            return False
+        return True
 
     def autosave(self, state: ProjectState) -> SaveResult:
         """Perform autosave."""
@@ -582,9 +607,10 @@ class AutoSaveManager:
             path = self._autosave_dir / f"autosave_{timestamp}_{counter}.automataii"
             counter += 1
 
-        result = self._serializer.save(state, path)
+        result = self._serializer.save(state, path, portable_assets=False)
         if result.success:
             self._last_save = datetime.now()
+            self._last_state_signature = self._state_signature(state)
             self._cleanup_old_autosaves()
 
         return result
@@ -603,9 +629,21 @@ class AutoSaveManager:
         for old_save in autosaves[keep_count:]:
             try:
                 old_save.unlink()
+                assets_dir = old_save.parent / f"{old_save.stem}_assets"
+                if assets_dir.is_dir():
+                    shutil.rmtree(assets_dir)
                 logger.debug(f"Removed old autosave: {old_save}")
             except OSError:
                 pass
+
+    @staticmethod
+    def _state_signature(state: ProjectState) -> str:
+        """Stable content signature; ignores volatile modified timestamps."""
+        data = state.to_dict()
+        metadata = data.get("metadata")
+        if isinstance(metadata, dict):
+            metadata.pop("modified_at", None)
+        return json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
     def get_recovery_files(self, project_dir: Path) -> list[Path]:
         """Get list of autosave files for recovery."""

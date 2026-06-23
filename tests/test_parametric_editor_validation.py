@@ -43,7 +43,7 @@ def test_validation_reads_current_cam_handle_position(qapp):
     assert "Follower must be above cam center" in message
 
 
-def test_fourbar_validation_returns_false_on_grashof_failure(qapp):
+def test_fourbar_validation_allows_non_grashof_partial_motion(qapp):
     editor = ParametricEditor(QGraphicsScene())
     fourbar_editor = editor.create_editor(
         "bad_4bar",
@@ -72,8 +72,8 @@ def test_fourbar_validation_returns_false_on_grashof_failure(qapp):
 
     valid, message = editor.validate_physics_constraints()
 
-    assert valid is False
-    assert "Grashof condition violated" in message
+    assert valid is True
+    assert message == ""
 
 
 def test_handle_callback_queues_update_even_when_mechanism_callback_raises(qapp):
@@ -90,7 +90,7 @@ def test_handle_callback_queues_update_even_when_mechanism_callback_raises(qapp)
     assert "mechanism_1" in editor._pending_updates
 
 
-def test_validation_ignores_malformed_fallback_params_when_handles_missing(qapp):
+def test_validation_ignores_malformed_fourbar_fallback_params_when_handles_missing(qapp):
     editor = ParametricEditor(QGraphicsScene())
     fourbar_editor = editor.create_editor(
         "malformed_4bar",
@@ -113,5 +113,5 @@ def test_validation_ignores_malformed_fallback_params_when_handles_missing(qapp)
 
     valid, message = editor.validate_physics_constraints()
 
-    assert valid is False
-    assert "Grashof condition violated" in message
+    assert valid is True
+    assert message == ""

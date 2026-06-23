@@ -122,9 +122,13 @@ class PathPreviewOverlay:
         painter_path = QPainterPath()
         x0, y0 = points[0]
         painter_path.moveTo(x0, y0)
-        for x, y in points[1:]:
-            painter_path.lineTo(x, y)
-        painter_path.closeSubpath()
+        for index, (x, y) in enumerate(points[1:], start=1):
+            if self._has_angle_gap(cached_path.angles, index):
+                painter_path.moveTo(x, y)
+            else:
+                painter_path.lineTo(x, y)
+        if cached_path.is_closed_cycle:
+            painter_path.closeSubpath()
 
         path_pen = QPen(QColor(0, 206, 209, 150), 2)
         path_pen.setStyle(Qt.PenStyle.DashLine)
@@ -158,6 +162,8 @@ class PathPreviewOverlay:
 
             x1, y1 = points[i]
             x2, y2 = points[i + 1]
+            if self._has_angle_gap(cached_path.angles, i + 1):
+                continue
 
             dx = x2 - x1
             dy = y2 - y1
@@ -195,6 +201,18 @@ class PathPreviewOverlay:
             items.append(arrow_item)
 
         self._items[point_name] = items
+
+    @staticmethod
+    def _has_angle_gap(angles: tuple[float, ...], index: int) -> bool:
+        if index <= 0 or index >= len(angles):
+            return False
+        diffs = [
+            angles[i] - angles[i - 1] for i in range(1, len(angles)) if angles[i] > angles[i - 1]
+        ]
+        if not diffs:
+            return False
+        expected_step = min(diffs)
+        return angles[index] - angles[index - 1] > expected_step * 1.5
 
     def _remove_path_items(self, point_name: str) -> None:
         for item in self._items.pop(point_name, []):

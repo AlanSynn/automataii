@@ -11,6 +11,7 @@ Architecture: Jeff Dean Performance + Kent Beck Simplicity + Rob Pike Clarity
 import logging
 import math
 from collections.abc import Callable
+from typing import Any
 
 from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QColor
@@ -43,11 +44,11 @@ class AnchorHandle(BaseHandle):
         mechanism_id: str,
         anchor_name: str,  # 'ground_pivot_1' or 'ground_pivot_2'
         initial_position: QPointF,
-        mechanism_data: dict,
-        update_callback: Callable[[str, QPointF], None],
-        constraint_validator: Callable | None = None,
-        parent=None,
-    ):
+        mechanism_data: dict[str, Any],
+        update_callback: Callable[..., None],
+        constraint_validator: Callable[..., Any] | None = None,
+        parent: Any = None,
+    ) -> None:
         """
         Initialize anchor handle for ground pivot manipulation.
 
@@ -77,7 +78,7 @@ class AnchorHandle(BaseHandle):
 
         logging.debug(f"Created AnchorHandle for {self.anchor_name} at {initial_position}")
 
-    def _setup_anchor_appearance(self):
+    def _setup_anchor_appearance(self) -> None:
         """Setup anchor-specific visual appearance."""
         # Override base colors with anchor-specific colors
         self.COLOR_NORMAL = self.COLOR_ANCHOR
@@ -111,7 +112,7 @@ class AnchorHandle(BaseHandle):
         """
         return scene_pos
 
-    def _apply_parameter_change(self, new_position: QPointF):
+    def _apply_parameter_change(self, new_position: QPointF) -> None:
         """
         Apply anchor position change to mechanism.
 
@@ -200,7 +201,7 @@ class AnchorHandle(BaseHandle):
             return True, ""  # Allow movement if validation fails
 
     def _validate_linkage_geometry(
-        self, pos1: QPointF, pos2: QPointF, params: dict
+        self, pos1: QPointF, pos2: QPointF, params: dict[str, Any]
     ) -> tuple[bool, str]:
         """
         Validate that linkage geometry remains valid with new anchor positions.
@@ -232,17 +233,9 @@ class AnchorHandle(BaseHandle):
             # Note: This assumes l1 represents the ground link
             # Actual implementation may vary based on parameter mapping
 
-            # Grashof's criterion for 4-bar linkage mobility
             lengths = [ground_distance, l2, l3, l4]
-            lengths.sort()
-            shortest, mid1, mid2, longest = lengths  # shortest to longest
-
-            # Check Grashof condition: s + l <= p + q (for continuous rotation)
-            if shortest + longest > mid1 + mid2 + 1e-6:  # Small tolerance for floating point
-                return False, "Grashof condition violated: linkage may not be mobile"
-
-            # Check triangle inequality for each triangle in the linkage
-            # Additional geometric validations can be added here
+            if not all(math.isfinite(float(length)) and float(length) > 1e-9 for length in lengths):
+                return False, "Linkage geometry invalid: link lengths must be positive"
 
             return True, ""
 
@@ -250,7 +243,7 @@ class AnchorHandle(BaseHandle):
             logging.warning(f"Linkage geometry validation failed: {e}")
             return True, ""
 
-    def mouseMoveEvent(self, event):
+    def mouseMoveEvent(self, event: Any) -> None:
         """
         Override mouse move to allow free dragging without real-time constraint validation.
         Constraint validation will be deferred to when exiting parametric editing mode.
@@ -276,13 +269,8 @@ class AnchorHandle(BaseHandle):
         )
 
         # CRITICAL: Call the update callback immediately to trigger mechanism update
-        if hasattr(self, "update_callback") and self.update_callback:
-            self.update_callback(new_position)
-            logging.info(
-                f"[ANCHOR] 🔥 Called update callback for {self.anchor_name} at {new_position}"
-            )
-        else:
-            logging.warning(f"[ANCHOR] ⚠️ No update_callback for {self.anchor_name}")
+        self.update_callback(new_position)
+        logging.info(f"[ANCHOR] 🔥 Called update callback for {self.anchor_name} at {new_position}")
 
         # Don't call super() as it may reset position
         # super().mouseMoveEvent(event)

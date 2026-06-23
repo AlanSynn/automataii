@@ -412,6 +412,16 @@ class EditorTab(QWidget):
         else:
             logging.warning("MotionPathManager not initialized, cannot clear motion path")
 
+    def delete_selected_item(self) -> bool:
+        """Delete the selected part's motion path and restore the rest pose."""
+        part_name = self.selected_part_name
+        if not part_name or not self._has_motion_path(part_name):
+            return False
+
+        self._clear_selected_item_motion_path()
+        self._reset_simulation_clicked()
+        return True
+
     def _toggle_vertex_edit_mode(self, checked: bool):
         """Handle vertex edit mode toggle. Delegates to MotionPathManager."""
         if hasattr(self, "_motion_path_manager"):

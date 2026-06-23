@@ -278,6 +278,7 @@ class FourBarEditor(MechanismEditor):
         if mech is not None:
             self._reproject_handle("anchor1", mech)
         self._sync_length_constraints()
+        self._clear_stale_angle_bounds()
         self._trigger_mechanism_update()
 
     def _on_anchor2_moved(self, handle_id: str, new_pos: QPointF) -> None:
@@ -300,6 +301,7 @@ class FourBarEditor(MechanismEditor):
         if mech is not None:
             self._reproject_handle("anchor2", mech)
         self._sync_length_constraints()
+        self._clear_stale_angle_bounds()
         self._trigger_mechanism_update()
 
     def _on_crank_moved(self, handle_id: str, new_pos: QPointF) -> None:
@@ -332,6 +334,7 @@ class FourBarEditor(MechanismEditor):
             return
 
         params["crank_angle"] = angle
+        params["input_angle"] = angle
         params["l2"] = length
         params["L2"] = length
         params["crank_x"] = new_pos.x()
@@ -344,6 +347,7 @@ class FourBarEditor(MechanismEditor):
             self.mechanism_data["params"]["m_crank_y"] = mech[1]
             self._reproject_handle("crank", mech)
         self._sync_length_constraints()
+        self._clear_stale_angle_bounds()
         self._trigger_mechanism_update()
 
     def _on_rocker_moved(self, handle_id: str, new_pos: QPointF) -> None:
@@ -375,6 +379,7 @@ class FourBarEditor(MechanismEditor):
             self.mechanism_data["params"]["m_rocker_y"] = mech[1]
             self._reproject_handle("rocker", mech)
         self._sync_length_constraints()
+        self._clear_stale_angle_bounds()
         self._trigger_mechanism_update()
 
     def _on_coupler_moved(self, handle_id: str, new_pos: QPointF) -> None:
@@ -466,8 +471,12 @@ class FourBarEditor(MechanismEditor):
                 self.mechanism_data["params"]["crank_angle"] = float(angle)
 
             self.mechanism_data["params"]["L2"] = float(self.mechanism_data["params"]["l2"])
+            self.mechanism_data["params"]["input_angle"] = float(
+                self.mechanism_data["params"]["crank_angle"]
+            )
 
             self._sync_length_constraints()
+            self._clear_stale_angle_bounds()
             self._trigger_mechanism_update()
 
     def _update_dependent_handles(self, changed_handle: str, new_pos: QPointF) -> None:
@@ -490,11 +499,16 @@ class FourBarEditor(MechanismEditor):
         if self._updating:
             return
 
+        self._sync_params_from_handles()
         param_changes = {
             "anchor1_x": self.mechanism_data["params"]["anchor1_x"],
             "anchor1_y": self.mechanism_data["params"]["anchor1_y"],
             "anchor2_x": self.mechanism_data["params"]["anchor2_x"],
             "anchor2_y": self.mechanism_data["params"]["anchor2_y"],
+            "input_angle": self.mechanism_data["params"].get("input_angle", 0.0),
+            "crank_angle": self.mechanism_data["params"].get("crank_angle", 0.0),
+            "rocker_angle": self.mechanism_data["params"].get("rocker_angle", 0.0),
+            "l1": self.mechanism_data["params"].get("l1", 100),
             "l2": self.mechanism_data["params"].get("l2", 60),
             "l3": self.mechanism_data["params"].get("l3", 80),
             "l4": self.mechanism_data["params"].get("l4", 70),
@@ -502,6 +516,90 @@ class FourBarEditor(MechanismEditor):
 
         self.mechanism_data["params"].update(param_changes)
         logging.debug("[4BAR-EDITOR] Updated mechanism parameters")
+
+    def _clear_stale_angle_bounds(self) -> None:
+        params = self.mechanism_data.get("params", {})
+        # ponytail: handle edits change the geometry; recompute ranges later if Design gets UI for it.
+        params.pop("valid_angle_min", None)
+        params.pop("valid_angle_max", None)
+
+    def _sync_params_from_handles(self) -> None:
+        if not all(name in self.handles for name in ("anchor1", "anchor2", "crank", "rocker")):
+            return
+
+        params = self.mechanism_data["params"]
+        scene_points = {
+            "anchor1": self.handles["anchor1"].scenePos(),
+            "anchor2": self.handles["anchor2"].scenePos(),
+            "crank": self.handles["crank"].scenePos(),
+            "rocker": self.handles["rocker"].scenePos(),
+        }
+
+        for name, point in scene_points.items():
+            prefix = {"anchor1": "anchor1", "anchor2": "anchor2"}.get(name, name)
+            params[f"{prefix}_x"] = float(point.x())
+            params[f"{prefix}_y"] = float(point.y())
+
+        mech_points: dict[str, np.ndarray] = {}
+        for name, point in scene_points.items():
+            mech = self._to_mech(point)
+            if mech is None:
+                mech_points[name] = np.array([point.x(), point.y()], dtype=float)
+                continue
+            mech_points[name] = np.array([mech[0], mech[1]], dtype=float)
+            params[f"m_{name}_x"] = float(mech[0])
+            params[f"m_{name}_y"] = float(mech[1])
+
+        p1 = mech_points["anchor1"]
+        p2 = mech_points["anchor2"]
+        p3 = mech_points["crank"]
+        p4 = mech_points["rocker"]
+        lengths = {
+            "l1": float(np.linalg.norm(p2 - p1)),
+            "l2": float(np.linalg.norm(p3 - p1)),
+            "l3": float(np.linalg.norm(p4 - p3)),
+            "l4": float(np.linalg.norm(p4 - p2)),
+        }
+        for lower, length in lengths.items():
+            upper = lower.upper()
+            params[lower] = length
+            params[upper] = length
+
+        params["ground_pivot_1"] = p1.tolist()
+        params["ground_pivot_2"] = p2.tolist()
+        crank_angle = math.degrees(math.atan2(float(p3[1] - p1[1]), float(p3[0] - p1[0])))
+        rocker_angle = math.degrees(math.atan2(float(p4[1] - p2[1]), float(p4[0] - p2[0])))
+        params["crank_angle"] = crank_angle
+        params["input_angle"] = crank_angle
+        params["rocker_angle"] = rocker_angle
+
+        coupler_handle = self.handles.get("coupler")
+        if coupler_handle is None:
+            return
+        coupler_scene = coupler_handle.scenePos()
+        params["coupler_x"] = float(coupler_scene.x())
+        params["coupler_y"] = float(coupler_scene.y())
+        coupler_mech = self._to_mech(coupler_scene)
+        pc = (
+            np.array([coupler_mech[0], coupler_mech[1]], dtype=float)
+            if coupler_mech is not None
+            else np.array([coupler_scene.x(), coupler_scene.y()], dtype=float)
+        )
+        if coupler_mech is not None:
+            params["m_coupler_x"] = float(coupler_mech[0])
+            params["m_coupler_y"] = float(coupler_mech[1])
+
+        coupler_vec = p4 - p3
+        coupler_length = float(np.linalg.norm(coupler_vec))
+        if coupler_length <= 1e-9:
+            return
+        coupler_unit = coupler_vec / coupler_length
+        coupler_normal = np.array([-coupler_unit[1], coupler_unit[0]], dtype=float)
+        rel = pc - p3
+        params["coupler_point_x"] = float(rel.dot(coupler_unit))
+        params["coupler_point_y"] = float(rel.dot(coupler_normal))
+        params["p_x"] = params["coupler_point_x"]
+        params["p_y"] = params["coupler_point_y"]
 
     def update_mechanism(self, param_changes: dict[str, Any]) -> dict[str, Any]:
         """Update mechanism and return new simulation data."""
@@ -522,7 +620,12 @@ class FourBarEditor(MechanismEditor):
         l3 = params.get("l3", 80)
         l4 = params["l4"]
 
-        angles = np.linspace(0, 360, 100)
+        angle_min = finite_float(params.get("valid_angle_min"), math.nan)
+        angle_max = finite_float(params.get("valid_angle_max"), math.nan)
+        if math.isfinite(angle_min) and math.isfinite(angle_max) and angle_max > angle_min:
+            angles = np.linspace(angle_min, angle_max, 100)
+        else:
+            angles = np.linspace(0, 360, 100)
         path_points = []
 
         for angle in angles:

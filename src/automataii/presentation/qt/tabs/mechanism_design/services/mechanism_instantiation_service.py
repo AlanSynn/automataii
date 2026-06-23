@@ -680,7 +680,9 @@ class MechanismInstantiationService:
         }
 
         # Apply CAM-specific configuration
-        if internal_type == "cam":
+        if internal_type == "4_bar_linkage":
+            self._sync_fourbar_recommendation_geometry_from_simulation(layer_data)
+        elif internal_type == "cam":
             self._configure_cam_layer(
                 layer_data, graphics_data, effective_target_path, fallback_position
             )
@@ -704,6 +706,78 @@ class MechanismInstantiationService:
                 graphics_data[key] = layer_data[key]
 
         return layer_data, graphics_data
+
+    def _sync_fourbar_recommendation_geometry_from_simulation(
+        self,
+        layer_data: dict[str, Any],
+    ) -> bool:
+        """Keep recommended 4-bar screen geometry and blueprint params in lockstep."""
+        full_sim_data = layer_data.get("full_simulation_data")
+        if not isinstance(full_sim_data, dict):
+            return False
+        joint_positions = full_sim_data.get("joint_positions")
+        if not isinstance(joint_positions, dict):
+            return False
+
+        def first_point(key: str) -> tuple[float, float] | None:
+            rows = joint_positions.get(key)
+            if not isinstance(rows, list | tuple) or not rows:
+                return None
+            return _finite_point(rows[0])
+
+        p1 = first_point("p1_positions")
+        p2 = first_point("p2_positions")
+        p3 = first_point("p3_positions")
+        p4 = first_point("p4_positions")
+        if p1 is None or p2 is None or p3 is None or p4 is None:
+            return False
+
+        params = layer_data.get("params")
+        if not isinstance(params, dict):
+            params = {}
+            layer_data["params"] = params
+        key_points = layer_data.get("key_points")
+        if not isinstance(key_points, dict):
+            key_points = {}
+            layer_data["key_points"] = key_points
+        key_points.update(
+            {
+                "ground_pivot_1": [p1[0], p1[1]],
+                "ground_pivot_2": [p2[0], p2[1]],
+                "crank_end": [p3[0], p3[1]],
+                "rocker_end": [p4[0], p4[1]],
+            }
+        )
+
+        l1 = math.hypot(p2[0] - p1[0], p2[1] - p1[1])
+        l2 = math.hypot(p3[0] - p1[0], p3[1] - p1[1])
+        l3 = math.hypot(p4[0] - p3[0], p4[1] - p3[1])
+        l4 = math.hypot(p4[0] - p2[0], p4[1] - p2[1])
+        for key, value in (("l1", l1), ("l2", l2), ("l3", l3), ("l4", l4)):
+            params[key] = params[key.upper()] = float(value)
+
+        crank_angle = math.degrees(math.atan2(p3[1] - p1[1], p3[0] - p1[0]))
+        rocker_angle = math.degrees(math.atan2(p4[1] - p2[1], p4[0] - p2[0]))
+        params["input_angle"] = params["crank_angle"] = float(crank_angle)
+        params["rocker_angle"] = float(rocker_angle)
+        params["ground_pivot_1"] = [p1[0], p1[1]]
+        params["ground_pivot_2"] = [p2[0], p2[1]]
+        params["fabrication_ready_preset_mode"] = False
+
+        coupler = first_point("coupler_positions")
+        if coupler is None:
+            return True
+        key_points["coupler_point"] = [coupler[0], coupler[1]]
+        coupler_vec = (p4[0] - p3[0], p4[1] - p3[1])
+        coupler_len = math.hypot(coupler_vec[0], coupler_vec[1])
+        if coupler_len <= 1e-9:
+            return True
+        unit = (coupler_vec[0] / coupler_len, coupler_vec[1] / coupler_len)
+        normal = (-unit[1], unit[0])
+        rel = (coupler[0] - p3[0], coupler[1] - p3[1])
+        params["coupler_point_x"] = params["p_x"] = float(rel[0] * unit[0] + rel[1] * unit[1])
+        params["coupler_point_y"] = params["p_y"] = float(rel[0] * normal[0] + rel[1] * normal[1])
+        return True
 
     def create_layer_data_from_candidate(
         self,
@@ -779,17 +853,23 @@ class MechanismInstantiationService:
                     layer_data["full_simulation_data"], internal_type
                 )
 
-        # Apply CAM-specific configuration
-        if internal_type == "cam":
+        # Apply mechanism-specific configuration
+        fourbar_synced_from_simulation = False
+        if internal_type == "4_bar_linkage":
+            fourbar_synced_from_simulation = (
+                self._sync_fourbar_recommendation_geometry_from_simulation(layer_data)
+            )
+        elif internal_type == "cam":
             self._configure_cam_candidate(layer_data, effective_target_path)
         elif internal_type == "gear" and grid_enabled_from_params(layer_data["params"]):
             profile = self._profile_for_params(layer_data["params"])
             layer_data["params"].update(snap_gear_params(layer_data["params"], profile=profile))
 
-        layer_data["params"] = self._fabrication_ready_layer_params(
-            internal_type,
-            layer_data["params"],
-        )
+        if not fourbar_synced_from_simulation:
+            layer_data["params"] = self._fabrication_ready_layer_params(
+                internal_type,
+                layer_data["params"],
+            )
 
         return layer_data
 
@@ -1325,6 +1405,11 @@ class MechanismInstantiationService:
                 angle = _finite_float(foundry_params["input_angle"], 30.0)
                 params["input_angle"] = angle
                 params["crank_angle"] = angle
+            for key in ("valid_angle_min", "valid_angle_max"):
+                if key in foundry_params:
+                    value = _finite_float(foundry_params[key], math.nan)
+                    if math.isfinite(value):
+                        params[key] = value
             output_mode = foundry_params.get("output_point_mode")
             if isinstance(output_mode, str):
                 normalized_mode = output_mode.strip().lower()

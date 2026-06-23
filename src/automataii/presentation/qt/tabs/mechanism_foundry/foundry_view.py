@@ -41,6 +41,7 @@ from automataii.application.mechanism_foundry import (
     SensemakingParameterChange,
     SensemakingPreviewSnapshot,
     SensemakingService,
+    select_angle_bounds,
 )
 from automataii.application.mechanism_foundry.mechanism_types import (
     canonical_mechanism_type,
@@ -523,6 +524,11 @@ class MechanismFoundryView(QWidget):
         self.current_mechanism: Mechanism | None = None
         self.current_parameters: dict[str, object] = {}
         self.current_angle: float = 30.0
+        self._current_angle_bounds: tuple[float, float] = (0.0, 360.0)
+        self._current_angle_bounds_partial = False
+        self._current_angle_bounds_known = False
+        self._current_angle_bounds_available = True
+        self._angle_animation_direction = 1.0
         self._grid_items: list[QGraphicsItem] = []
         self._parameter_specs_by_key: dict[str, ParameterSpec] = {}
 
@@ -602,6 +608,7 @@ class MechanismFoundryView(QWidget):
         self.info_panel_collapsed: bool = True
         self.motion_modes_label: QLabel | None = None
         self.output_point_selector: QComboBox | None = None
+        self.angle_range_selector: QComboBox | None = None
 
         self._build_ui()
 
@@ -861,7 +868,16 @@ class MechanismFoundryView(QWidget):
             if math.isfinite(numeric_value):
                 params[key] = numeric_value
 
-        params["input_angle"] = _finite_float(self.current_angle, 0.0)
+        params["input_angle"] = _finite_float(self.current_angle, 0.0) % 360.0
+        if (
+            self._current_controller_mechanism_type() == "four_bar"
+            and self._current_angle_bounds_known
+            and self._current_angle_bounds_available
+        ):
+            minimum, maximum = self._current_angle_bounds
+            if math.isfinite(minimum) and math.isfinite(maximum):
+                params["valid_angle_min"] = minimum
+                params["valid_angle_max"] = maximum
         context = physical_context_from_params(
             self._effective_physical_parameters(self.current_parameters),
             default_enabled=self._grid_system_enabled,
@@ -1066,6 +1082,14 @@ class MechanismFoundryView(QWidget):
         self.angle_slider.setValue(30)
         self.angle_slider.valueChanged.connect(self._on_angle_changed)
         animation_layout.addWidget(self.angle_slider)
+
+        angle_range_row = QHBoxLayout()
+        angle_range_row.addWidget(QLabel("Valid Range:"))
+        self.angle_range_selector = QComboBox()
+        self.angle_range_selector.currentIndexChanged.connect(self._on_angle_range_changed)
+        self.angle_range_selector.setVisible(False)
+        angle_range_row.addWidget(self.angle_range_selector)
+        animation_layout.addLayout(angle_range_row)
 
         output_point_row = QHBoxLayout()
         output_point_row.addWidget(QLabel("Motion Point:"))
@@ -1293,18 +1317,192 @@ class MechanismFoundryView(QWidget):
             return self._to_controller_mechanism_type(self.current_mechanism.mechanism_type)
         return "unknown"
 
+    def _refresh_angle_bounds(self) -> None:
+        bounds = (0.0, 360.0)
+        partial = False
+
+        if self.current_mechanism and self._current_controller_mechanism_type() == "four_bar":
+            point_name = self._selected_motion_state_key() or "B"
+            try:
+                path = self.path_cache.compute_and_cache(
+                    self.current_mechanism,
+                    self._effective_physical_parameters(self.current_parameters),
+                    point_name,
+                )
+                bounds = select_angle_bounds(
+                    path.valid_angle_ranges,
+                    self.current_angle,
+                    is_closed_cycle=path.is_closed_cycle,
+                )
+                if bounds is None:
+                    self._apply_no_valid_angle_bounds()
+                    return
+                partial = not path.is_closed_cycle and bool(path.valid_angle_ranges)
+                self._refresh_angle_range_selector(
+                    path.valid_angle_ranges,
+                    bounds,
+                    partial=partial,
+                )
+            except Exception:
+                self._apply_no_valid_angle_bounds()
+                return
+        else:
+            self._refresh_angle_range_selector((), bounds, partial=False)
+
+        self._apply_angle_bounds(bounds, partial)
+
+    def _apply_angle_bounds(self, bounds: tuple[float, float], partial: bool) -> None:
+        minimum, maximum = bounds
+        if not math.isfinite(minimum) or not math.isfinite(maximum) or maximum < minimum:
+            self._apply_no_valid_angle_bounds()
+            return
+
+        self._current_angle_bounds = (minimum, maximum)
+        self._current_angle_bounds_partial = bool(partial)
+        self._current_angle_bounds_known = True
+        self._current_angle_bounds_available = True
+
+        clamped_angle = self._angle_inside_bounds(self.current_angle, (minimum, maximum))
+        if clamped_angle != self.current_angle:
+            self.current_angle = clamped_angle
+            self._state_cache_valid = False
+
+        if not hasattr(self, "angle_slider"):
+            return
+
+        slider_min = int(math.floor(minimum))
+        slider_max = int(math.ceil(maximum))
+        with blocked_signals(self.angle_slider):
+            self.angle_slider.setMinimum(slider_min)
+            self.angle_slider.setMaximum(slider_max)
+            self.angle_slider.setValue(int(round(self.current_angle)))
+            self.angle_slider.setEnabled(True)
+        if hasattr(self, "play_action"):
+            self.play_action.setEnabled(True)
+        self._update_angle_label()
+
+    def _refresh_angle_range_selector(
+        self,
+        ranges: tuple[tuple[float, float], ...],
+        selected_bounds: tuple[float, float],
+        *,
+        partial: bool,
+    ) -> None:
+        if self.angle_range_selector is None:
+            return
+
+        show_selector = bool(partial and len(ranges) > 1)
+        with blocked_signals(self.angle_range_selector):
+            self.angle_range_selector.clear()
+            for index, bounds in enumerate(ranges, start=1):
+                self.angle_range_selector.addItem(
+                    f"{index}: {self._angle_range_text(bounds)}",
+                    bounds,
+                )
+            selected_index = 0
+            for index, bounds in enumerate(ranges):
+                if self._same_angle_bounds(bounds, selected_bounds):
+                    selected_index = index
+                    break
+            if ranges:
+                self.angle_range_selector.setCurrentIndex(selected_index)
+            self.angle_range_selector.setVisible(show_selector)
+
+    @staticmethod
+    def _same_angle_bounds(
+        first: tuple[float, float],
+        second: tuple[float, float],
+    ) -> bool:
+        return abs(first[0] - second[0]) < 1e-6 and abs(first[1] - second[1]) < 1e-6
+
+    def _on_angle_range_changed(self, index: int) -> None:
+        if self.angle_range_selector is None or index < 0:
+            return
+        data = self.angle_range_selector.itemData(index)
+        if not isinstance(data, tuple) or len(data) != 2:
+            return
+        minimum = _finite_float(data[0], math.nan)
+        maximum = _finite_float(data[1], math.nan)
+        if not math.isfinite(minimum) or not math.isfinite(maximum):
+            return
+        self._apply_angle_bounds((minimum, maximum), partial=True)
+        self._state_cache_valid = False
+        self._render_mechanism()
+
+    @staticmethod
+    def _angle_inside_bounds(angle: float, bounds: tuple[float, float]) -> float:
+        minimum, maximum = bounds
+        candidates = (angle, angle - 360.0, angle + 360.0)
+        for candidate in candidates:
+            if minimum <= candidate <= maximum:
+                return candidate
+        return min(
+            (minimum, maximum),
+            key=lambda endpoint: min(abs(candidate - endpoint) for candidate in candidates),
+        )
+
+    @staticmethod
+    def _angle_text(angle: float) -> str:
+        normalized = angle % 360.0
+        return f"{int(round(normalized))}°"
+
+    def _angle_range_text(self, bounds: tuple[float, float]) -> str:
+        return f"{self._angle_text(bounds[0])}–{self._angle_text(bounds[1])}"
+
+    def _apply_no_valid_angle_bounds(self) -> None:
+        self._current_angle_bounds = (self.current_angle, self.current_angle)
+        self._current_angle_bounds_partial = False
+        self._current_angle_bounds_known = True
+        self._current_angle_bounds_available = False
+        if hasattr(self, "animation_timer") and self.animation_timer.isActive():
+            self._set_animation_playing(False)
+        if hasattr(self, "angle_slider"):
+            slider_value = int(round(self.current_angle))
+            with blocked_signals(self.angle_slider):
+                self.angle_slider.setMinimum(slider_value)
+                self.angle_slider.setMaximum(slider_value)
+                self.angle_slider.setValue(slider_value)
+                self.angle_slider.setEnabled(False)
+        if hasattr(self, "play_action"):
+            self.play_action.setEnabled(False)
+        if self.angle_range_selector is not None:
+            with blocked_signals(self.angle_range_selector):
+                self.angle_range_selector.clear()
+                self.angle_range_selector.setVisible(False)
+        if hasattr(self, "angle_label"):
+            self.angle_label.setText("No valid input angle")
+
+    def _update_angle_label(self) -> None:
+        if not self._current_angle_bounds_available:
+            self.angle_label.setText("No valid input angle")
+            return
+        angle_text = self._angle_text(self.current_angle)
+        if self._current_angle_bounds_partial:
+            angle_text += f" (valid {self._angle_range_text(self._current_angle_bounds)})"
+        self.angle_label.setText(angle_text)
+
     def _selected_motion_point_label(self) -> str:
-        if self.output_point_selector is not None and self.output_point_selector.isVisible():
+        if self.output_point_selector is not None and not self.output_point_selector.isHidden():
             text = self.output_point_selector.currentText().strip()
             if text:
                 return text
         return "preview trace"
 
     def _selected_motion_point_key(self) -> str | None:
-        if self.output_point_selector is None or not self.output_point_selector.isVisible():
+        if self.output_point_selector is None or self.output_point_selector.isHidden():
             return None
         value = self.output_point_selector.currentData()
         return value if isinstance(value, str) and value else None
+
+    def _selected_motion_state_key(self) -> str | None:
+        selected_value = self._selected_motion_point_key()
+        if not selected_value:
+            return None
+        mechanism_type = self._current_controller_mechanism_type()
+        for option in SensemakingService.motion_point_options_for(mechanism_type):
+            if option.value == selected_value:
+                return str(option.state_key)
+        return selected_value
 
     def _display_parameter_label(self, spec: ParameterSpec | None, param_key: str) -> str:
         if spec is None:
@@ -1781,7 +1979,7 @@ class MechanismFoundryView(QWidget):
 
     def _on_angle_changed(self, value: int) -> None:
         self.current_angle = float(value)
-        self.angle_label.setText(f"{value}°")
+        self._update_angle_label()
         self._state_cache_valid = False
         self._render_mechanism()
 
@@ -1818,16 +2016,40 @@ class MechanismFoundryView(QWidget):
                 self._user_paused_animation = False
 
     def _reset_animation(self) -> None:
-        self.current_angle = 30.0
-        self.angle_slider.setValue(30)
+        self._refresh_angle_bounds()
+        minimum, maximum = self._current_angle_bounds
+        self.current_angle = min(max(30.0, minimum), maximum)
+        self._angle_animation_direction = 1.0
+        with blocked_signals(self.angle_slider):
+            self.angle_slider.setValue(int(round(self.current_angle)))
+        self._update_angle_label()
         if self.is_playing:
             self._set_animation_playing(False)
 
     def _on_animation_tick(self) -> None:
-        self.current_angle = (self.current_angle + 4.0) % 360.0
+        if not self._current_angle_bounds_available:
+            self._set_animation_playing(False)
+            self._render_mechanism()
+            return
+
+        minimum, maximum = self._current_angle_bounds
+        if self._current_angle_bounds_partial:
+            next_angle = self.current_angle + 4.0 * self._angle_animation_direction
+            if next_angle > maximum:
+                overshoot = next_angle - maximum
+                self.current_angle = max(minimum, maximum - overshoot)
+                self._angle_animation_direction = -1.0
+            elif next_angle < minimum:
+                overshoot = minimum - next_angle
+                self.current_angle = min(maximum, minimum + overshoot)
+                self._angle_animation_direction = 1.0
+            else:
+                self.current_angle = next_angle
+        else:
+            self.current_angle = (self.current_angle + 4.0) % 360.0
         with blocked_signals(self.angle_slider):
-            self.angle_slider.setValue(int(self.current_angle))
-        self.angle_label.setText(f"{int(self.current_angle)}°")
+            self.angle_slider.setValue(int(round(self.current_angle)))
+        self._update_angle_label()
         self._render_mechanism()
 
     def _render_mechanism(self, *, refresh_sensemaking: bool = True) -> None:
@@ -1843,6 +2065,7 @@ class MechanismFoundryView(QWidget):
         # We NO LONGER clear the scene every frame.
 
         try:
+            self._refresh_angle_bounds()
             state = self.current_mechanism.compute_state(
                 self._effective_physical_parameters(self.current_parameters),
                 self.current_angle,
@@ -2753,13 +2976,19 @@ class MechanismFoundryView(QWidget):
             color = "red"
             prefix = "✗"
 
-        safety_html = f"<span style='color:{color}'>{prefix} {safety.message}</span>"
+        message = safety.message
+        if not self._current_angle_bounds_available:
+            message = f"{message} | No valid input angle range"
+        elif self._current_angle_bounds_partial:
+            message = f"{message} | Valid input angle: {self._angle_range_text(self._current_angle_bounds)}"
+
+        safety_html = f"<span style='color:{color}'>{prefix} {message}</span>"
         if safety_html == self._last_safety_html:
             return
         self._last_safety_html = safety_html
         self.safety_label.setText(safety_html)
         if self.info_panel is not None:
-            self.info_panel.set_safety_status(f"{prefix} {safety.message}", level.name.lower())
+            self.info_panel.set_safety_status(f"{prefix} {message}", level.name.lower())
 
     def _draw_grid(self) -> None:
         for item in self._grid_items:
@@ -2902,7 +3131,7 @@ class MechanismFoundryView(QWidget):
         }
 
         default_points: list[str] = []
-        selected_point = self._selected_motion_point_key()
+        selected_point = self._selected_motion_state_key()
         if isinstance(selected_point, str) and selected_point in state.positions:
             default_points.append(selected_point)
         for point_name in default_points_by_type.get(mechanism_type, ()):
@@ -2916,7 +3145,9 @@ class MechanismFoundryView(QWidget):
         for point_name in default_points:
             if point_name in state.positions:
                 self.path_preview_overlay.show_path(
-                    self.current_mechanism, self.current_parameters, point_name
+                    self.current_mechanism,
+                    self._effective_physical_parameters(self.current_parameters),
+                    point_name,
                 )
                 self.path_preview_overlay.update_progress_marker(
                     point_name,
@@ -2947,7 +3178,7 @@ class MechanismFoundryView(QWidget):
                     if point_name:
                         self.path_preview_overlay.show_path(
                             self.current_mechanism,
-                            self.current_parameters,
+                            self._effective_physical_parameters(self.current_parameters),
                             point_name,
                             auto_fade=True,
                         )
@@ -3246,7 +3477,7 @@ class MechanismFoundryView(QWidget):
                 self.current_angle = angle_number % 360.0
                 with blocked_signals(self.angle_slider):
                     self.angle_slider.setValue(int(self.current_angle))
-                self.angle_label.setText(f"{int(self.current_angle)}°")
+                self._update_angle_label()
 
             self._sync_physical_context_from_params(parameters)
 

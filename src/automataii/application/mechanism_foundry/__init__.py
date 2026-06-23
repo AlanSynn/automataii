@@ -28,7 +28,7 @@ from .mechanism_types import (
     is_visible_foundry_mechanism_type,
     normalize_mechanism_type_key,
 )
-from .path_cache import CachedPath, PathCache, PathCacheKey
+from .path_cache import CachedPath, PathCache, PathCacheKey, select_angle_bounds
 from .sensemaking import (
     CauseEffectRule,
     FoundrySensemakingEvent,
@@ -59,6 +59,7 @@ __all__ = [
     "PathCache",
     "PathCacheKey",
     "CachedPath",
+    "select_angle_bounds",
     "MechanismLifecycleCoordinator",
     "MechanismLifecycleContext",
     "MechanismGenerationService",

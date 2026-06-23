@@ -484,72 +484,9 @@ class ParametricEditingManager:
             self._logger.error("Error regenerating mechanism simulation: %s", e)
 
     def _enforce_grashof_and_snap(self, layer_data: dict[str, Any]) -> bool:
-        """Enforce Grashof condition with minimal snapping."""
-        params = layer_data.get("params", {})
-        to_mech = self.parent_tab._get_inverse_scene_transform_function(layer_data)
-        if not to_mech:
-            return False
-
-        a1 = QPointF(params.get("anchor1_x", 0.0), params.get("anchor1_y", 0.0))
-        a2 = QPointF(params.get("anchor2_x", 100.0), params.get("anchor2_y", 0.0))
-        p1 = to_mech(a1)
-        p2 = to_mech(a2)
-        p1 = np.array([float(p1[0]), float(p1[1])])
-        p2 = np.array([float(p2[0]), float(p2[1])])
-        L1 = float(np.linalg.norm(p2 - p1))
-
-        # Linkage lengths are mechanism-space values throughout the 4-bar visual
-        # factory/editor path.  Do not convert lowercase aliases as scene lengths:
-        # parametric drag already stores both ``l*`` and ``L*`` in mechanism space.
-        L2 = float(params.get("L2", params.get("l2", 40.0)))
-        L3 = float(params.get("L3", params.get("l3", 60.0)))
-        L4 = float(params.get("L4", params.get("l4", 50.0)))
-
-        items = [("L1", L1), ("L2", L2), ("L3", L3), ("L4", L4)]
-        items_sorted = sorted(items, key=lambda x: x[1])
-        s_name, shortest = items_sorted[0]
-        m1_name, m1 = items_sorted[1]
-        m2_name, m2 = items_sorted[2]
-        longest_name, longest = items_sorted[3]
-
-        if shortest + longest <= m1 + m2 + 1e-9:
-            return False
-        delta = (shortest + longest) - (m1 + m2) + 1e-6
-
-        target = None
-        if "L3" in (m1_name, m2_name):
-            target = "L3"
-        else:
-            target = m1_name
-
-        if target == "L2":
-            L2 += delta
-        elif target == "L4":
-            L4 += delta
-        else:
-            L3 += delta
-
-        params["L2"] = L2
-        params["L3"] = L3
-        params["L4"] = L4
-        params["l2"] = L2
-        params["l3"] = L3
-        params["l4"] = L4
-
-        if self.physics_snap_mode == "high":
-            self._logger.warning(
-                "[PHYSICS-SNAP] Grashof violated; alert-only mode; target=%s needs +%.3f (mech)",
-                target,
-                delta,
-            )
-            return False
-
-        self._logger.warning(
-            "[PHYSICS-SNAP] Grashof violated; snapped %s by +%.3f (mech units)",
-            target,
-            delta,
-        )
-        return True
+        """Do not snap 4-bars to full-rotation geometry; partial motion is valid."""
+        _ = layer_data
+        return False
 
     def _enforce_gear_meshing_and_snap(self, layer_data: dict[str, Any]) -> bool:
         """Ensure gear centers are properly separated for meshing."""
@@ -722,8 +659,52 @@ class ParametricEditingManager:
                 crank_angle = math.atan2(float(p3_delta[1]), float(p3_delta[0]))
                 params["crank_angle"] = math.degrees(crank_angle)
 
-        for i in range(num_frames):
-            theta = crank_angle + (i / num_frames) * 2 * np.pi
+        angle_min = float(finite_float(params.get("valid_angle_min"), math.nan))
+        angle_max = float(finite_float(params.get("valid_angle_max"), math.nan))
+        if math.isfinite(angle_min) and math.isfinite(angle_max) and angle_max > angle_min:
+            raw_angle_deg = math.degrees(crank_angle)
+            normalized_angle_deg = raw_angle_deg % 360.0
+            angle_candidates = (
+                raw_angle_deg,
+                normalized_angle_deg,
+                normalized_angle_deg - 360.0,
+                normalized_angle_deg + 360.0,
+            )
+            current_angle_deg = next(
+                (
+                    candidate
+                    for candidate in angle_candidates
+                    if angle_min <= candidate <= angle_max
+                ),
+                min(
+                    (angle_min, angle_max),
+                    key=lambda endpoint: min(
+                        abs(candidate - endpoint) for candidate in angle_candidates
+                    ),
+                ),
+            )
+            forward_span = angle_max - current_angle_deg
+            full_span = angle_max - angle_min
+            return_span = current_angle_deg - angle_min
+            total_span = max(1e-9, forward_span + full_span + return_span)
+
+            def angle_at_frame(index: int) -> float:
+                distance = (index / max(1, num_frames - 1)) * total_span
+                if distance <= forward_span:
+                    return current_angle_deg + distance
+                distance -= forward_span
+                if distance <= full_span:
+                    return angle_max - distance
+                distance -= full_span
+                return angle_min + distance
+
+            frame_angles = tuple(math.radians(angle_at_frame(i)) for i in range(num_frames))
+        else:
+            frame_angles = tuple(
+                crank_angle + (i / num_frames) * 2 * np.pi for i in range(num_frames)
+            )
+
+        for theta in frame_angles:
             p3 = p1 + L2 * np.array([np.cos(theta), np.sin(theta)])
             p4 = self._solve_circle_intersection_near(p3, L3, p2, L4, preferred_p4)
 
@@ -741,6 +722,7 @@ class ParametricEditingManager:
         params["l2"] = L2
         params["l3"] = L3
         params["l4"] = L4
+        params["input_angle"] = float(math.degrees(crank_angle))
 
         if joint_positions["p3_positions"] and joint_positions["p4_positions"]:
             first_p1 = np.array(joint_positions["p1_positions"][0], dtype=float)

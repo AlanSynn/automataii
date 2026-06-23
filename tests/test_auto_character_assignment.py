@@ -247,15 +247,19 @@ class TestAutoCharacterAssignment:
         window._suppress_project_data_cleared_ui_once = False
         window.editor_tab = MagicMock()
         window.mechanism_design_tab = MagicMock()
+        window.image_proc_tab = MagicMock()
         window.skeleton_manager = MagicMock()
         window.ik_manager = MagicMock()
         window.project_state_manager = MagicMock()
         window.action_manager = MagicMock()
+        window.project_dir = "/tmp/project"
         status_bar = MagicMock()
         window.statusBar = MagicMock(return_value=status_bar)
 
         AutomataDesigner._handle_project_data_cleared(window)
 
+        assert window.project_dir is None
+        window.image_proc_tab.clear_display_and_data.assert_called_once()
         window.editor_tab.clear_editor_content.assert_called_once()
         window.mechanism_design_tab.clear_mechanism_data.assert_called_once()
         window.skeleton_manager.clear_data.assert_called_once()
@@ -263,6 +267,25 @@ class TestAutoCharacterAssignment:
         window.project_state_manager.new_project.assert_called_once()
         window.action_manager.update_actions_for_project_state.assert_called_once_with(False)
         status_bar.showMessage.assert_called_once()
+
+    def test_new_project_ssot_clears_legacy_runtime_data(self) -> None:
+        from automataii.presentation.qt.main_window import AutomataDesigner
+
+        window = AutomataDesigner.__new__(AutomataDesigner)
+        status_bar = MagicMock()
+        window.statusBar = MagicMock(return_value=status_bar)
+        window._project_controller = MagicMock()
+        window._project_controller.new_project.return_value = True
+        window.project_data_manager = MagicMock()
+        window._suppress_project_data_cleared_ui_once = True
+
+        result = AutomataDesigner.new_project_ssot(window)
+
+        assert result is True
+        window._project_controller.set_status_bar.assert_called_once_with(status_bar)
+        window._project_controller.new_project.assert_called_once()
+        window.project_data_manager.clear_project_data.assert_called_once()
+        assert window._suppress_project_data_cleared_ui_once is False
 
     def test_failed_character_swap_load_keeps_existing_ui_state(self) -> None:
         from automataii.presentation.qt.main_window import AutomataDesigner

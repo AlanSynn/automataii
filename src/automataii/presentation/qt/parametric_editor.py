@@ -287,14 +287,9 @@ class ParametricEditor(QObject):
                 link2 = math.hypot(joint2.x() - anchor2.x(), joint2.y() - anchor2.y())
                 coupler = math.hypot(joint2.x() - joint1.x(), joint2.y() - joint1.y())
 
-                sorted_lengths = sorted([ground_link, link1, link2, coupler])
-                s, p, q, l_max = sorted_lengths
-
-                if s + l_max > p + q:
-                    error_msg = (
-                        "4-bar linkage Grashof condition violated: "
-                        "shortest + longest > sum of other two links"
-                    )
+                lengths = (ground_link, link1, link2, coupler)
+                if not all(math.isfinite(length) and length > 1e-9 for length in lengths):
+                    error_msg = "4-bar linkage geometry invalid: link lengths must be positive"
                     logging.warning(f"[PHYSICS-VALIDATION] {error_msg}")
                     return False, error_msg
 

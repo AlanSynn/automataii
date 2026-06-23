@@ -104,6 +104,23 @@ _PART_TO_SKELETON_MIN_RATIO = 0.9
 _PART_TO_SKELETON_MAX_SCALE = 4.0
 
 
+def _infer_character_part_group(part_name: str) -> str:
+    normalized = part_name.lower().replace("-", "_").replace(" ", "_")
+    if "head" in normalized or "neck" in normalized:
+        return "head_neck"
+    if "torso" in normalized or "pelvis" in normalized or "spine" in normalized:
+        return "torso"
+    if "upper" in normalized and "arm" in normalized:
+        return "upper_arms"
+    if "lower" in normalized and "arm" in normalized:
+        return "lower_arms"
+    if "upper" in normalized and "leg" in normalized:
+        return "upper_legs"
+    if "lower" in normalized and "leg" in normalized:
+        return "lower_legs"
+    return "other"
+
+
 class _QtSignalLike(Protocol):
     """Small protocol for PyQt bound signals used by idempotent wiring helpers."""
 
@@ -611,6 +628,7 @@ class AutomataDesigner(QMainWindow):
             parent=self,
         )
 
+        self._autosave_enabled = True
         self._autosave_manager = AutoSaveManager(self._project_serializer)
         self._autosave_timer = QTimer(self)
         self._autosave_timer.setInterval(AutoSaveManager.DEFAULT_INTERVAL_SECONDS * 1000)
@@ -885,6 +903,8 @@ class AutomataDesigner(QMainWindow):
             self.options_tab.blueprintExportFormatChanged.connect(
                 self._handle_blueprint_export_format_changed
             )
+        if hasattr(self.options_tab, "autosaveSettingsChanged"):
+            self.options_tab.autosaveSettingsChanged.connect(self._handle_autosave_settings_changed)
         self.options_tab.partPropertiesVisibilityChanged.connect(
             self._toggle_part_properties_visibility
         )
@@ -1876,12 +1896,13 @@ class AutomataDesigner(QMainWindow):
 
             self.image_proc_tab.on_parts_loaded_in_editor(True)
 
-            if apply_dummy_scale and scale_factor_applied != 1.0:
-                self.statusBar().showMessage(
+            status_bar = self.statusBar()
+            if status_bar is not None and apply_dummy_scale and scale_factor_applied != 1.0:
+                status_bar.showMessage(
                     f"Project loaded: {project_directory_path} (scaled {scale_factor_applied:.2f}x to dummy baseline)."
                 )
-            else:
-                self.statusBar().showMessage(f"Project loaded: {project_directory_path}")
+            elif status_bar is not None:
+                status_bar.showMessage(f"Project loaded: {project_directory_path}")
             self.action_manager.update_actions_for_project_state(True)
             # Mirror loaded runtime data into SSOT so Save Project captures complete state.
             self._sync_runtime_state_to_ssot(mark_saved=False)
@@ -1955,6 +1976,11 @@ class AutomataDesigner(QMainWindow):
             return
 
         logging.info("MainWindow: Handling project data cleared signal.")
+        self.project_dir = None
+        if hasattr(self, "image_proc_tab") and hasattr(
+            self.image_proc_tab, "clear_display_and_data"
+        ):
+            self.image_proc_tab.clear_display_and_data()
         self.editor_tab.clear_editor_content()  # This will also clear EditorTab's _initial_skeleton_data_cache
         self.mechanism_design_tab.clear_mechanism_data()  # Clear mechanism design tab
         self.skeleton_manager.clear_data()  # This will emit skeleton_updated with None
@@ -2095,7 +2121,8 @@ class AutomataDesigner(QMainWindow):
                     ),
                     fixed=bool(getattr(part_info, "fixed", False)),
                     opacity=float(getattr(part_info, "opacity", 1.0) or 1.0),
-                    group=getattr(part_info, "group", None),
+                    group=getattr(part_info, "group", None)
+                    or _infer_character_part_group(str(part_name)),
                     original_svg_path=getattr(part_info, "original_svg_path", None),
                     enhanced_svg_path=getattr(part_info, "enhanced_svg_path", None),
                     effective_bbox_offset_x=float(
@@ -2672,13 +2699,18 @@ class AutomataDesigner(QMainWindow):
     # SSOT PROJECT SAVE/LOAD (Delegated to ProjectController)
     # =========================================================================
 
-    def new_project_ssot(self) -> None:
+    def new_project_ssot(self) -> bool:
         """Create a new project using SSOT architecture.
 
         Delegates to ProjectController for implementation.
         """
         self._project_controller.set_status_bar(self.statusBar())
-        self._project_controller.new_project()
+        if not self._project_controller.new_project():
+            return False
+        self._suppress_project_data_cleared_ui_once = False
+        if hasattr(self, "project_data_manager") and self.project_data_manager:
+            self.project_data_manager.clear_project_data()
+        return True
 
     def save_project_ssot(self) -> bool:
         """
@@ -2742,6 +2774,8 @@ class AutomataDesigner(QMainWindow):
     def _perform_autosave(self, *, force: bool = False) -> bool:
         """Autosave dirty runtime state into an isolated project autosave directory."""
         try:
+            if not force and not self.__dict__.get("_autosave_enabled", True):
+                return False
             if not self.project_state_manager.is_dirty:
                 return False
             self._sync_runtime_state_to_ssot(mark_saved=False)
@@ -2751,7 +2785,7 @@ class AutomataDesigner(QMainWindow):
                 return False
             project_dir = get_project_storage_dir(state)
             self._autosave_manager.setup(project_dir)
-            if not force and not self._autosave_manager.should_save():
+            if not force and not self._autosave_manager.should_save(state):
                 return False
             result = self._autosave_manager.autosave(state.with_project_dir(project_dir))
             if result.success:
@@ -2761,6 +2795,22 @@ class AutomataDesigner(QMainWindow):
         except Exception:
             logging.warning("Autosave raised unexpected error", exc_info=True)
         return False
+
+    def _handle_autosave_settings_changed(self, enabled: bool, interval_seconds: object) -> None:
+        """Apply Options-tab autosave settings to the timer and manager."""
+        self._autosave_enabled = bool(enabled)
+        self._autosave_manager.set_interval(interval_seconds)
+        interval_ms = self._autosave_manager.interval_seconds * 1000
+        self._autosave_timer.setInterval(interval_ms)
+        if self._autosave_enabled:
+            if not self._autosave_timer.isActive():
+                self._autosave_timer.start()
+        else:
+            self._autosave_timer.stop()
+        state = "enabled" if self._autosave_enabled else "disabled"
+        self.statusBar().showMessage(
+            f"Autosave {state}; interval {self._autosave_manager.interval_seconds}s.", 3000
+        )
 
     def _connect_signal_once(self, signal: _QtSignalLike, slot: object) -> None:
         """Connect a PyQt signal to a slot without accumulating duplicate connections."""
@@ -2905,6 +2955,11 @@ class AutomataDesigner(QMainWindow):
                 logging.warning("ImageProcessingTab does not have set_debug_mode method.")
         elif setting_name == "blueprint_export_format":
             self._handle_blueprint_export_format_changed(str(value))
+        elif setting_name == "autosave_settings" and isinstance(value, dict):
+            self._handle_autosave_settings_changed(
+                bool(value.get("enabled", True)),
+                value.get("interval_seconds", AutoSaveManager.DEFAULT_INTERVAL_SECONDS),
+            )
         else:
             logging.warning(f"Unhandled option change: {setting_name}")
 

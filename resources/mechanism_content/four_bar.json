@@ -25,7 +25,7 @@
     "Fasteners and pins sized for cyclic loading"
   ],
   "cautions": [
-    "Full rotation capability is required before assembly (check Warnings).",
+    "Use only the displayed valid input-angle range when full rotation is not available.",
     "Verify clearances to avoid link collisions",
     "Evaluate transmission quality near extreme positions"
   ],

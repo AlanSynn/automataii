@@ -477,6 +477,7 @@ class ProjectStateManager(QObject):
         """Create a new empty project."""
         metadata = ProjectMetadata(name=name)
         new_state = ProjectState.empty().with_metadata(metadata)
+        old_state = self._state
         self._state = new_state
         self._is_dirty = False
         self._undo_stack.clear()
@@ -484,7 +485,11 @@ class ProjectStateManager(QObject):
         self.undo_available.emit(False)
         self.redo_available.emit(False)
         self.project_cleared.emit()
-        self.state_changed.emit(new_state)
+        self._emit_change_signals(
+            old_state,
+            new_state,
+            {"parts", "skeleton", "paths", "mechanisms"},
+        )
         logger.info(f"New project created: {name}")
 
     def clear_project(self) -> None:

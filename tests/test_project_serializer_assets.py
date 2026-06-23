@@ -1,5 +1,6 @@
 import json
 from datetime import datetime as real_datetime
+from datetime import timedelta
 from pathlib import Path
 
 from automataii.application.project import (
@@ -509,6 +510,14 @@ def test_autosave_manager_normalizes_invalid_intervals():
     assert AutoSaveManager(serializer, interval_seconds=5)._interval == 5
 
 
+def test_autosave_manager_interval_can_be_updated_from_options():
+    manager = AutoSaveManager(ProjectSerializer())
+
+    manager.set_interval(120)
+
+    assert manager.interval_seconds == 120
+
+
 def test_autosave_manager_creates_distinct_same_second_snapshots(tmp_path, monkeypatch):
     from automataii.application.project import serializer as project_serializer
 
@@ -533,6 +542,55 @@ def test_autosave_manager_creates_distinct_same_second_snapshots(tmp_path, monke
         if ".backup" not in path.name
     ]
     assert len(autosaves) == 2
+
+
+def test_autosave_throttle_skips_unchanged_content_after_interval(tmp_path):
+    manager = AutoSaveManager(ProjectSerializer(), interval_seconds=1)
+    manager.setup(tmp_path)
+    state = (
+        ProjectState.empty()
+        .with_project_dir(tmp_path)
+        .with_parts(
+            {
+                "head": PartData(
+                    name="head",
+                    texture_path="head.png",
+                    mask_path="head_mask.png",
+                    anchor_joint="neck",
+                )
+            }
+        )
+    )
+
+    assert manager.autosave(state).success
+    manager._last_save = real_datetime.now() - timedelta(seconds=2)
+
+    assert manager.should_save(state) is False
+
+
+def test_autosave_does_not_bundle_duplicate_asset_directories(tmp_path):
+    asset = tmp_path / "head.png"
+    asset.write_bytes(b"image")
+    manager = AutoSaveManager(ProjectSerializer())
+    manager.setup(tmp_path)
+    state = (
+        ProjectState.empty()
+        .with_project_dir(tmp_path)
+        .with_parts(
+            {
+                "head": PartData(
+                    name="head",
+                    texture_path=str(asset),
+                    mask_path=str(asset),
+                    anchor_joint="neck",
+                )
+            }
+        )
+    )
+
+    assert manager.autosave(state).success
+
+    assert not list((tmp_path / AutoSaveManager.AUTOSAVE_DIR_NAME).glob("*_assets"))
 
 
 def test_autosave_recovery_files_exclude_serializer_backups(tmp_path):

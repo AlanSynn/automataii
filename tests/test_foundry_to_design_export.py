@@ -370,6 +370,28 @@ class TestMechanismInstantiationService:
         assert params["gear1_radius"] == 15.0
         assert params["gear2_radius"] == 22.5
 
+    def test_map_foundry_fourbar_preserves_valid_angle_bounds(self):
+        from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
+            MechanismInstantiationService,
+        )
+
+        service = MechanismInstantiationService()
+        params = service.map_foundry_params_to_internal(
+            "four_bar",
+            {
+                "ground_link": 100.0,
+                "input_link": 80.0,
+                "coupler_link": 50.0,
+                "output_link": 50.0,
+                "input_angle": 30.0,
+                "valid_angle_min": 0.0,
+                "valid_angle_max": 72.0,
+            },
+        )
+
+        assert params["valid_angle_min"] == 0.0
+        assert params["valid_angle_max"] == 72.0
+
     def test_create_foundry_gear_honors_grid_disabled_freeform_teeth(self):
         from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
             MechanismInstantiationService,
@@ -537,6 +559,73 @@ class TestMechanismInstantiationService:
         assert params["gear2_teeth"] == 17
         assert graphics_data["params"]["grid_system_enabled"] is False
         assert graphics_data["params"]["hole_diameter_mm"] == DEFAULT_HOLE_DIAMETER_MM
+
+    def test_fourbar_recommendation_params_match_displayed_simulation_geometry(self):
+        from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
+            MechanismInstantiationService,
+        )
+
+        service = MechanismInstantiationService()
+        layer_data, graphics_data = service.create_layer_data_from_recommendation(
+            mechanism_data={
+                "type": "Four-Bar Linkage",
+                "original_json_type": "4-bar Coupler",
+                "parameters": {"l1": 45.1, "l2": 11.8, "l3": 80.2, "l4": 60.6},
+                "full_simulation_data": {
+                    "joint_positions": {
+                        "p1_positions": [[0.0, 0.0]],
+                        "p2_positions": [[45.0, 0.0]],
+                        "p3_positions": [[12.0, 0.0]],
+                        "p4_positions": [[45.0, 60.0]],
+                        "coupler_positions": [[30.0, 20.0]],
+                    }
+                },
+            },
+            target_path=None,
+        )
+
+        params = layer_data["params"]
+        assert params["l1"] == pytest.approx(45.0)
+        assert params["l2"] == pytest.approx(12.0)
+        assert params["l3"] == pytest.approx(math.hypot(33.0, 60.0))
+        assert params["l4"] == pytest.approx(60.0)
+        assert graphics_data["params"]["l2"] == pytest.approx(params["l2"])
+        assert layer_data["key_points"]["crank_end"] == [12.0, 0.0]
+
+    def test_fourbar_candidate_params_match_displayed_simulation_geometry(self):
+        from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
+            MechanismInstantiationService,
+        )
+
+        service = MechanismInstantiationService()
+        layer_data = service.create_layer_data_from_candidate(
+            candidate_data={
+                "type": "Four-Bar Linkage",
+                "original_json_type": "4-bar Coupler",
+                "parameters": {"l1": 45.1, "l2": 11.8, "l3": 80.2, "l4": 60.6},
+                "full_simulation_data": {
+                    "joint_positions": {
+                        "p1_positions": [[0.0, 0.0]],
+                        "p2_positions": [[45.0, 0.0]],
+                        "p3_positions": [[12.0, 0.0]],
+                        "p4_positions": [[45.0, 60.0]],
+                        "coupler_positions": [[30.0, 20.0]],
+                    }
+                },
+            },
+            selected_part_name="arm",
+            target_path=None,
+            convert_params_fn=None,
+            extract_key_points_fn=None,
+        )
+
+        params = layer_data["params"]
+        assert params["fabrication_ready_preset_mode"] is False
+        assert params["l1"] == pytest.approx(45.0)
+        assert params["l2"] == pytest.approx(12.0)
+        assert params["l3"] == pytest.approx(math.hypot(33.0, 60.0))
+        assert params["l4"] == pytest.approx(60.0)
+        assert layer_data["key_points"]["crank_end"] == [12.0, 0.0]
 
     def test_candidate_layers_inherit_disabled_grid_context(self):
         from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (

@@ -139,12 +139,6 @@ class MechanismDesignTabAdapter(TabAdapter):
             or layer_data.get("part")
             or ""
         )
-        if not part_name:
-            logger.warning(
-                "MechanismDesignTabAdapter: Cannot create mechanism '%s' without part_name",
-                mechanism_id,
-            )
-            return None
 
         mechanism_type = str(
             layer_data.get("type")

@@ -18,7 +18,10 @@ from automataii.application.mechanism_foundry.path_cache import (
     CachedPath,
     PathCache,
     PathCacheKey,
+    select_angle_bounds,
 )
+from automataii.domain.mechanisms.core.state import SafetyLevel
+from automataii.domain.mechanisms.linkages.fourbar.compute import FourBarMechanism
 
 
 class TestPathCacheKey:
@@ -61,6 +64,8 @@ class TestCachedPath:
         assert cached.points == points
         assert cached.angles == angles
         assert cached.timestamp == timestamp
+        assert cached.valid_angle_ranges == ()
+        assert cached.is_closed_cycle is True
 
     def test_cached_path_is_immutable(self):
         cached = CachedPath(points=((0.0, 0.0),), angles=(0.0,), timestamp=time.time())
@@ -194,8 +199,29 @@ class TestPathCache:
         params = {"a": 1.0}
         result = cache.compute_and_cache(mock_mechanism, params, "coupler", angle_samples=5)
 
-        assert len(result.points) == 5
-        assert all(point == (0.0, 0.0) for point in result.points)
+        assert result.points == ()
+        assert result.angles == ()
+        assert result.valid_angle_ranges == ()
+        assert result.is_closed_cycle is False
+
+    def test_compute_and_cache_fails_closed_when_no_angles_are_usable(self):
+        cache = PathCache()
+
+        mock_mechanism = MagicMock()
+        mock_mechanism.mechanism_type = "fourbar"
+
+        mock_state = MagicMock()
+        mock_state.positions = {"coupler": (10.0, 20.0)}
+        mock_state.safety_status.level = SafetyLevel.DANGER
+        mock_mechanism.compute_state.return_value = mock_state
+
+        result = cache.compute_and_cache(mock_mechanism, {"a": 1.0}, "coupler", angle_samples=5)
+
+        assert result.points == ()
+        assert result.angles == ()
+        assert result.valid_angle_ranges == ()
+        assert result.is_closed_cycle is False
+        assert select_angle_bounds(result.valid_angle_ranges, 30.0) is None
 
     def test_compute_and_cache_uses_cached_result(self):
         cache = PathCache()
@@ -306,3 +332,56 @@ class TestPathCache:
         cache.get(key1)
 
         assert list(cache._cache.keys())[-1] == key1
+
+    def test_partial_fourbar_path_exposes_open_valid_angle_ranges(self):
+        cache = PathCache()
+        mechanism = FourBarMechanism()
+        params = {
+            "ground_link": 100.0,
+            "input_link": 80.0,
+            "coupler_link": 50.0,
+            "output_link": 50.0,
+        }
+
+        path = cache.compute_and_cache(mechanism, params, "A", angle_samples=360)
+
+        assert 0 < len(path.angles) < 360
+        assert path.valid_angle_ranges
+        assert any(start < 0.0 < end for start, end in path.valid_angle_ranges)
+        assert path.is_closed_cycle is False
+        assert all(point != (0.0, 0.0) for point in path.points)
+
+        selected = select_angle_bounds(
+            path.valid_angle_ranges,
+            30.0,
+            is_closed_cycle=path.is_closed_cycle,
+        )
+        assert selected[0] <= 30.0 <= selected[1]
+        assert selected[1] < 180.0
+
+    def test_non_grashof_reachable_angle_is_limited_motion_warning(self):
+        mechanism = FourBarMechanism()
+        params = {
+            "ground_link": 100.0,
+            "input_link": 80.0,
+            "coupler_link": 50.0,
+            "output_link": 50.0,
+        }
+
+        reachable = mechanism.compute_state(params, 0.0)
+        unreachable = mechanism.compute_state(params, 180.0)
+
+        assert reachable.safety_status.level == SafetyLevel.WARNING
+        assert "Limited motion" in reachable.safety_status.message
+        assert unreachable.safety_status.level == SafetyLevel.DANGER
+
+    def test_select_angle_bounds_prefers_range_containing_current_angle(self):
+        ranges = ((0.0, 72.0), (288.0, 359.0))
+
+        assert select_angle_bounds(ranges, 30.0) == (0.0, 72.0)
+        assert select_angle_bounds(ranges, 330.0) == (288.0, 359.0)
+        assert select_angle_bounds(ranges, 250.0) == (288.0, 359.0)
+        assert select_angle_bounds(ranges, 180.0) == (0.0, 72.0)
+        assert select_angle_bounds(ranges, 180.0, is_closed_cycle=True) == (0.0, 360.0)
+        assert select_angle_bounds((), 180.0) is None
+        assert select_angle_bounds(((-65.0, 72.0),), 330.0) == (-65.0, 72.0)

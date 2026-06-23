@@ -215,6 +215,104 @@ def test_view_animation_tick(qapp):
     assert view.current_angle == (initial_angle + 4.0) % 360.0
 
 
+def test_view_partial_animation_bounces_inside_angle_bounds(qapp):
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+
+    view = MechanismFoundryView()
+    view.current_angle = 9.0
+    view._current_angle_bounds = (0.0, 10.0)
+    view._current_angle_bounds_partial = True
+    view._angle_animation_direction = 1.0
+    view._render_mechanism = lambda *args, **kwargs: None
+
+    view._on_animation_tick()
+
+    assert view.current_angle == 7.0
+    assert view._angle_animation_direction == -1.0
+
+
+def test_view_wrap_angle_bounds_display_normalized_label(qapp):
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+
+    view = MechanismFoundryView()
+    view.current_angle = 330.0
+
+    view._apply_angle_bounds((-65.0, 65.0), partial=True)
+
+    assert view.current_angle == -30.0
+    assert "330°" in view.angle_label.text()
+    assert "295°–65°" in view.angle_label.text()
+
+
+def test_view_multiple_valid_ranges_are_selectable(qapp):
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+
+    view = MechanismFoundryView()
+    ranges = ((-65.0, 65.0), (120.0, 160.0))
+
+    view._refresh_angle_range_selector(ranges, ranges[1], partial=True)
+
+    assert view.angle_range_selector.count() == 2
+    assert not view.angle_range_selector.isHidden()
+    assert view.angle_range_selector.currentIndex() == 1
+    assert "120°–160°" in view.angle_range_selector.currentText()
+
+
+def test_view_selected_motion_point_resolves_to_state_key(qapp):
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+
+    view = MechanismFoundryView()
+    idx = view.mechanism_selector.findData("four_bar")
+    assert idx >= 0
+    view.mechanism_selector.setCurrentIndex(idx)
+    view._on_mechanism_changed(idx)
+
+    view.show()
+    option_index = view.output_point_selector.findData("joint_b")
+    assert option_index >= 0
+    view.output_point_selector.setCurrentIndex(option_index)
+
+    assert view._selected_motion_point_key() == "joint_b"
+    assert view._selected_motion_state_key() == "B"
+
+
+def test_view_sync_payload_includes_fourbar_angle_bounds(qapp):
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+
+    view = MechanismFoundryView()
+    idx = view.mechanism_selector.findData("four_bar")
+    assert idx >= 0
+    view.mechanism_selector.setCurrentIndex(idx)
+    view._on_mechanism_changed(idx)
+    view._current_angle_bounds = (0.0, 72.0)
+    view._current_angle_bounds_known = True
+    view._current_angle_bounds_available = True
+
+    params = view._build_sync_payload_parameters()
+
+    assert params["valid_angle_min"] == 0.0
+    assert params["valid_angle_max"] == 72.0
+
+
+def test_view_no_valid_angle_range_disables_playback_and_omits_bounds(qapp):
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+
+    view = MechanismFoundryView()
+    idx = view.mechanism_selector.findData("four_bar")
+    assert idx >= 0
+    view.mechanism_selector.setCurrentIndex(idx)
+    view._on_mechanism_changed(idx)
+
+    view._apply_no_valid_angle_bounds()
+    params = view._build_sync_payload_parameters()
+
+    assert not view.angle_slider.isEnabled()
+    assert not view.play_action.isEnabled()
+    assert "valid_angle_min" not in params
+    assert "valid_angle_max" not in params
+    assert "No valid input angle" in view.angle_label.text()
+
+
 def test_view_rendering_creates_scene_items(qapp):
     """
     Test that rendering creates scene items.

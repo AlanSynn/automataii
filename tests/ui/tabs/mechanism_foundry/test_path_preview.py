@@ -13,7 +13,7 @@ import time
 from unittest.mock import Mock
 
 import pytest
-from PyQt6.QtWidgets import QApplication, QGraphicsScene
+from PyQt6.QtWidgets import QApplication, QGraphicsPathItem, QGraphicsScene
 
 from automataii.application.mechanism_foundry.path_cache import CachedPath
 from automataii.presentation.qt.tabs.mechanism_foundry.path_preview import PathPreviewOverlay
@@ -212,6 +212,27 @@ class TestPathPreviewOverlay:
 
         path_lines = [item for item in path_items if item.zValue() == 100]
         assert len(path_lines) > 0
+
+    def test_partial_path_is_not_closed(self, overlay, mock_cache, scene, qapp):
+        mock_mechanism = Mock()
+        cached_path = CachedPath(
+            points=((0.0, 0.0), (10.0, 0.0), (20.0, 0.0)),
+            angles=(0.0, 1.0, 2.0),
+            timestamp=time.time(),
+            valid_angle_ranges=((0.0, 2.0),),
+            is_closed_cycle=False,
+        )
+        mock_cache.compute_and_cache.return_value = cached_path
+
+        overlay.show_path(mock_mechanism, {"a": 1.0}, "coupler")
+
+        path_lines = [
+            item
+            for item in scene.items()
+            if isinstance(item, QGraphicsPathItem) and item.zValue() == 100
+        ]
+        assert path_lines
+        assert path_lines[0].path().currentPosition().x() == 20.0
 
     def test_marker_z_level(self, overlay, mock_cache, scene, qapp):
         mock_mechanism = Mock()

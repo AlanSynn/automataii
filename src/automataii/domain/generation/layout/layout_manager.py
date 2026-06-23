@@ -57,6 +57,7 @@ class LayoutItem:
     svg_content: str
     item_type: str  # 'part', 'mechanism', 'annotation'
     priority: int = 1  # Higher priority items get better placement
+    group: str | None = None
 
 
 class SmartLayoutManager:

@@ -127,22 +127,32 @@ class ImageProcessingTab(QWidget):
 
         panel_layout.addWidget(self.processing_steps_group)
 
-        # Add Manual Segmentation Editing group when in editing mode
-        if self.editing_mode:
-            editing_group = QGroupBox("Manual Editing")
-            editing_layout = QVBoxLayout(editing_group)
-            editing_layout.setSpacing(10)
+        editing_group = QGroupBox("Recognition Editing")
+        editing_layout = QVBoxLayout(editing_group)
+        editing_layout.setSpacing(10)
 
-            # Manual Segmentation Editing button (same style as other buttons)
-            self.manual_segmentation_btn = QPushButton("Manual Segmentation Editing")
-            self.manual_segmentation_btn.setToolTip(
-                "Open interactive editor to manually define body part boundaries by clicking"
-            )
-            self.manual_segmentation_btn.clicked.connect(self.open_manual_segmentation_editor)
-            self.manual_segmentation_btn.setEnabled(False)  # Enabled when image is loaded
-            editing_layout.addWidget(self.manual_segmentation_btn)
+        self.manual_segmentation_btn = QPushButton("Edit Parts / Skeleton / Boxes")
+        self.manual_segmentation_btn.setToolTip(
+            "Open the manual editor to redefine body-part boundaries, select joints, "
+            "and create rectangular boxes from selected joints."
+        )
+        self.manual_segmentation_btn.clicked.connect(self.open_manual_segmentation_editor)
+        self.manual_segmentation_btn.setEnabled(False)  # Enabled when image is loaded
+        editing_layout.addWidget(self.manual_segmentation_btn)
 
-            panel_layout.addWidget(editing_group)
+        self.edit_skeleton_btn = QPushButton("Edit Skeleton Joints")
+        self.edit_skeleton_btn.setToolTip("Enable direct dragging of detected skeleton joints.")
+        self.edit_skeleton_btn.clicked.connect(self.edit_skeleton)
+        self.edit_skeleton_btn.setEnabled(False)
+        editing_layout.addWidget(self.edit_skeleton_btn)
+
+        self.save_skeleton_btn = QPushButton("Save Skeleton")
+        self.save_skeleton_btn.setToolTip("Save the current edited skeleton to char_cfg.yaml.")
+        self.save_skeleton_btn.clicked.connect(self.save_skeleton)
+        self.save_skeleton_btn.setEnabled(False)
+        editing_layout.addWidget(self.save_skeleton_btn)
+
+        panel_layout.addWidget(editing_group)
 
         view_controls_group = QGroupBox("View Controls")
         view_controls_group.setStyleSheet(StyleFactory.group_box_style())
@@ -505,7 +515,7 @@ class ImageProcessingTab(QWidget):
             self._update_output_location_label()
         if self.image_proc_view:
             self.image_proc_view.load_skeleton(None)
-        if self.editing_mode and hasattr(self, "manual_segmentation_btn"):
+        if hasattr(self, "manual_segmentation_btn"):
             self.manual_segmentation_btn.setEnabled(True)
         # Keep detailed workflow controls hidden by default.
         # They can be re-enabled from Options (advanced processing toggle).
@@ -1237,6 +1247,12 @@ class ImageProcessingTab(QWidget):
             generate_enabled=(has_skeleton and has_image),
             skeleton_tools_enabled=has_skeleton,
         )
+        if hasattr(self, "manual_segmentation_btn"):
+            self.manual_segmentation_btn.setEnabled(has_image)
+        if hasattr(self, "edit_skeleton_btn"):
+            self.edit_skeleton_btn.setEnabled(has_skeleton)
+        if hasattr(self, "save_skeleton_btn"):
+            self.save_skeleton_btn.setEnabled(has_skeleton)
         if self.assign_character_btn is not None:
             is_dummy_session = self._is_dummy_mechanism_design_session()
             enable_replace = is_dummy_session
@@ -1531,13 +1547,11 @@ class ImageProcessingTab(QWidget):
         """
         logging.info("ImageProcessingTab: Clearing display and data")
 
-        # Clear scene
-        if self.image_proc_scene:
-            self.image_proc_scene.clear()
-
-        # Clear view's skeleton
+        # Clear image and all view overlays/runtime items.
         if self.image_proc_view:
-            self.image_proc_view.load_skeleton(None)
+            self.image_proc_view.clear_display()
+        elif self.image_proc_scene:
+            self.image_proc_scene.clear()
 
         # Reset internal data
         self.input_image_path = None

@@ -329,6 +329,14 @@ class InteractiveSegmentationEditor(QDialog):
         panel.setMaximumWidth(350)
         layout = QVBoxLayout(panel)
 
+        instructions = QLabel(
+            "Click to trace a part boundary. Right-click removes the last point. "
+            "Select joints, then use the box action to redefine that part as a rectangle."
+        )
+        instructions.setWordWrap(True)
+        instructions.setStyleSheet("color: #6c757d; font-size: 9pt;")
+        layout.addWidget(instructions)
+
         # Part selection
         parts_group = QGroupBox("Select Body Part")
         parts_layout = QVBoxLayout(parts_group)
@@ -352,6 +360,13 @@ class InteractiveSegmentationEditor(QDialog):
         self.clear_btn = QPushButton("Clear Current Part")
         self.clear_btn.clicked.connect(self._clear_current_part)
         actions_layout.addWidget(self.clear_btn)
+
+        self.box_btn = QPushButton("Use Selected Joints as Box")
+        self.box_btn.setToolTip(
+            "Redefine the current part as a padded rectangle around the selected joints."
+        )
+        self.box_btn.clicked.connect(self._use_selected_joint_box)
+        actions_layout.addWidget(self.box_btn)
 
         self.preview_btn = QPushButton("Preview Segmentation")
         self.preview_btn.setStyleSheet("""
@@ -536,6 +551,43 @@ class InteractiveSegmentationEditor(QDialog):
             self.view.update_joint_selection(joint_name, False)
 
         self.status_label.setText(f"Cleared {self.current_part}")
+
+    def _current_joint_box_points(self, padding: float = 12.0) -> list[tuple[float, float]]:
+        """Return a clamped rectangle around selected joints for the current part."""
+        selected_positions = [
+            self.joint_positions[joint_name]
+            for joint_name in self.selected_joints
+            if joint_name in self.joint_positions
+        ]
+        if not selected_positions:
+            return []
+
+        xs = [pos[0] for pos in selected_positions]
+        ys = [pos[1] for pos in selected_positions]
+        left = max(0.0, min(xs) - padding)
+        right = min(float(self.image_width), max(xs) + padding)
+        top = max(0.0, min(ys) - padding)
+        bottom = min(float(self.image_height), max(ys) + padding)
+        if right <= left or bottom <= top:
+            return []
+        return [(left, top), (right, top), (right, bottom), (left, bottom)]
+
+    def _use_selected_joint_box(self) -> None:
+        """Replace the current part boundary with a joint-derived rectangle."""
+        points = self._current_joint_box_points()
+        if not points:
+            QMessageBox.information(
+                self,
+                "Select Joints",
+                "Select one or more joints first, then use the box action.",
+            )
+            return
+
+        self.boundary_points[self.current_part] = points
+        self.view.set_boundary_points(points)
+        self.status_label.setText(
+            f"Redefined {self.current_part} as a box from {len(self.selected_joints)} joints"
+        )
 
     def _preview_segmentation(self):
         """Generate and show segmentation preview"""

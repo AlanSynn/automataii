@@ -4,10 +4,11 @@ from typing import Any
 
 import yaml
 from PyQt6.QtCore import QEvent, QLineF, QPointF, QRectF, Qt
-from PyQt6.QtGui import QBrush, QColor, QPainter, QPen, QPixmap
+from PyQt6.QtGui import QBrush, QColor, QMouseEvent, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QGraphicsEllipseItem,
+    QGraphicsItem,
     QGraphicsLineItem,
     QGraphicsRectItem,
     QGraphicsView,
@@ -81,6 +82,7 @@ class ImageProcessingView(QGraphicsView):
         self.joints = {}  # Dict mapping joint name (str) to SkeletonJoint
         self.joint_labels = {}  # Dict mapping joint name (str) to QGraphicsTextItem
         self.lines = []  # List of SkeletonLine items
+        self._edit_mode = False
 
         # Interactive Character Parts in this view
         self.part_items: dict[str, CharacterPartItem] = {}
@@ -132,7 +134,9 @@ class ImageProcessingView(QGraphicsView):
         if unit.lower() in ["cm", "inch", "px"]:
             self.display_unit = unit.lower()
             logging.info(f"ImageProcessingView: Display unit set to {self.display_unit}")
-            self.viewport().update()  # Trigger a repaint of the background
+            viewport = self.viewport()
+            if viewport is not None:
+                viewport.update()  # Trigger a repaint of the background
         else:
             logging.warning(
                 f"ImageProcessingView: Invalid display unit '{unit}'. Using current: {self.display_unit}"
@@ -203,7 +207,9 @@ class ImageProcessingView(QGraphicsView):
         if self.char_cfg_origin_marker:
             self.char_cfg_origin_marker.setVisible(self.debug_mode)
         # Trigger a repaint to update foreground drawing
-        self.viewport().update()
+        viewport = self.viewport()
+        if viewport is not None:
+            viewport.update()
 
     def _clear_debug_items(self):
         """Removes debug-related graphics items from the scene."""
@@ -212,7 +218,9 @@ class ImageProcessingView(QGraphicsView):
         self.debug_bb_item = None
         # Trigger repaint if debug mode is on to clear text
         if self.debug_mode:
-            self.viewport().update()
+            viewport = self.viewport()
+            if viewport is not None:
+                viewport.update()
 
     # --- Event Handling (Zoom/Pan/Gestures) ---
 
@@ -252,6 +260,34 @@ class ImageProcessingView(QGraphicsView):
                 self._viewport_controller.zoom_to_scale(current_scale)
 
     # --- Image and Skeleton Loading ---
+
+    def clear_display(self) -> None:
+        """Clear the loaded image and all overlay/runtime items from the view."""
+        scene = self.scene()
+        if scene is not None:
+            scene.clear()
+
+        self.image_item = None
+        self.joints.clear()
+        self.joint_labels.clear()
+        self.lines.clear()
+        self.part_items.clear()
+        self.joint_to_part_map.clear()
+        self.skeleton_to_part_map.clear()
+        self._skeleton_viz_items.clear()
+        self.current_guide_lines.clear()
+        self.last_active_joint_for_guide = None
+        self.dragged_joint_item = None
+        self.drag_start_pos = None
+        self.drag_start_pos_offset = None
+        self.original_skeleton_data = None
+        self.bounding_box = None
+        self.bb_center = None
+        self.debug_bb_item = None
+        self.char_cfg_origin_marker = None
+        viewport = self.viewport()
+        if viewport is not None:
+            viewport.update()
 
     def load_image(self, image_path: str):
         """Loads and displays an image, clearing previous non-skeleton items."""
@@ -403,7 +439,9 @@ class ImageProcessingView(QGraphicsView):
 
         # Update viewport if debug mode is on (to refresh text overlay)
         if self.debug_mode:
-            self.viewport().update()
+            viewport = self.viewport()
+            if viewport is not None:
+                viewport.update()
 
     def load_skeleton(self, skeleton_data_dict: dict | None):
         """Loads skeleton data and visualizes it.
@@ -417,8 +455,8 @@ class ImageProcessingView(QGraphicsView):
         This method detects the format and converts standardized format to AD format
         for internal processing.
         """
-        if not self.scene() or not self.image_item:
-            logging.error("Scene or image_item not available for skeleton loading.")
+        if not self.scene():
+            logging.error("Scene not available for skeleton loading.")
             return False
 
         # Handle None input gracefully
@@ -428,6 +466,10 @@ class ImageProcessingView(QGraphicsView):
             self.original_skeleton_data = None
             self.scene().update()
             return True  # Successfully handled None by clearing
+
+        if not self.image_item:
+            logging.error("image_item not available for skeleton loading.")
+            return False
 
         # Handle empty dict gracefully
         if not skeleton_data_dict:
@@ -466,29 +508,90 @@ class ImageProcessingView(QGraphicsView):
 
         self.original_skeleton_data = skeleton_data_dict  # Store the (possibly converted) data
 
-        # --- Placeholder for non-interactive visualization (if needed directly in this view) ---
-        # This section can be expanded if a simple, non-editable overlay is desired here.
-        # For now, the primary purpose is to process and hold self.original_skeleton_data.
-        # Interactive editing was via SkeletonJoint/SkeletonLine, which are removed.
-
-        # Example of how you might store joint positions if needed by other parts of this view:
-        # temp_joint_positions = {}
-        # for joint_data in char_cfg_skeleton_list:
-        #     name = joint_data.get('name')
-        #     loc = joint_data.get('loc')
-        #     if name and loc and len(loc) == 2:
-        #         # These positions are relative to char_cfg origin/bounding box
-        #         # They would need transformation to scene coordinates if drawn directly.
-        #         temp_joint_positions[name] = QPointF(loc[0], loc[1])
-        # logging.info(f"ImageProcessingView: Parsed {len(temp_joint_positions)} joint positions (raw from char_cfg).")
-        # --- End Placeholder ---
-
-        # Mark that skeleton data is "loaded" for this view, even if not fully visualized interactively.
+        self._build_editable_skeleton(char_cfg_skeleton_list)
         logging.info(
-            "ImageProcessingView: Skeleton data processed (raw data stored). Interactive editing is disabled."
+            "ImageProcessingView: Skeleton data loaded with %d editable joints.",
+            len(self.joints),
         )
         self.scene().update()
         return True  # Indicate success in processing the data format
+
+    @staticmethod
+    def _joint_location_from_payload(joint_data: dict[str, Any]) -> tuple[float, float] | None:
+        loc = joint_data.get("loc") or joint_data.get("position") or joint_data.get("coordinates")
+        if isinstance(loc, list | tuple) and len(loc) >= 2:
+            try:
+                return float(loc[0]), float(loc[1])
+            except (TypeError, ValueError):
+                return None
+        return None
+
+    def _build_editable_skeleton(self, skeleton_list: list[dict[str, Any]]) -> None:
+        """Draw editable joint handles and bone lines from AD skeleton data."""
+        scene = self.scene()
+        if scene is None:
+            return
+
+        joint_defs: list[tuple[str, str | None, QPointF]] = []
+        for joint_data in skeleton_list:
+            if not isinstance(joint_data, dict):
+                continue
+            name = str(joint_data.get("name") or "").strip()
+            location = self._joint_location_from_payload(joint_data)
+            if not name or location is None:
+                continue
+            parent = joint_data.get("parent")
+            parent_name = str(parent).strip() if parent else None
+            joint_defs.append((name, parent_name, QPointF(location[0], location[1])))
+
+        positions = {name: pos for name, _parent, pos in joint_defs}
+        bone_pen = QPen(QColor("#6c757d"), 2)
+        bone_pen.setCosmetic(True)
+
+        for child_name, parent_name, child_pos in joint_defs:
+            if not parent_name or parent_name not in positions:
+                continue
+            line = QGraphicsLineItem(QLineF(positions[parent_name], child_pos))
+            line.setPen(bone_pen)
+            line.setZValue(100)
+            line.joint1_name = parent_name  # type: ignore[attr-defined]
+            line.joint2_name = child_name  # type: ignore[attr-defined]
+            scene.addItem(line)
+            self.lines.append(line)
+
+        for name, _parent_name, pos in joint_defs:
+            joint = QGraphicsEllipseItem(-6, -6, 12, 12)
+            joint.setPos(pos)
+            joint.setBrush(QBrush(QColor("#0d6efd")))
+            joint.setPen(QPen(QColor("white"), 2))
+            joint.setZValue(110)
+            joint.setData(0, name)
+            joint.joint_name = name  # type: ignore[attr-defined]
+            joint.name = name  # type: ignore[attr-defined]
+            joint.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+            joint.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, self._edit_mode)
+            joint.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
+            scene.addItem(joint)
+            self.joints[name] = joint
+
+            label = scene.addText(name)
+            if label is None:
+                continue
+            label.setDefaultTextColor(QColor("#212529"))
+            label.setZValue(111)
+            self.joint_labels[name] = label
+            self._update_joint_label_position(name)
+
+    def set_edit_mode(self, enabled: bool) -> None:
+        """Enable direct dragging of skeleton joints in the image-processing view."""
+        self._edit_mode = bool(enabled)
+        self.setDragMode(
+            QGraphicsView.DragMode.NoDrag
+            if self._edit_mode
+            else QGraphicsView.DragMode.ScrollHandDrag
+        )
+        for joint in self.joints.values():
+            joint.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, self._edit_mode)
 
     def _convert_standardized_to_ad_format(self, standardized_data: dict) -> list:
         """Convert StandardizedSkeletonModel format to Animated Drawings format.
@@ -555,6 +658,10 @@ class ImageProcessingView(QGraphicsView):
             if line.scene():
                 self.scene().removeItem(line)
         self.lines.clear()
+        for guide in self.current_guide_lines:
+            if guide.scene():
+                self.scene().removeItem(guide)
+        self.current_guide_lines.clear()
         self._clear_joint_labels()
         self._clear_char_cfg_marker()
         self.clear_character_parts()  # Also clear character parts when skeleton is cleared
@@ -718,24 +825,34 @@ class ImageProcessingView(QGraphicsView):
             label_item = self.joint_labels[joint_name]
             label_item.setPos(joint_item.pos() + QPointF(5, -10))
 
-    def _update_lines(self, joint_item):
+    def _update_lines(self, joint_item: QGraphicsItem | None = None) -> None:
         """Updates the lines connected to a moved joint."""
-        # joint_item: SkeletonJoint # Commented out type hint
-        """Updates lines connected to the moved joint."""
-        # for line in self.lines[:]: # Iterate over a copy
-        #     if line.joint1 == joint_item or line.joint2 == joint_item:
-        #         line.update_position()
-        pass  # Placeholder
+        for line in self.lines:
+            first_name = getattr(line, "joint1_name", None)
+            second_name = getattr(line, "joint2_name", None)
+            first_joint = self.joints.get(first_name)
+            second_joint = self.joints.get(second_name)
+            if first_joint is None or second_joint is None:
+                continue
+            line.setLine(QLineF(first_joint.pos(), second_joint.pos()))
+
+        if joint_item is None:
+            for joint_name in self.joints:
+                self._update_joint_label_position(joint_name)
 
     def get_lines_connected_to_joint(self, target_joint):
-        # target_joint: SkeletonJoint # Commented out type hint
         """Returns a list of SkeletonLine items connected to the target joint."""
-        # connected_lines = []
-        # for line in self.lines:
-        #     if line.joint1 == target_joint or line.joint2 == target_joint:
-        #         connected_lines.append(line)
-        # return connected_lines
-        return []  # Return empty list
+        joint_name = getattr(
+            target_joint,
+            "joint_name",
+            getattr(target_joint, "name", target_joint.data(0) if target_joint else None),
+        )
+        return [
+            line
+            for line in self.lines
+            if getattr(line, "joint1_name", None) == joint_name
+            or getattr(line, "joint2_name", None) == joint_name
+        ]
 
     def calculate_perpendicular_cut_guide(self, joint):
         # joint: SkeletonJoint # Commented out type hint
@@ -743,6 +860,7 @@ class ImageProcessingView(QGraphicsView):
         if not joint or not joint.scene():  # Ensure joint is valid and in scene
             return None
 
+        joint_name = getattr(joint, "joint_name", getattr(joint, "name", "joint"))
         joint_pos = joint.pos()  # This should be in parent (image_item) coordinates
 
         # If joint's parent is the image_item, map joint_pos to scene coordinates
@@ -766,13 +884,16 @@ class ImageProcessingView(QGraphicsView):
         guide_direction = QPointF(0, 0)
 
         if not connected_lines:
-            logging.debug(f"No connected lines for joint {joint.joint_name} to calculate guide.")
+            logging.debug("No connected lines for joint %s to calculate guide.", joint_name)
             return None
 
         if len(connected_lines) == 1:
             # Terminal joint (connected to one bone)
             line = connected_lines[0]
-            other_joint = line.joint1 if line.joint2 == joint else line.joint2
+            first_name = getattr(line, "joint1_name", None)
+            second_name = getattr(line, "joint2_name", None)
+            other_name = first_name if second_name == joint_name else second_name
+            other_joint = self.joints.get(other_name)
             if not other_joint:
                 return None
 
@@ -782,12 +903,18 @@ class ImageProcessingView(QGraphicsView):
         else:  # len(connected_lines) >= 2 (intermediate joint)
             # For simplicity, consider the first two connected lines.
             line1 = connected_lines[0]
-            other_joint1 = line1.joint1 if line1.joint2 == joint else line1.joint2
+            first_name = getattr(line1, "joint1_name", None)
+            second_name = getattr(line1, "joint2_name", None)
+            other_name = first_name if second_name == joint_name else second_name
+            other_joint1 = self.joints.get(other_name)
             if not other_joint1:
                 return None
 
             line2 = connected_lines[1]
-            other_joint2 = line2.joint1 if line2.joint2 == joint else line2.joint2
+            first_name = getattr(line2, "joint1_name", None)
+            second_name = getattr(line2, "joint2_name", None)
+            other_name = first_name if second_name == joint_name else second_name
+            other_joint2 = self.joints.get(other_name)
             if not other_joint2:
                 return None
 
@@ -804,7 +931,7 @@ class ImageProcessingView(QGraphicsView):
                 guide_direction = perpendicular_vector(bisector_direction)
 
         if guide_direction.isNull():
-            logging.debug(f"Guide direction is null for {joint.joint_name}")
+            logging.debug("Guide direction is null for %s", joint_name)
             return None
 
         normalized_guide_dir = normalize_vector(guide_direction)
@@ -846,7 +973,10 @@ class ImageProcessingView(QGraphicsView):
             guide_item = self.scene().addLine(guide_line_data, pen)
             guide_item.setZValue(150)  # Ensure it's visible above most things
             self.current_guide_lines.append(guide_item)
-            logging.debug(f"Drew cut guide for joint {active_joint.joint_name}")
+            logging.debug(
+                "Drew cut guide for joint %s",
+                getattr(active_joint, "joint_name", getattr(active_joint, "name", "joint")),
+            )
 
     # --- New methods for managing interactive CharacterPartItems ---
     def clear_character_parts(self):
@@ -858,26 +988,40 @@ class ImageProcessingView(QGraphicsView):
         self.part_items.clear()
         self.joint_to_part_map.clear()
 
-    def mousePressEvent(self, event: QEvent):
-        # Check if the click is on a joint
-        # item = self.itemAt(event.pos())  # Currently not used
-        # if isinstance(item, SkeletonJoint): # Commented out
-        #     self.dragged_joint_item = item
-        #     self.drag_start_pos = event.scenePos()
-        #     self.drag_start_pos_offset = self.dragged_joint_item.scenePos() - self.drag_start_pos
-        #     # Bring to front
-        #     self.dragged_joint_item.setZValue(self.dragged_joint_item.zValue() + 1)
-        #     self.update_and_draw_cut_guides(self.dragged_joint_item) # Update guides for active joint
-        #     return # Consume event if joint is clicked
-        # else: # Clicked on background or other item
-        #     self.dragged_joint_item = None
-        #     self.update_and_draw_cut_guides(None) # Clear guides if no joint is active
+    def mousePressEvent(self, event: QMouseEvent | None) -> None:
+        if event is None:
+            return
+        if (
+            self._edit_mode
+            and hasattr(event, "button")
+            and event.button() == Qt.MouseButton.LeftButton
+        ):
+            view_pos = event.position().toPoint()
+            item = self.itemAt(view_pos)
+            if item is not None and item in self.joints.values():
+                self.dragged_joint_item = item
+                self.drag_start_pos = self.mapToScene(view_pos)
+                self.drag_start_pos_offset = item.scenePos() - self.drag_start_pos
+                item.setZValue(item.zValue() + 1)
+                self.update_and_draw_cut_guides(item)
+                event.accept()
+                return
+
+            self.dragged_joint_item = None
+            self.update_and_draw_cut_guides(None)
 
         super().mousePressEvent(event)  # Call super for panning etc.
 
-    def mouseMoveEvent(self, event: QEvent):
-        if self.dragged_joint_item and self.drag_start_pos:
-            current_scene_pos = event.scenePos()
+    def mouseMoveEvent(self, event: QMouseEvent | None) -> None:
+        if event is None:
+            return
+        if (
+            self.dragged_joint_item
+            and self.drag_start_pos
+            and self.drag_start_pos_offset is not None
+        ):
+            view_pos = event.position().toPoint()
+            current_scene_pos = self.mapToScene(view_pos)
             # Calculate new position based on drag start and current mouse position
             # This provides a more direct drag feel compared to just setting item's pos to mouse pos
             # new_pos = self.dragged_joint_item.mapToParent(self.dragged_joint_item.mapFromScene(current_scene_pos + self.drag_start_pos_offset))
@@ -887,16 +1031,19 @@ class ImageProcessingView(QGraphicsView):
             self.dragged_joint_item.setPos(current_scene_pos + self.drag_start_pos_offset)
 
             self._update_lines(self.dragged_joint_item)
-            self._update_joint_label_position(self.dragged_joint_item.name)  # Update label
-            self._update_linked_part_position(
-                self.dragged_joint_item.name, self.dragged_joint_item.scenePos()
-            )
+            joint_name = getattr(self.dragged_joint_item, "name", None)
+            if joint_name:
+                self._update_joint_label_position(joint_name)
+                self._update_linked_part_position(joint_name, self.dragged_joint_item.scenePos())
             self.update_and_draw_cut_guides(
                 self.dragged_joint_item
             )  # Update guides for active joint
+            event.accept()
             return  # Consume event
 
         super().mouseMoveEvent(event)
+        if self._edit_mode:
+            self._update_lines()
 
         # Handle hover controls visibility
         view_rect = self.rect()
@@ -914,15 +1061,13 @@ class ImageProcessingView(QGraphicsView):
             self.hover_controls.set_zoom_level(zoom_percentage)
 
     def mouseReleaseEvent(self, event: QEvent):
-        # if self.dragged_joint_item:
-        #     # Reset Z-value
-        #     self.dragged_joint_item.setZValue(self.dragged_joint_item.zValue() -1)
-        #     self.dragged_joint_item = None
-        #     self.drag_start_pos = None
-        #     self.drag_start_pos_offset = None
-        #     # Do not clear guides here, they stay until another joint is selected or background clicked
-        #     # self.update_and_draw_cut_guides(None) # This would clear them
-        #     return # Consume event
+        if self.dragged_joint_item:
+            self.dragged_joint_item.setZValue(self.dragged_joint_item.zValue() - 1)
+            self.dragged_joint_item = None
+            self.drag_start_pos = None
+            self.drag_start_pos_offset = None
+            event.accept()
+            return
 
         super().mouseReleaseEvent(event)
 

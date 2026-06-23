@@ -219,6 +219,8 @@ class TestMenuActions:
 
         assert undo_action.isEnabled() is False
         assert redo_action.isEnabled() is False
+        assert "Back" in undo_action.text()
+        assert "Forward" in redo_action.text()
         assert has_standard_shortcut(undo_action, QKeySequence.StandardKey.Undo)
         assert has_standard_shortcut(redo_action, QKeySequence.StandardKey.Redo)
         assert QKeySequence("Ctrl+Y") in redo_action.shortcuts()

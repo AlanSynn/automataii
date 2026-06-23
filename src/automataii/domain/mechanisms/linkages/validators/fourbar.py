@@ -166,13 +166,7 @@ class FourBarValidator(LinkageValidator):
         from automataii.domain.mechanisms.core.state import SafetyLevel, SafetyStatus
 
         # Priority: most severe issue determines level
-        if not grashof_ok and grashof_ratio > 1.1:
-            return SafetyStatus(
-                level=SafetyLevel.DANGER,
-                message=f"No continuous rotation (Grashof: {grashof_ratio:.2f})",
-                details={},
-            )
-        elif dist_a_o4 > max_reach:
+        if dist_a_o4 > max_reach:
             return SafetyStatus(
                 level=SafetyLevel.DANGER,
                 message=f"Links unreachable (dist: {dist_a_o4:.1f} > {max_reach:.1f})",
@@ -193,7 +187,7 @@ class FourBarValidator(LinkageValidator):
         elif not grashof_ok:
             return SafetyStatus(
                 level=SafetyLevel.WARNING,
-                message=f"Limited motion (Grashof: {grashof_ratio:.2f})",
+                message=f"Limited motion, no continuous rotation (Grashof: {grashof_ratio:.2f})",
                 details={},
             )
         elif ta_quality == "poor":

@@ -1,7 +1,10 @@
 import sys
+from types import SimpleNamespace
 
+from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QApplication, QFormLayout, QGroupBox, QScrollArea
 
+from automataii.application.project import AutoSaveManager, ProjectSerializer
 from automataii.presentation.qt.physical_context_store import PhysicalKitContextStore
 from automataii.presentation.qt.tabs.options_tab import OptionsTab
 from automataii.shared.physical_kit import DEFAULT_GRID_CELL_CM
@@ -115,6 +118,47 @@ def test_blueprint_export_format_defaults_to_pdf_and_can_switch_to_svg() -> None
     assert seen[-1] == "svg"
     tab.set_blueprint_export_format_input("pdf")
     assert tab.blueprint_export_format_combo.currentData() == "pdf"
+
+
+def test_autosave_controls_emit_settings() -> None:
+    _ = _get_app()
+    tab = OptionsTab()
+    seen: list[tuple[bool, int]] = []
+    generic: list[tuple[str, object]] = []
+    tab.autosaveSettingsChanged.connect(lambda enabled, interval: seen.append((enabled, interval)))
+    tab.setting_changed.connect(lambda name, value: generic.append((name, value)))
+
+    tab.autosave_interval_spin.setValue(120)
+    tab.autosave_enabled_check.setChecked(False)
+
+    assert seen[-1] == (False, 120)
+    assert tab.autosave_interval_spin.isEnabled() is False
+    assert generic[-1] == (
+        "autosave_settings",
+        {"enabled": False, "interval_seconds": 120},
+    )
+
+
+def test_main_window_applies_autosave_settings() -> None:
+    from automataii.presentation.qt.main_window import AutomataDesigner
+
+    _ = _get_app()
+    messages: list[str] = []
+    status_bar = SimpleNamespace(showMessage=lambda message, *_args: messages.append(message))
+    window = SimpleNamespace(
+        _autosave_enabled=True,
+        _autosave_manager=AutoSaveManager(ProjectSerializer()),
+        _autosave_timer=QTimer(),
+        statusBar=lambda: status_bar,
+    )
+
+    AutomataDesigner._handle_autosave_settings_changed(window, False, 120)
+
+    assert window._autosave_enabled is False
+    assert window._autosave_manager.interval_seconds == 120
+    assert window._autosave_timer.interval() == 120_000
+    assert window._autosave_timer.isActive() is False
+    assert "Autosave disabled" in messages[-1]
 
 
 def test_grid_cell_display_is_preset_authoritative() -> None:

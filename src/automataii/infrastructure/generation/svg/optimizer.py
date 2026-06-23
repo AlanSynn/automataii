@@ -38,6 +38,25 @@ from automataii.shared.physical_kit import finite_float, normalize_mechanism_typ
 # automataii.domain.generation.layout and are imported above.
 # LayoutItem and ScaledBounds are also imported from the domain module.
 
+
+def infer_character_part_group(part_name: str) -> str:
+    """Infer the blueprint cut group used by the editor's humanoid skeleton."""
+    normalized = part_name.lower().replace("-", "_").replace(" ", "_")
+    if "head" in normalized or "neck" in normalized:
+        return "head_neck"
+    if "torso" in normalized or "pelvis" in normalized or "spine" in normalized:
+        return "torso"
+    if "upper" in normalized and "arm" in normalized:
+        return "upper_arms"
+    if "lower" in normalized and "arm" in normalized:
+        return "lower_arms"
+    if "upper" in normalized and "leg" in normalized:
+        return "upper_legs"
+    if "lower" in normalized and "leg" in normalized:
+        return "lower_legs"
+    return "other"
+
+
 _SVG_COORD_PATTERN = re.compile(
     r"([ML])\s+([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?)"
     r"[\s,]+([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?)"
@@ -1326,6 +1345,9 @@ class BlueprintLayoutOptimizer:
 
             # Get part name
             part_name = getattr(item.part_info, "name", "Unknown Part")
+            part_group = getattr(item.part_info, "group", None) or infer_character_part_group(
+                part_name
+            )
 
             # Create scaled bounds
             x, y, w, h = scaled_contour.bounding_rect
@@ -1340,6 +1362,7 @@ class BlueprintLayoutOptimizer:
                 part_name,
                 bounds,
                 pivot=pivot,
+                group=part_group,
             )
 
             # Create layout item
@@ -1349,6 +1372,7 @@ class BlueprintLayoutOptimizer:
                 svg_content=svg_content,
                 item_type="part",
                 priority=3,  # Parts get highest priority for placement
+                group=part_group,
             )
 
             layout_items.append(layout_item)
@@ -1512,6 +1536,7 @@ class BlueprintLayoutOptimizer:
         bounds: ScaledBounds,
         *,
         pivot: tuple[float, float] | None = None,
+        group: str | None = None,
     ) -> str:
         """Generate SVG content for scaled part with texture image clipped to contour."""
 
@@ -1584,8 +1609,11 @@ class BlueprintLayoutOptimizer:
 
         # Build SVG group with image and outline (no nested defs)
         parts = []
+        escaped_part_name = escape_xml(part_name, quote=True)
+        group_attr = f' data-group="{escape_xml(group, quote=True)}"' if group else ""
         parts.append(
-            f'<g class="scaled-part" data-name="{part_name}" data-clip-def="{escaped_clip_def}">'
+            f'<g class="scaled-part" data-name="{escaped_part_name}"{group_attr} '
+            f'data-clip-def="{escaped_clip_def}">'
         )
 
         # Embedded texture image clipped to contour
@@ -1616,11 +1644,10 @@ class BlueprintLayoutOptimizer:
         parts.append(f'  <path d="{offset_path}" class="cutting-path"/>')
         if pivot is not None:
             pivot_x, pivot_y = pivot
-            part_name_attr = escape_xml(part_name, quote=True)
             parts.append(
                 f'  <circle cx="{pivot_x:.1f}" cy="{pivot_y:.1f}" r="2.0" '
                 'class="pivot-drill-hole" data-hole-diameter-mm="4" '
-                f'data-hole-role="pivot" data-part-name="{part_name_attr}"/>'
+                f'data-hole-role="pivot" data-part-name="{escaped_part_name}"/>'
             )
             parts.append(
                 f'  <text x="{pivot_x + 4.0:.1f}" y="{pivot_y - 4.0:.1f}" '
@@ -1629,7 +1656,7 @@ class BlueprintLayoutOptimizer:
 
         # Part label
         parts.append(
-            f'  <text x="{w / 2:.1f}" y="-8" class="part-label" text-anchor="middle">{part_name}</text>'
+            f'  <text x="{w / 2:.1f}" y="-8" class="part-label" text-anchor="middle">{escape_xml(part_name)}</text>'
         )
 
         # Dimensions and manufacturing notes

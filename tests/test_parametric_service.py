@@ -4,6 +4,7 @@ import math
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 from PyQt6.QtWidgets import QGraphicsItem, QGraphicsPathItem
 
 from automataii.application.mechanism_design.parametric_service import (
@@ -156,6 +157,89 @@ def test_regenerate_4bar_keeps_lengths_without_inverse_transform() -> None:
 
     # At frame 0, p3 should be exactly one crank length from p1 along +X.
     assert p3_0[0] == 40.0
+
+
+def test_fourbar_parametric_snap_does_not_force_full_rotation_grashof() -> None:
+    from automataii.presentation.qt.tabs.parametric_editing_manager import (
+        ParametricEditingManager,
+    )
+
+    manager = ParametricEditingManager(SimpleNamespace())
+    params = {"L1": 200.0, "L2": 10.0, "L3": 10.0, "L4": 180.0}
+    layer_data = {"type": "4_bar_linkage", "params": params}
+
+    changed = manager._enforce_grashof_and_snap(layer_data)
+
+    assert changed is False
+    assert params == {"L1": 200.0, "L2": 10.0, "L3": 10.0, "L4": 180.0}
+
+
+def test_regenerate_4bar_uses_valid_angle_bounds_without_moving_current_pose() -> None:
+    from automataii.presentation.qt.tabs.parametric_editing_manager import (
+        ParametricEditingManager,
+    )
+
+    class _DummyParentTab:
+        def _get_inverse_scene_transform_function(self, _layer_data):
+            return None
+
+    manager = ParametricEditingManager(_DummyParentTab())
+    layer_data = {
+        "transform_params": {"scale": 1.0},
+        "generated_path": None,
+    }
+    params = {
+        "ground_pivot_1": [0.0, 0.0],
+        "ground_pivot_2": [100.0, 0.0],
+        "l2": 80.0,
+        "l3": 50.0,
+        "l4": 50.0,
+        "crank_angle": 30.0,
+        "valid_angle_min": 0.0,
+        "valid_angle_max": 72.0,
+    }
+
+    manager._regenerate_4bar_simulation(layer_data, params)
+    joints = layer_data["full_simulation_data"]["joint_positions"]
+    p3_positions = np.array(joints["p3_positions"], dtype=float)
+    generated_angles = np.degrees(np.arctan2(p3_positions[:, 1], p3_positions[:, 0])) % 360.0
+
+    assert generated_angles[0] == pytest.approx(30.0)
+    assert generated_angles.min() >= 0.0
+    assert generated_angles.max() <= 72.0
+
+
+def test_regenerate_4bar_wrap_bounds_keep_normalized_current_pose() -> None:
+    from automataii.presentation.qt.tabs.parametric_editing_manager import (
+        ParametricEditingManager,
+    )
+
+    class _DummyParentTab:
+        def _get_inverse_scene_transform_function(self, _layer_data):
+            return None
+
+    manager = ParametricEditingManager(_DummyParentTab())
+    layer_data = {
+        "transform_params": {"scale": 1.0},
+        "generated_path": None,
+    }
+    params = {
+        "ground_pivot_1": [0.0, 0.0],
+        "ground_pivot_2": [100.0, 0.0],
+        "l2": 80.0,
+        "l3": 50.0,
+        "l4": 50.0,
+        "crank_angle": 330.0,
+        "valid_angle_min": -65.0,
+        "valid_angle_max": 65.0,
+    }
+
+    manager._regenerate_4bar_simulation(layer_data, params)
+    joints = layer_data["full_simulation_data"]["joint_positions"]
+    p3_positions = np.array(joints["p3_positions"], dtype=float)
+    generated_angles = np.degrees(np.arctan2(p3_positions[:, 1], p3_positions[:, 0])) % 360.0
+
+    assert generated_angles[0] == pytest.approx(330.0)
 
 
 def test_parameter_mapper_4bar_uses_key_points_when_simulation_missing() -> None:

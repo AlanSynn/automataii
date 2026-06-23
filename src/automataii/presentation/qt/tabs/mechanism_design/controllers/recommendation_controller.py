@@ -323,11 +323,17 @@ class RecommendationController(QObject):
             QMessageBox.warning(parent_widget, "Unsupported Mechanism", str(exc))
             return
 
+        if selected_part_name and not layer_data.get("part_name"):
+            layer_data["part_name"] = selected_part_name
+
         # Add mechanism layer and create visuals
         if self._add_mechanism_layer_fn:
             self._add_mechanism_layer_fn(graphics_data["name"], layer_data)
         if self._handle_mechanism_visuals_fn:
             self._handle_mechanism_visuals_fn(graphics_data)
+        emit_changed = getattr(parent_widget, "_emit_mechanism_params_changed", None)
+        if callable(emit_changed):
+            emit_changed(str(layer_data.get("id") or graphics_data["name"]))
 
     def clear_preview(self) -> None:
         """Clear any existing preview items."""

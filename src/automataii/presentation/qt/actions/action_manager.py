@@ -134,21 +134,21 @@ class ActionManager(QObject):
         # Edit actions
         undo_action = self.create_action(
             action_id="undo",
-            text="&Undo",
+            text="&Back (Undo)",
             icon=self._get_standard_icon(QStyle.StandardPixmap.SP_ArrowLeft),
-            tooltip="Undo last action",
+            tooltip="Go back: undo the last action",
             shortcut=QKeySequence(QKeySequence.StandardKey.Undo),
-            status_tip="Undo the last action",
+            status_tip="Go back by undoing the last action",
             enabled=False,  # Initially disabled
         )
 
         redo_action = self.create_action(
             action_id="redo",
-            text="&Redo",
+            text="&Forward (Redo)",
             icon=self._get_standard_icon(QStyle.StandardPixmap.SP_ArrowRight),
-            tooltip="Redo last undone action",
+            tooltip="Go forward: redo the last undone action",
             shortcut=QKeySequence(QKeySequence.StandardKey.Redo),
-            status_tip="Redo the last undone action",
+            status_tip="Go forward by redoing the last undone action",
             enabled=False,  # Initially disabled
         )
         # Qt maps StandardKey.Redo to the platform default (for example

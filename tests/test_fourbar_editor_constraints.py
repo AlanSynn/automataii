@@ -70,6 +70,7 @@ def test_fourbar_crank_move_updates_mechanism_length_under_transform(qapp):
     assert params["l2"] == pytest.approx(60.0, rel=1e-6)
     assert params["L2"] == pytest.approx(60.0, rel=1e-6)
     assert params["crank_angle"] == pytest.approx(0.0, rel=1e-6)
+    assert params["input_angle"] == pytest.approx(0.0, rel=1e-6)
     assert editor.handles["crank"].constraints["fixed_distance"]["distance"] == pytest.approx(
         120.0, rel=1e-6
     )
@@ -157,6 +158,44 @@ def test_fourbar_coupler_drag_without_transform_updates_coupler_offset(qapp):
     assert params["coupler_y"] == pytest.approx(25.0)
     assert params["coupler_point_x"] == pytest.approx(30.0)
     assert params["coupler_point_y"] == pytest.approx(25.0)
+
+
+def test_fourbar_drag_syncs_coupler_length_and_drops_stale_bounds(qapp):
+    scene = QGraphicsScene()
+    editor = FourBarEditor("plain_4bar", scene)
+    mechanism_data = {
+        "type": "4_bar_linkage",
+        "params": {
+            "anchor1_x": 0.0,
+            "anchor1_y": 0.0,
+            "anchor2_x": 200.0,
+            "anchor2_y": 0.0,
+            "crank_x": 50.0,
+            "crank_y": 0.0,
+            "rocker_x": 150.0,
+            "rocker_y": 0.0,
+            "l1": 200.0,
+            "l2": 50.0,
+            "l3": 100.0,
+            "l4": 50.0,
+            "crank_angle": 0.0,
+            "rocker_angle": 180.0,
+            "valid_angle_min": -30.0,
+            "valid_angle_max": 70.0,
+        },
+    }
+    editor.create_handles(mechanism_data)
+
+    new_crank = QPointF(60.0, 30.0)
+    editor.handles["crank"].setPos(new_crank)
+    editor._on_crank_moved("crank", new_crank)
+
+    params = editor.mechanism_data["params"]
+    assert params["l3"] == pytest.approx(math.hypot(150.0 - 60.0, -30.0), rel=1e-6)
+    assert params["L3"] == pytest.approx(params["l3"], rel=1e-6)
+    assert params["input_angle"] == pytest.approx(math.degrees(math.atan2(30.0, 60.0)))
+    assert "valid_angle_min" not in params
+    assert "valid_angle_max" not in params
 
 
 def _create_manager_with_scaled_transform() -> ParametricEditingManager:
