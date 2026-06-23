@@ -1,0 +1,22 @@
+{
+  "name": "automataii-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Frontend-only Automataii/MotionSmith migration",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:bun": "bun scripts/dev.mjs",
+    "build": "node scripts/build.mjs",
+    "smoke": "node scripts/smoke.mjs",
+    "lint": "node scripts/lint.mjs",
+    "test": "node --test test/*.test.mjs",
+    "browser-smoke": "node scripts/browser-smoke.mjs",
+    "check": "node scripts/lint.mjs && node --test test/*.test.mjs && node scripts/smoke.mjs && node scripts/browser-smoke.mjs && node scripts/build.mjs",
+    "check:bun": "bun scripts/lint.mjs && bun test test/*.test.mjs && bun scripts/smoke.mjs && bun scripts/browser-smoke.mjs && bun scripts/build.mjs",
+    "test:bun": "bun test test/*.test.mjs"
+  },
+  "dependencies": {
+    "onnxruntime-web": "^1.27.0"
+  }
+}

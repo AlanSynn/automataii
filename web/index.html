@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Automataii/MotionSmith frontend-only mechanism design and animation app" />
+    <title>MotionSmith Web</title>
+    <link rel="stylesheet" href="src/styles.css" />
+  </head>
+  <body>
+    <div id="app" class="app-shell" data-testid="automataii-web-app">
+      <header class="topbar">
+        <div class="brand" aria-label="MotionSmith">
+          <span class="brand-logo" aria-hidden="true">⚙️</span>
+          <div>
+            <h1>MotionSmith</h1>
+            <p>Mechanism design, animation, and physical prototyping</p>
+          </div>
+        </div>
+        <nav class="workflow-tabs" aria-label="Primary workflow">
+          <button class="tab-button" data-tab="character" type="button">Character Selection</button>
+          <button class="tab-button" data-tab="editor" type="button">Path Editor</button>
+          <button class="tab-button" data-tab="design" type="button">Mechanism Design</button>
+          <button class="tab-button" data-tab="foundry" type="button">Mechanism Foundry</button>
+        </nav>
+      </header>
+      <section id="toolbar" class="toolbar" aria-label="Project toolbar"></section>
+      <main id="main" tabindex="-1"></main>
+      <p id="status" class="status" role="status" aria-live="polite">Loading workspace…</p>
+      <div id="modal-root" class="modal-root" hidden></div>
+      <input id="project-file-input" type="file" accept=".automataii,application/json" hidden />
+      <input id="image-file-input" type="file" accept="image/*" hidden />
+      <input id="onnx-model-input" type="file" accept=".onnx,.ort,application/octet-stream" hidden />
+    </div>
+    <noscript>MotionSmith Web needs JavaScript because mechanism design runs in your browser.</noscript>
+    <script type="module" src="src/app.js"></script>
+  </body>
+</html>

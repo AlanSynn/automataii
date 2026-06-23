@@ -513,3 +513,18 @@ tmp/
 
 # Local Sparkle distribution cache
 .sparkle/
+
+# Local OMX runtime state
+.omx/
+
+# Automataii frontend-only static migration runtime/test files
+!web/
+!web/**/
+!web/**/*.html
+!web/**/*.json
+!web/**/*.js
+!web/**/*.mjs
+!web/**/*.css
+!web/**/*.md
+web/dist/
+web/node_modules/

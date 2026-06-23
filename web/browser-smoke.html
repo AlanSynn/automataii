@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" />
+  <title>Automataii Browser Smoke</title>
+  <body>
+    <header>
+      <nav class="workflow-tabs" aria-label="Primary workflow">
+        <button class="tab-button" data-tab="character" type="button">Character Selection</button>
+        <button class="tab-button" data-tab="editor" type="button">Path Editor</button>
+        <button class="tab-button" data-tab="design" type="button">Mechanism Design</button>
+        <button class="tab-button" data-tab="foundry" type="button">Mechanism Foundry</button>
+      </nav>
+      <div id="toolbar"></div>
+    </header>
+    <main id="main"></main>
+    <div id="modal-root" hidden></div>
+    <output id="status" role="status" aria-live="polite"></output>
+    <input id="project-file-input" type="file" hidden />
+    <input id="image-file-input" type="file" hidden />
+    <input id="onnx-model-input" type="file" hidden />
+    <script type="module">
+      import { splitBodyBox } from './src/onnx-segmentation.js';
+      import { createZipBytes } from './src/zip.js';
+      const ort = await import('./node_modules/onnxruntime-web/dist/ort.all.min.mjs');
+      localStorage.clear();
+      localStorage.setItem('automataii:web:project:v2', JSON.stringify({ mechanisms: { bad: { id: 'bad', part_name: 'head', type: 'mystery_machine' } } }));
+      let stopped = false;
+      const track = { stop() { stopped = true; } };
+      const stream = new MediaStream();
+      stream.getTracks = () => [track];
+      Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: async () => stream } });
+      let openedDocument = '';
+      window.open = () => ({ document: { write(html) { openedDocument += html; }, close() {} }, focus() {} });
+      await import('./src/app.js');
+      const tick = () => new Promise((resolve) => setTimeout(resolve, 80));
+      await tick();
+      if (localStorage.getItem('automataii:web:project:v2')) throw new Error('invalid stored project was not removed');
+      if (!ort.InferenceSession || !splitBodyBox([0, 0, 10, 20]).head) throw new Error('ONNX smoke failed');
+      if (createZipBytes([{ name: 'a.txt', content: 'ok' }]).length < 20) throw new Error('ZIP smoke failed');
+      const click = (selector) => document.querySelector(selector).click();
+      click('[data-tab-target="editor"]');
+      if (!document.querySelector('[data-view="editor"]')) throw new Error('continue-to-editor flow did not render editor');
+      click('[data-tab-target="design"]');
+      if (!document.querySelector('[data-view="design"]')) throw new Error('continue-to-design flow did not render design');
+      click('[data-tab-target="foundry"]');
+      if (!document.querySelector('[data-view="foundry"]')) throw new Error('continue-to-foundry flow did not render foundry');
+      click('[data-tab="character"]');
+      click('[data-action="edit-recognition"]');
+      document.querySelector('[data-box-field="x"]').value = '123';
+      click('[data-action="apply-recognition-edit"]');
+      if (!document.querySelector('#status').textContent.includes('Manual recognition')) throw new Error('manual recognition editor did not apply');
+      click('[data-tab="editor"]');
+      document.querySelector('[data-setting="smoothness"]').value = '75';
+      document.querySelector('[data-setting="smoothness"]').dispatchEvent(new Event('input', { bubbles: true }));
+      click('[data-action="open-options"]');
+      document.querySelector('[data-setting="segmentationMode"]').value = 'Off';
+      document.querySelector('[data-setting="segmentationMode"]').dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('[data-setting="onnxModelUrl"]').value = './browser-smoke.html';
+      document.querySelector('[data-setting="onnxModelUrl"]').dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('[data-setting="blueprintFormat"]').value = 'pdf';
+      document.querySelector('[data-setting="blueprintFormat"]').dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('[data-setting="onnxModelUrl"]').value = 'http://example.com/model.onnx';
+      document.querySelector('[data-setting="onnxModelUrl"]').dispatchEvent(new Event('input', { bubbles: true }));
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      if (!document.querySelector('#modal-root').hidden) throw new Error('Escape did not close options dialog');
+      click('[data-action="load-onnx-url"]');
+      if (!document.querySelector('#status').textContent.includes('ONNX model URL rejected')) throw new Error('URL guard did not report rejection');
+      click('[data-action="open-options"]');
+      document.querySelector('[data-setting="segmentationMode"]').value = 'Off';
+      document.querySelector('[data-setting="segmentationMode"]').dispatchEvent(new Event('input', { bubbles: true }));
+      click('[data-close-dialog]');
+      const imageInput = document.querySelector('#image-file-input');
+      Object.defineProperty(imageInput, 'files', { configurable: true, value: [new File(['not-a-real-image'], 'off.png', { type: 'image/png' })] });
+      imageInput.dispatchEvent(new Event('change', { bubbles: true }));
+      await tick();
+      if (!document.querySelector('#status').textContent.includes('segmentation is off')) throw new Error('Off mode did not process image-only path');
+      if (!document.querySelector('#main').textContent.includes('0 parts')) throw new Error('Off mode unexpectedly generated parts');
+      click('[data-action="open-options"]');
+      document.querySelector('[data-setting="segmentationMode"]').value = 'ONNX Runtime Web';
+      document.querySelector('[data-setting="segmentationMode"]').dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('[data-setting="onnxModelUrl"]').value = './browser-smoke.html';
+      document.querySelector('[data-setting="onnxModelUrl"]').dispatchEvent(new Event('input', { bubbles: true }));
+      click('[data-close-dialog]');
+      click('[data-action="load-onnx-url"]');
+      Object.defineProperty(imageInput, 'files', { configurable: true, value: [new File(['not-a-real-image'], 'onnx.png', { type: 'image/png' })] });
+      imageInput.dispatchEvent(new Event('change', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      if (!document.querySelector('#status').textContent.includes('ONNX segmentation failed')) throw new Error('App ONNX failure path was not exercised');
+      click('[data-action="export-blueprint"]');
+      if (!openedDocument.includes('Automataii Blueprint') || !openedDocument.includes('<svg')) throw new Error('PDF export did not write blueprint document');
+      click('[data-action="capture-camera"]');
+      await tick();
+      if (!document.querySelector('#modal-root video')) throw new Error('camera dialog did not open');
+      click('[data-close-dialog]');
+      if (!stopped) throw new Error('camera stream was not stopped');
+      click('[data-action="save-layout"]');
+      click('[data-action="restore-layout"]');
+      document.body.insertAdjacentHTML('beforeend', '<div>browser smoke ok</div>');
+    </script>
+  </body>
+</html>

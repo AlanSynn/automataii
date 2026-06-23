@@ -35,6 +35,23 @@ src/automataii/
 └── infrastructure/  # IO, state, events
 ```
 
+## Frontend-only web app
+
+A static browser migration lives in `web/` and runs without a backend. Install once to fetch ONNX Runtime Web for optional browser-side model inference.
+
+```bash
+cd web
+bun install --frozen-lockfile   # fastest path, installs ONNX Runtime Web
+bun run check:bun               # lint + tests + smoke + browser smoke + build
+bun run dev:bun                 # serve at http://localhost:5173
+
+# npm fallback
+npm ci
+npm run check
+```
+
+See `web/PARITY_AUDIT.md` for the functional parity checklist, `arch/ui-ux-flow-audit.md` for UI/UX flow checks plus browser workaround proposals, and `web/DEPLOYMENT.md` for static hosting.
+
 ## License
 
 MIT
